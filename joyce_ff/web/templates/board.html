@@ -47,14 +47,66 @@
     background:var(--panel2);border:1px solid var(--line);padding:0 4px;font-size:12px}
   .bust-lo{color:var(--good)} .bust-mid{color:var(--warn)} .bust-hi{color:var(--bad)}
   footer{color:var(--dim);font-size:12px;padding:10px 16px;text-align:center}
+  .help-btn{position:absolute;top:10px;right:16px;padding:5px 11px;border:1px solid var(--line);
+    border-radius:999px;background:var(--panel2);color:var(--text);cursor:pointer;font-size:12px}
+  .help-btn:hover{border-color:var(--accent);color:var(--accent)}
+  th[title]{text-decoration:underline dotted var(--dim) 1px;text-underline-offset:3px}
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:30}
+  .modal-bg.show{display:flex;align-items:center;justify-content:center;padding:16px}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    max-width:600px;width:100%;max-height:82vh;overflow:auto;padding:18px 22px;
+    box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  .modal h2{margin:0 0 2px;font-size:16px}
+  .modal .msub{color:var(--dim);font-size:12px;margin-bottom:10px}
+  .modal .close{float:right;cursor:pointer;color:var(--dim);font-size:22px;line-height:1;margin:-4px -4px 0 0}
+  .modal dt{font-weight:700;color:var(--accent);margin-top:12px;font-size:13px}
+  .modal dd{margin:3px 0 0;color:var(--text);font-size:13px;line-height:1.45}
+  .modal dd .eg{color:var(--dim)}
 </style>
 </head>
 <body>
 <header>
+  <button class="help-btn" id="helpBtn">❔ What do the columns mean?</button>
   <h1>🏈 Joyce Fantasy Football — Draft Board</h1>
   <div class="sub" id="sub"></div>
   <div class="controls" id="tabs"></div>
 </header>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <span class="close" id="modalClose" title="close">×</span>
+    <h2>How to read the board</h2>
+    <div class="msub">All numbers are <b>per game</b>, in this league's threshold scoring
+      (a 74-yard, no-TD game counts as 0). Hover any column header for the short version.</div>
+    <dl>
+      <dt># — rank</dt>
+      <dd>Strict order (1, 2, 3…) by whatever column you're sorted on. No ties — someone is always ahead.</dd>
+      <dt>Tier — value groups</dt>
+      <dd>Players grouped between value <i>cliffs</i>. Same tier ≈ interchangeable; a tier drop is a real
+        drop-off worth drafting ahead of. <span class="eg">Three same-tier backs? Take whichever fills a
+        need. Only one left before the next tier? That's the cliff — grab it.</span></dd>
+      <dt>Proj/g — projected points per game</dt>
+      <dd>What this asset scores in a typical week. Every real game (2023–25, recent seasons weighted
+        heavier) was scored with the validated engine and averaged — threshold-aware, so weak games
+        correctly count as 0. Shrunk toward replacement when the sample is thin.</dd>
+      <dt>VOR — value over replacement</dt>
+      <dd>Points/game above a <i>freely available</i> player at the same slot (≈ the 66th-best RB / 88th-best
+        receiver in a 22-team league; the first unowned team for units). <b>The real draft currency</b> —
+        and the one number that compares an RB vs a kicker vs a QB room on the same scale.</dd>
+      <dt>Floor — a typical bad week</dt>
+      <dd>25th-percentile game: 1 in 4 of his games land at or below this. The downside you can roughly count on.</dd>
+      <dt>Ceil — a typical good week</dt>
+      <dd>75th-percentile game: 1 in 4 games are at or above this. <span class="eg">Floor↔Ceil width shows
+        consistency: tight = steady, wide = boom-bust.</span></dd>
+      <dt>Bust% — how often he scores zero</dt>
+      <dd>Share of games that scored a flat 0. Under threshold scoring zeros are common, so a high bust%
+        is a real cost even if the average looks fine.</dd>
+      <dt>G25 — games played in 2025</dt>
+      <dd>Sample-size / recency check. G25 = 17 is a full, trustworthy season; a high projection with
+        G25 = 2 is thin evidence (shrunk down and flagged, never chased).</dd>
+    </dl>
+  </div>
+</div>
 <div class="wrap">
   <table id="tbl"><thead id="thead"></thead><tbody id="tbody"></tbody></table>
 </div>
@@ -74,6 +126,18 @@ const UNIT_COLS = [
   ["floor","Floor"],["ceil","Ceil"],["games25","G25"]
 ];
 const UNIT_VIEWS = {QB:"QB unit", K:"Kicker", "DEF/ST":"DEF/ST", C:"Coach"};
+const GLOSS = {
+  rank:"Strict rank by the current sort (no ties)",
+  tier:"Value groups between cliffs — same tier ≈ interchangeable",
+  name:"Player name; flags mark thin or missing history",
+  team:"NFL team", position:"Position (RB, WR, TE)",
+  proj:"Projected points per game in this league's threshold scoring",
+  vor:"Value Over Replacement — pts/game above a freely-available player",
+  floor:"A typical bad week (25th percentile)",
+  ceil:"A typical good week (75th percentile)",
+  bust:"Share of games that scored a flat zero",
+  games25:"Games played in 2025 (sample size / recency)"
+};
 
 function isUnit(v){ return v in UNIT_VIEWS; }
 function rows(){
@@ -95,7 +159,7 @@ function bustClass(b){ return b==null?'':b<20?'bust-lo':b<33?'bust-mid':'bust-hi
 function render(){
   const cols = isUnit(view)?UNIT_COLS:PLAYER_COLS;
   document.getElementById("thead").innerHTML =
-    "<tr>"+cols.map(c=>`<th data-k="${c[0]}">${c[1]}${sortKey===c[0]?(sortDir<0?" ▼":" ▲"):""}</th>`).join("")+"</tr>";
+    "<tr>"+cols.map(c=>`<th data-k="${c[0]}" title="${GLOSS[c[0]]||''}">${c[1]}${sortKey===c[0]?(sortDir<0?" ▼":" ▲"):""}</th>`).join("")+"</tr>";
   const maxVor = Math.max(1, ...rows().map(r=>r.vor||0));
   let prevTier=null, html="";
   for(const r of rows()){
@@ -150,6 +214,16 @@ document.getElementById("sub").innerHTML =
   `${DATA.league.teams}-team league · draft ${DATA.draft_season} · `
   + `data generated ${new Date(DATA.generated_at).toLocaleString()} · `
   + `${DATA.players.length} players + team units`;
+
+// Column-guide popup
+const modalBg = document.getElementById("modalBg");
+const openModal = () => modalBg.classList.add("show");
+const closeModal = () => modalBg.classList.remove("show");
+document.getElementById("helpBtn").onclick = openModal;
+document.getElementById("modalClose").onclick = closeModal;
+modalBg.onclick = e => { if (e.target === modalBg) closeModal(); };
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
 buildTabs(); render();
 </script>
 </body>
