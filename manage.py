@@ -48,6 +48,12 @@ def cmd_board(argv: list[str]) -> int:
     return board_main(argv)
 
 
+def cmd_market(argv: list[str]) -> int:
+    from scripts.market_report import main as market_main
+
+    return market_main(argv)
+
+
 def cmd_sync(_argv: list[str]) -> int:
     print("sync is not implemented yet (Phase 2). No data was fetched.",
           file=sys.stderr)
@@ -65,12 +71,21 @@ COMMANDS = {
     "initdb": cmd_initdb,
     "validate": cmd_validate,
     "board": cmd_board,
+    "market": cmd_market,
     "sync": cmd_sync,
     "run": cmd_run,
 }
 
 
 def main() -> int:
+    # Windows consoles default to cp1252; force UTF-8 so unicode output (Δ, ×,
+    # …) never crashes a command mid-report.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
         print(__doc__)
         return 1
