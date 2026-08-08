@@ -12,7 +12,8 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["joyce_ff", "joyce_ff.scoring", "joyce_ff.db"]
+packages = ["joyce_ff", "joyce_ff.scoring", "joyce_ff.db",
+            "joyce_ff.data_sources", "joyce_ff.projections", "joyce_ff.web"]
 
 [tool.pytest.ini_options]
 # Put the repo root on sys.path so `import joyce_ff` works without install.

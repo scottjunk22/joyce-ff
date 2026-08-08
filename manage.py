@@ -54,10 +54,10 @@ def cmd_sync(_argv: list[str]) -> int:
     return 2
 
 
-def cmd_run(_argv: list[str]) -> int:
-    print("web UI is not implemented yet (Phase 2). Nothing to serve.",
-          file=sys.stderr)
-    return 2
+def cmd_run(argv: list[str]) -> int:
+    from joyce_ff.web.server import run as web_run
+
+    return web_run(argv)
 
 
 COMMANDS = {

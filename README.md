@@ -13,6 +13,8 @@ accounts, no hosting.
 ```powershell
 .\run.ps1            # bootstraps .venv and runs the test suite
 .\run.ps1 validate   # Phase 1: reconcile the engine vs the site's posted scores
+python manage.py board   # Phase 2: value-over-replacement boards (terminal)
+python manage.py run     # Phase 2: local web draft board (opens in your browser)
 ```
 
 Or with `make` (Git Bash / WSL):
@@ -33,10 +35,14 @@ Full rules: [`BRIEF.md.txt`](BRIEF.md.txt) and
 [`joyce_ff/scoring/rules.py`](joyce_ff/scoring/rules.py).
 
 ## Status
-- **Phase 1 — scoring engine**: implemented, 112 boundary/slot tests passing.
-  Reconciliation against the site's posted weekly scores is in progress.
-- Phases 2-5 (draft assistant, lineup optimizer, trade tools, league
-  intelligence): not started.
+- **Phase 1 — scoring engine**: DONE. 128 tests passing; reconciled exactly
+  vs the site's posted per-slot scores (`manage.py validate`).
+- **Phase 2 — draft assistant**: valuation core DONE (VOR boards, tiers,
+  distributional projections) + local web UI (`manage.py run`). Remaining: the
+  live in-draft tool (pick-distance / roster tracking), which needs the draft
+  order format (Q6) confirmed.
+- **Phase 3 — weekly lineup optimizer**, **Phase 5 — league intelligence**:
+  not started. Phase 4 (trades) de-scoped — trading isn't used in this league.
 
 ## Layout
 ```
