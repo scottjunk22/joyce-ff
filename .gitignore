@@ -1,0 +1,42 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+
+# --- Data: never commit scraped snapshots, caches, or the DB ---
+data/
+*.db
+*.sqlite
+*.sqlite3
+cache/
+*.parquet
+*.csv
+!tests/fixtures/*.csv
+
+# --- Secrets: none should ever exist, but belt-and-suspenders ---
+.env
+*.secret
+credentials*
+secrets*
+
+# --- Local machine-specific Claude Code settings ---
+.claude/settings.local.json
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp

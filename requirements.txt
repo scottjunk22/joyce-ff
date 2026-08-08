@@ -1,0 +1,10 @@
+# Phase 1 (scoring engine + tests) needs only pytest — the engine itself has
+# zero runtime dependencies on purpose.
+pytest>=8.0
+
+# Data layer (Phase 1 validation + Phase 2 sync). Uncommented as each is wired
+# in and verified so we never carry an unused/unpinned dependency.
+nfl_data_py>=0.3.3     # nflverse weekly player stats + play-by-play
+pandas>=2.0            # dataframe handling for nflverse pulls
+requests>=2.31         # polite single-fetch scraping of the league site
+beautifulsoup4>=4.12   # defensive HTML parsing of hand-maintained pages

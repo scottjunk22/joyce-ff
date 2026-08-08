@@ -1,0 +1,21 @@
+[project]
+name = "joyce-ff"
+version = "0.1.0"
+description = "Local tools for a 22-team, hand-run fantasy football league (threshold scoring)."
+requires-python = ">=3.11"
+# The scoring engine (Phase 1) has ZERO runtime dependencies on purpose.
+# Data/UI dependencies are added per phase in requirements.txt.
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["joyce_ff", "joyce_ff.scoring", "joyce_ff.db"]
+
+[tool.pytest.ini_options]
+# Put the repo root on sys.path so `import joyce_ff` works without install.
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"
