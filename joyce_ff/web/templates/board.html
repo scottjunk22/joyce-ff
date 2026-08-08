@@ -46,6 +46,18 @@
   .tierpill{display:inline-block;min-width:20px;text-align:center;border-radius:4px;
     background:var(--panel2);border:1px solid var(--line);padding:0 4px;font-size:12px}
   .bust-lo{color:var(--good)} .bust-mid{color:var(--warn)} .bust-hi{color:var(--bad)}
+  .postag{display:inline-block;min-width:40px;text-align:center;border-radius:4px;
+    padding:1px 6px;font-size:11px;font-weight:700;color:#04121d}
+  .pt-RB{background:#4ade80} .pt-R{background:#5cc8ff} .pt-QB{background:#c084fc}
+  .pt-K{background:#fbbf24} .pt-DEFST{background:#2dd4bf} .pt-C{background:#cbd5e1}
+  tbody tr{cursor:pointer}
+  tr.drafted td{opacity:.35;text-decoration:line-through}
+  .dctl{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--dim);margin-left:8px}
+  .dctl label{cursor:pointer;user-select:none}
+  .dctl button{cursor:pointer;background:var(--panel2);border:1px solid var(--line);
+    color:var(--text);border-radius:5px;padding:3px 9px;font-size:12px}
+  .dctl button:hover{border-color:var(--accent)}
+  .hint{color:var(--dim);font-size:11px;font-style:italic}
   footer{color:var(--dim);font-size:12px;padding:10px 16px;text-align:center}
   .help-btn{position:absolute;top:10px;right:16px;padding:5px 11px;border:1px solid var(--line);
     border-radius:999px;background:var(--panel2);color:var(--text);cursor:pointer;font-size:12px}
@@ -114,8 +126,14 @@
 
 <script>
 const DATA = __BOARD_DATA__;
-let view = "RB", query = "", sortKey = "vor", sortDir = -1;
+let view = "OVERALL", query = "", sortKey = "vor", sortDir = -1;
+let hideDrafted = false;
 
+const OVERALL_COLS = [
+  ["rank","#"],["tier","Tier"],["slot","Pos"],["name","Asset"],["team","Tm"],
+  ["proj","Proj/g"],["vor","VOR"],["floor","Flr"],["ceil","Ceil"],
+  ["bust","Bust%"],["games25","G25"]
+];
 const PLAYER_COLS = [
   ["rank","#"],["tier","Tier"],["name","Player"],["team","Tm"],["position","Pos"],
   ["proj","Proj/g"],["vor","VOR"],["floor","Floor"],["ceil","Ceil"],
@@ -126,10 +144,20 @@ const UNIT_COLS = [
   ["floor","Floor"],["ceil","Ceil"],["games25","G25"]
 ];
 const UNIT_VIEWS = {QB:"QB unit", K:"Kicker", "DEF/ST":"DEF/ST", C:"Coach"};
+const UNIT_SLOTS = new Set(["QB","K","DEF/ST","C"]);
+
+// Drafted tracking — persisted so a mid-draft refresh doesn't lose picks.
+let drafted = new Set(JSON.parse(localStorage.getItem("joyceff_drafted") || "[]"));
+function saveDrafted(){ localStorage.setItem("joyceff_drafted", JSON.stringify([...drafted])); }
+function keyOf(r, v){
+  const slot = (v === "OVERALL") ? r.slot : v;
+  return UNIT_SLOTS.has(slot) ? ("unit|" + r.team + "|" + slot) : ("player|" + r.name);
+}
 const GLOSS = {
   rank:"Strict rank by the current sort (no ties)",
   tier:"Value groups between cliffs — same tier ≈ interchangeable",
-  name:"Player name; flags mark thin or missing history",
+  slot:"Roster slot / asset type (RB, R, QB, K, DEF/ST, Coach)",
+  name:"Asset name; flags mark thin or missing history",
   team:"NFL team", position:"Position (RB, WR, TE)",
   proj:"Projected points per game in this league's threshold scoring",
   vor:"Value Over Replacement — pts/game above a freely-available player",
@@ -140,11 +168,16 @@ const GLOSS = {
 };
 
 function isUnit(v){ return v in UNIT_VIEWS; }
+function baseRows(){
+  if(view==="OVERALL") return DATA.overall;
+  return isUnit(view) ? DATA.units[view] : DATA.players.filter(p=>p.slot===view);
+}
 function rows(){
-  let r = isUnit(view) ? DATA.units[view] : DATA.players.filter(p=>p.slot===view);
+  let r = baseRows();
   if(query){ const q=query.toLowerCase();
     r = r.filter(x => (x.name||x.team||"").toLowerCase().includes(q)
                    || (x.team||"").toLowerCase().includes(q)); }
+  if(hideDrafted) r = r.filter(x => !drafted.has(keyOf(x, view)));
   r = r.slice().sort((a,b)=>{
     let av=a[sortKey], bv=b[sortKey];
     if(av==null) return 1; if(bv==null) return -1;
@@ -155,17 +188,20 @@ function rows(){
 }
 function fmt(v){ return v==null? '<span class="muted">—</span>' : v; }
 function bustClass(b){ return b==null?'':b<20?'bust-lo':b<33?'bust-mid':'bust-hi'; }
+function ptClass(slot){ return "pt-" + slot.replace(/[^A-Za-z]/g,""); }
 
 function render(){
-  const cols = isUnit(view)?UNIT_COLS:PLAYER_COLS;
+  const cols = view==="OVERALL" ? OVERALL_COLS : isUnit(view)?UNIT_COLS:PLAYER_COLS;
   document.getElementById("thead").innerHTML =
     "<tr>"+cols.map(c=>`<th data-k="${c[0]}" title="${GLOSS[c[0]]||''}">${c[1]}${sortKey===c[0]?(sortDir<0?" ▼":" ▲"):""}</th>`).join("")+"</tr>";
   const maxVor = Math.max(1, ...rows().map(r=>r.vor||0));
   let prevTier=null, html="";
   for(const r of rows()){
+    const isDrafted = drafted.has(keyOf(r, view));
     const br = (!isUnit(view) && r.tier!=null && prevTier!=null && r.tier!==prevTier) ? " tierbreak":"";
     prevTier = r.tier;
     const cells = cols.map(([k])=>{
+      if(k==="slot") return `<td><span class="postag ${ptClass(r.slot)}">${r.slot}</span></td>`;
       if(k==="name"){
         let f="";
         if(r.no_history) f='<span class="flag nohist">no history</span>';
@@ -180,7 +216,7 @@ function render(){
       if(k==="bust") return `<td class="${bustClass(r.bust)}">${r.bust==null?'—':r.bust+'%'}</td>`;
       return `<td>${fmt(r[k])}</td>`;
     }).join("");
-    html += `<tr class="${br}">${cells}</tr>`;
+    html += `<tr class="${br}${isDrafted?' drafted':''}" data-key="${keyOf(r,view)}">${cells}</tr>`;
   }
   document.getElementById("tbody").innerHTML = html ||
     `<tr><td colspan="11" class="muted" style="text-align:center;padding:20px">No matches</td></tr>`;
@@ -190,24 +226,41 @@ function render(){
     render();
   });
   const rep = DATA.replacement[view];
-  document.getElementById("foot").innerHTML =
-    `Replacement level for <b>${UNIT_VIEWS[view]||view}</b>: ${rep==null?'—':rep+' pts/game'} `
+  const lead = view==="OVERALL"
+    ? `<b>Overall</b> = every asset merged by VOR — your value draft order. <span class="hint">Click any row to mark it drafted.</span>`
+    : `Replacement level for <b>${UNIT_VIEWS[view]||view}</b>: ${rep==null?'—':rep+' pts/game'}`;
+  document.getElementById("foot").innerHTML = lead
     + `&nbsp;·&nbsp; Projections are a recent-form baseline (${DATA.seasons.join("–")}), recency-weighted &amp; `
     + `shrunk for sample size. VOR is vs your 11-team division replacement (separate pools per division). Rookies with no history are flagged, never invented.`;
+  updateDraftCount();
+}
+function updateDraftCount(){
+  const el = document.getElementById("dcount");
+  if(el) el.textContent = drafted.size ? `${drafted.size} drafted` : "";
 }
 
 function buildTabs(){
-  const views = [["RB","RB"],["R","R (WR/TE)"],["QB","QB units"],["K","Kickers"],
-                 ["DEF/ST","DEF/ST"],["C","Coaches"]];
+  const views = [["OVERALL","★ Overall"],["RB","RB"],["R","R (WR/TE)"],
+                 ["QB","QB units"],["K","Kickers"],["DEF/ST","DEF/ST"],["C","Coaches"]];
   document.getElementById("tabs").innerHTML = views.map(([v,l])=>
     `<span class="tab ${v===view?'active':''}" data-v="${v}">${l}</span>`).join("")
-    + `<input type="search" id="q" placeholder="filter name / team…">`;
+    + `<input type="search" id="q" placeholder="filter name / team…">`
+    + `<span class="dctl"><label><input type="checkbox" id="hd"> hide drafted</label>`
+    + `<span id="dcount"></span><button id="dreset">reset</button></span>`;
   document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
-    view=t.dataset.v; sortKey= isUnit(view)?"vor":"vor"; sortDir=-1;
+    view=t.dataset.v; sortKey="vor"; sortDir=-1;
     buildTabs(); render();
   });
   const q=document.getElementById("q"); q.value=query;
-  q.oninput=()=>{ query=q.value; render(); }; q.focus();
+  q.oninput=()=>{ query=q.value; render(); };
+  const hd=document.getElementById("hd"); hd.checked=hideDrafted;
+  hd.onchange=()=>{ hideDrafted=hd.checked; render(); };
+  document.getElementById("dreset").onclick=()=>{
+    if(drafted.size && confirm("Clear all "+drafted.size+" drafted marks?")){
+      drafted.clear(); saveDrafted(); render();
+    }
+  };
+  updateDraftCount();
 }
 
 document.getElementById("sub").innerHTML =
@@ -223,6 +276,16 @@ document.getElementById("helpBtn").onclick = openModal;
 document.getElementById("modalClose").onclick = closeModal;
 modalBg.onclick = e => { if (e.target === modalBg) closeModal(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+// Click a row to toggle drafted (works in every view; persists across refresh)
+document.getElementById("tbody").addEventListener("click", e => {
+  const tr = e.target.closest("tr[data-key]");
+  if (!tr) return;
+  const k = tr.dataset.key;
+  if (drafted.has(k)) drafted.delete(k); else drafted.add(k);
+  saveDrafted();
+  render();
+});
 
 buildTabs(); render();
 </script>

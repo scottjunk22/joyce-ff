@@ -73,6 +73,50 @@ def _unit_records(unit_boards) -> dict:
     return out
 
 
+def _median(xs: list[float]) -> float:
+    s = sorted(xs)
+    n = len(s)
+    if n == 0:
+        return 0.0
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+
+
+def _overall_records(player_recs: list[dict], unit_recs: dict,
+                     gap_mult: float = 1.8) -> list[dict]:
+    """Merge individuals + team units into one VOR-sorted draft order, with
+    tiers recomputed by VOR cliffs across the whole merged list."""
+    rows = []
+    for p in player_recs:
+        if p["vor"] is None:
+            continue
+        rows.append({k: p[k] for k in
+                     ("slot", "name", "team", "position", "proj", "vor",
+                      "floor", "ceil", "bust", "games25", "low_sample",
+                      "no_history")})
+    for unit, lst in unit_recs.items():
+        for u in lst:
+            if u["vor"] is None:
+                continue
+            rows.append({"slot": unit, "name": f"{u['team']} {unit}",
+                         "team": u["team"], "position": unit,
+                         "proj": u["proj"], "vor": u["vor"],
+                         "floor": u["floor"], "ceil": u["ceil"], "bust": None,
+                         "games25": u["games25"], "low_sample": False,
+                         "no_history": False})
+
+    rows.sort(key=lambda r: r["vor"], reverse=True)
+    vals = [r["vor"] for r in rows]
+    drops = [vals[i] - vals[i + 1] for i in range(len(vals) - 1)]
+    med = _median([d for d in drops if d > 0])
+    tier = 1
+    for i, r in enumerate(rows):
+        if i > 0 and med > 0 and (vals[i - 1] - vals[i]) > gap_mult * med:
+            tier += 1
+        r["rank"] = i + 1
+        r["tier"] = tier
+    return rows
+
+
 def build_all(seasons=history.SEASONS_DEFAULT, draft_season=DRAFT_SEASON) -> dict:
     sp = history.scored_player_games(seasons)
     roster = nv.load_roster(draft_season)
@@ -103,6 +147,7 @@ def build_all(seasons=history.SEASONS_DEFAULT, draft_season=DRAFT_SEASON) -> dic
         "replacement": replacement,
         "players": _player_records(pboard),
         "units": _unit_records(uboard),
+        "overall": _overall_records(_player_records(pboard), _unit_records(uboard)),
     }
 
 
