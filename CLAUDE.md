@@ -56,14 +56,33 @@ from any other project on this machine.
 - NFL stats come from nflverse (same official numbers as nfl.com, packaged
   for programmatic use); cached to SQLite.
 
-## Open questions still with the commissioner (Scott's dad)
-Answered so far: Q1 (team units ✓), Q2 (R=WR+TE, no limits ✓),
-Q3 (no bench/IR ✓), Q4 (1pt/50yds beyond 450 passing ✓), Q5 (DEF/ST gets ST
-pts; duplicate pts across owners ✓).
-Still open: Q6 draft format/keeper, Q7 waivers/FA, Q8 trade rules,
-Q9 schedule build, Q10 which team is ours + draft slot.
+## Open questions status (commissioner = Scott's dad)
+Answered: Q1 (team units ✓), Q2 (R=WR+TE, no limits ✓), Q3 (no bench/IR ✓),
+Q4 (1pt/50yds beyond 450 passing ✓), Q5 (DEF/ST gets ST pts; duplicate pts
+across owners ✓), Q7 (waivers ✓), Q8 (no trades ✓), Q10 (team = OT Blitz ✓).
+Still open: Q6 draft format/order (coming), Q9 schedule build (coming),
+draft slot for 2026-27 (undetermined until draft day).
 Engine assumptions awaiting confirmation live in `rules.ASSUMPTIONS` and are
 what the Phase-1 reconciliation is designed to arbitrate.
+
+### Q7 — Waivers / free agency / lineup locks (confirmed 2026-08-08)
+- First-come, first-serve. Any owner may swap one of their own players for an
+  available one at any time, as long as the pickup's NFL game hasn't started.
+- No waiver deadline/priority/FAAB.
+- Lineup lock is PER PLAYER at his game's kickoff: starters due Sunday noon,
+  but a Thursday-night player must be started before his Thursday game begins.
+
+### Q8 — Trades (confirmed 2026-08-08)
+- No trade rules; trading effectively doesn't happen in this league.
+- => Phase 4 (trade analyzer/finder) is DE-SCOPED unless requested later.
+  Still scrape the Trade Offers page for completeness.
+
+### Draft-day mechanics (confirmed 2026-08-08)
+- Two separate draws per team on draft day:
+  1. A **Team #** -> determines that team's SCHEDULE (whom they play).
+     OT Blitz was Team #4 in 2025-26.
+  2. A **draft-order #** -> determines pick position for drafting players.
+- 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
 - 2026-08-07: C/K/DEF/QB modeled as NFL team units (confirmed).
