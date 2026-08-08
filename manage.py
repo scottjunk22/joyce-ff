@@ -6,6 +6,7 @@ Usage:
     python manage.py test        # run the scoring engine test suite
     python manage.py initdb      # create the SQLite schema
     python manage.py validate    # Phase 1: reconcile engine vs posted scores
+    python manage.py board       # Phase 2: value-over-replacement draft boards
     python manage.py sync        # one polite fetch of league state (Phase 2+)
     python manage.py run         # launch the local web UI (Phase 2+)
 
@@ -41,6 +42,12 @@ def cmd_validate(argv: list[str]) -> int:
     return validate_main(argv)
 
 
+def cmd_board(argv: list[str]) -> int:
+    from scripts.draft_board import main as board_main
+
+    return board_main(argv)
+
+
 def cmd_sync(_argv: list[str]) -> int:
     print("sync is not implemented yet (Phase 2). No data was fetched.",
           file=sys.stderr)
@@ -57,6 +64,7 @@ COMMANDS = {
     "test": cmd_test,
     "initdb": cmd_initdb,
     "validate": cmd_validate,
+    "board": cmd_board,
     "sync": cmd_sync,
     "run": cmd_run,
 }

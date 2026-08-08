@@ -28,6 +28,8 @@ PBP_URL = ("https://github.com/nflverse/nflverse-data/releases/download/"
            "pbp/play_by_play_{season}.parquet")
 GAMES_URL = ("https://github.com/nflverse/nflverse-data/releases/download/"
              "schedules/games.csv")
+ROSTER_URL = ("https://github.com/nflverse/nflverse-data/releases/download/"
+              "rosters/roster_{season}.parquet")
 _UA = {"User-Agent": "joyce-ff local tool (polite cache; contact league owner)"}
 
 
@@ -55,6 +57,14 @@ def load_games() -> pd.DataFrame:
     dest = CACHE_DIR / "games.csv"
     _download(GAMES_URL, dest)
     return pd.read_csv(dest)
+
+
+def load_roster(season: int) -> pd.DataFrame:
+    """Season roster: gsis_id (joins to PBP player ids), position, team, name,
+    status. Used to define the draftable pool and classify RB vs R (WR/TE)."""
+    dest = CACHE_DIR / f"roster_{season}.parquet"
+    _download(ROSTER_URL.format(season=season), dest)
+    return pd.read_parquet(dest)
 
 
 # ---------------------------------------------------------------------------
