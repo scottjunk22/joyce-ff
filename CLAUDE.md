@@ -67,8 +67,19 @@ from any other project on this machine.
 Answered: Q1 (team units ✓), Q2 (R=WR+TE, no limits ✓), Q3 (no bench/IR ✓),
 Q4 (1pt/50yds beyond 450 passing ✓), Q5 (DEF/ST gets ST pts; duplicate pts
 across owners ✓), Q7 (waivers ✓), Q8 (no trades ✓), Q10 (team = OT Blitz ✓).
-Still open: Q6 draft format/order (coming), Q9 schedule build (coming),
-draft slot for 2026-27 (undetermined until draft day).
+Still open: Q6 draft format/order (coming), draft slot for 2026-27
+(undetermined until draft day). Q9 schedule STRUCTURE now known (see below);
+only the 2026-27 FF-week/NFL-week offset needs confirming.
+
+### Q9 — Schedule structure (from the 2025-26 schedule, confirmed 2026-08-08)
+- 15 FF games. FF Weeks 1-4 = INTERLEAGUE (Red vs Blue, opposite conference);
+  FF Weeks 5-15 = CONFERENCE 11-team round-robin (5 games + 1 bye each week);
+  FF Week 16 = No Play. Matchups set by Team# draws, not the NFL schedule.
+- 2025-26 ran FF Weeks 1-15 over NFL Weeks 3-17 (NFL Weeks 1-2 = FF pre-season,
+  NFL Week 18 = No Play). Encoded in `joyce_ff/schedule/`. The FF-Week-1 =
+  NFL-Week-3 offset is assumed for 2026-27 (ASSUMPTION: confirm per season).
+- NOTE: the 2025-26 Excel had a typo (FF Wk1 R10 vs B13 -> should be B3);
+  Scott corrected it in the file. The scanned PDF is the source of truth.
 Engine assumptions awaiting confirmation live in `rules.ASSUMPTIONS` and are
 what the Phase-1 reconciliation is designed to arbitrate.
 

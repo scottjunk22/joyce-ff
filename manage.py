@@ -54,6 +54,12 @@ def cmd_market(argv: list[str]) -> int:
     return market_main(argv)
 
 
+def cmd_schedule(argv: list[str]) -> int:
+    from scripts.schedule_report import main as sched_main
+
+    return sched_main(argv)
+
+
 def cmd_sync(_argv: list[str]) -> int:
     print("sync is not implemented yet (Phase 2). No data was fetched.",
           file=sys.stderr)
@@ -72,6 +78,7 @@ COMMANDS = {
     "validate": cmd_validate,
     "board": cmd_board,
     "market": cmd_market,
+    "schedule": cmd_schedule,
     "sync": cmd_sync,
     "run": cmd_run,
 }
