@@ -8,7 +8,12 @@ league-wide team tracking.
 from any other project on this machine.
 
 ## League facts that drive everything
-- 22 teams, two 11-team conferences (Blue/Red). 15-game season.
+- 22 teams, two 11-team conferences/divisions (Blue/Red). 15-game season.
+- **DRAFT IS PER DIVISION (11 teams), SEPARATE POOLS.** Each division holds its
+  own draft from the FULL NFL pool; the same NFL player/team-unit can be owned
+  in BOTH divisions at once. So all draft math (replacement, VOR, scarcity) is
+  11-team, NOT 22. Our team OT Blitz drafts in the Blue division vs 10 others.
+  The 22-team number only governs season structure (standings/schedule/SB).
 - 8 of 11 make playoffs per conference. Tiebreak: H2H > conf record >
   total conf pts > coin flip.
 - **Drafted roster (11):** C(coach), K, DEF/ST, QB, RB x3, R x4.
@@ -17,8 +22,10 @@ from any other project on this machine.
 - **C/K/DEF/QB are NFL TEAM UNITS, not individual players.** You own
   "Seattle's QB room", "New England's kicker", "the Saints DEF/ST", a coach.
   All of a team's passing production aggregates to its QB slot. Backups
-  scoring for you carry no individual injury risk. ~32 of each exist
-  league-wide; 22 teams need one -> extreme scarcity.
+  scoring for you carry no individual injury risk. ~32 of each exist; only
+  ~11 owned per division -> team units are ABUNDANT (two-thirds available),
+  NOT scarce. (The original brief's "extreme scarcity" assumed a shared
+  22-team pool; the per-division separate-pool draft overturns that.)
 - RB and R slots are individual players. R = WR + TE combined, no limits
   (0-4 TEs allowed).
 - Coach scores 3 pts per NFL team win (a 14-win team's coach = 42 pts).
@@ -26,9 +33,9 @@ from any other project on this machine.
   75 = 2 pts. See `joyce_ff/scoring/rules.py` for the full ladder.
 - **Therefore: NEVER average yardage and then score it.** Model the per-game
   distribution and integrate against the step function.
-- Replacement level is calibrated for 22 teams (44 started RB, 66 started R;
-  66 rostered RB, 88 rostered R). Public rankings/ADP are for 10-12 teams and
-  DO NOT apply.
+- Replacement level is calibrated for ONE DIVISION = 11 teams (22 started RB,
+  33 started R; 33 rostered RB, 44 rostered R). Public rankings/ADP are for
+  10-12 teams and DO NOT apply.
 - Full rulebook: see `BRIEF.md.txt` and `joyce_ff/scoring/rules.py`.
 
 ## Stack
@@ -108,3 +115,8 @@ what the Phase-1 reconciliation is designed to arbitrate.
   can land one team off — e.g. shows ~'Pike' for what is likely BGH). Slot
   VALUES parse reliably; the fantasy-team LABEL does not. Fix in Phase 2.
 - 2026-08-08: Q10 partially answered — our team is OT Blitz (Blue conf).
+- 2026-08-08: DRAFT IS PER-DIVISION, SEPARATE POOLS (confirmed). Recalibrated
+  all draft valuation from 22-team to 11-team: replacement/VOR/scarcity now
+  division-based. Team units reclassified from "extreme scarcity" to
+  "abundant" (~11 of 32 owned per division). Individual RB/R are the scarce
+  assets. rules.py gained DIVISION_* constants; valuation/market/board repointed.

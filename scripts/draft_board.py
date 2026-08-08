@@ -1,8 +1,9 @@
 """
-Draft board: value-over-replacement boards for this 22-team league, computed
-entirely from locally cached nflverse data (works offline after the first
-pull). Projections are recency-weighted per-game engine points, shrunk for
-sample size; VOR is vs this league's 22-team replacement level.
+Draft board: value-over-replacement boards for this league, computed entirely
+from locally cached nflverse data (works offline after the first pull).
+Projections are recency-weighted per-game engine points, shrunk for sample
+size; VOR is vs the 11-team DIVISION replacement level (the draft is one
+11-team division from the full NFL pool, separate pools per division).
 
 Run: python manage.py board                 # top RB, R, and team units
      python manage.py board --slot RB --top 40
@@ -37,7 +38,7 @@ def _fmt_player_row(i, r):
 def _print_player_board(board, slot, top):
     sub = board[board["slot"] == slot].head(top)
     print(f"\n===== TOP {slot}  (proj pts/game, recency-weighted & shrunk; "
-          f"VOR vs 22-team replacement) =====")
+          f"VOR vs 11-team division replacement) =====")
     print(f"{'rk':>3} {'tier':>4} {'player':22s} {'tm':>3} {'pos':>3} "
           f"{'proj':>5} {'vor':>5} {'flr':>5} {'ceil':>5} {'bst':>4} {'g25':>3}")
     for i, (_, r) in enumerate(sub.iterrows(), 1):

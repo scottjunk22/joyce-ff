@@ -136,8 +136,25 @@ WEEKLY_STARTERS = {
     "R": 3,       # start 3 of 4
 }  # total started = 9
 
-# League-wide counts, for replacement-level math (Phase 2 VOR).
-NUM_TEAMS = 22
+# Team counts. The league has 22 teams total, but it drafts as TWO SEPARATE
+# 11-team divisions (Blue/Red), each with its OWN draft from the FULL NFL pool
+# — the same NFL player/team-unit can be owned in both divisions at once.
+# => For anything DRAFT-related (replacement level, VOR, scarcity), the
+#    contested pool is ONE DIVISION = 11 teams, NOT 22.
+#    The 22-team number only governs season structure (standings, schedule,
+#    the Blue-champ-vs-Red-champ Super Bowl).
+NUM_TEAMS = 22            # whole league (season structure only)
+DIVISION_TEAMS = 11       # one division = the draft-relevant competition
+
+# Draft-relevant replacement counts (ONE division):
+STARTED_RB_DIVISION = DIVISION_TEAMS * WEEKLY_STARTERS["RB"]   # 22
+STARTED_R_DIVISION = DIVISION_TEAMS * WEEKLY_STARTERS["R"]     # 33
+ROSTERED_RB_DIVISION = DIVISION_TEAMS * DRAFTED_ROSTER["RB"]   # 33
+ROSTERED_R_DIVISION = DIVISION_TEAMS * DRAFTED_ROSTER["R"]     # 44
+UNITS_OWNED_PER_DIVISION = DIVISION_TEAMS                       # 11 of ~32 exist
+
+# Leaguewide counts (both divisions) — kept for reference / season context.
+# NOTE: these do NOT drive draft valuation (separate pools per division).
 STARTED_RB_LEAGUEWIDE = NUM_TEAMS * WEEKLY_STARTERS["RB"]   # 44
 STARTED_R_LEAGUEWIDE = NUM_TEAMS * WEEKLY_STARTERS["R"]     # 66
 ROSTERED_RB_LEAGUEWIDE = NUM_TEAMS * DRAFTED_ROSTER["RB"]   # 66

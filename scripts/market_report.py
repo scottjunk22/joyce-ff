@@ -26,19 +26,23 @@ def main(argv=None) -> int:
     print("\n" + "=" * 74)
     print("STRUCTURAL EDGES  (asset classes standard fantasy misprices)")
     print("=" * 74)
-    print("""  * COACH — has NO standard-fantasy equivalent. 3 pts/win; a 14-win team's
-    coach = 42 pts. Nobody in the room has intuition for the coach cliff, and
-    only ~32 exist for 22 teams. Draft it as a real scarce asset, not an
-    afterthought.
-  * KICKER — an afterthought in standard leagues (streamed, drafted last), but
-    worth ~8-11 pts/game here and only ~32 exist. If the room waits on kickers,
-    the top ones fall further than their value says they should.
-  * DEF/ST — same behavioral gap: scarce team unit, drafted late by habit.
+    print("""  * DRAFT IS 11 TEAMS (your division), from the full NFL pool. Only ~11 of
+    the ~32 of each team-unit get owned in your division -> TEAM UNITS ARE
+    ABUNDANT (two-thirds available). So do NOT panic-draft QB/K/DEF/Coach for
+    scarcity; there's always a good one left. The edge is their UNDERPRICED
+    per-game value, not a scramble.
+  * COACH — has NO standard-fantasy equivalent. 3 pts/win; a 14-win team's
+    coach = 42 pts. Free, injury-proof points nobody else is even valuing.
+  * KICKER — an afterthought in standard leagues, but worth ~8-11 pts/game
+    here. Plenty available, so grab the underpriced value late rather than
+    reaching early.
+  * DEF/ST — same: real points, drafted late by habit, and not scarce.
   * TEAM-UNIT INJURY IMMUNITY — QB room / K / DEF / Coach carry NO individual
     injury risk (a backup scoring still counts for you). Preseason injury news
     that tanks a star's ADP elsewhere does NOT dent the unit's value here.
-  * 22-TEAM DEPTH — replacement level is far lower than standard's 12 teams, so
-    'deep' players who are waiver fodder elsewhere are real starters here.""")
+  * THE SCARCE ASSETS ARE THE INDIVIDUALS — with 33 RB and 44 receivers owned
+    across your division, the RB/R pool is what actually thins out. Spend early
+    capital there; let the abundant team units come to you.""")
 
     print("\n" + "=" * 74)
     print("VALUES THAT FALL TO US  (we rank them far above the standard room)")
@@ -60,8 +64,10 @@ def main(argv=None) -> int:
      inflates them; here receptions cap at 5 pts and yards are threshold'd.
   2. Prioritize TD-heavy / goal-line roles and low-bust floors — the board's
      Bust% and TD rate are what the ceiling-chasers ignore.
-  3. Don't punt Kicker/Coach/DEF to the last rounds out of habit; they're
-     scarce team units with real, injury-proof points. Time them to the cliff.
+  3. Kicker/Coach/DEF are ABUNDANT in an 11-team division (two-thirds
+     available) — don't reach early, but don't ignore their real injury-proof
+     points either. Take the underpriced value in the middle-to-late rounds.
+     Spend early picks on the genuinely scarce individual RB/R.
   4. TEs are TD-only dart throws in the R slot — never pay a 'TE premium'.""")
     return 0
 

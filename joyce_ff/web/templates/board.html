@@ -90,8 +90,8 @@
         heavier) was scored with the validated engine and averaged — threshold-aware, so weak games
         correctly count as 0. Shrunk toward replacement when the sample is thin.</dd>
       <dt>VOR — value over replacement</dt>
-      <dd>Points/game above a <i>freely available</i> player at the same slot (≈ the 66th-best RB / 88th-best
-        receiver in a 22-team league; the first unowned team for units). <b>The real draft currency</b> —
+      <dd>Points/game above a <i>freely available</i> player at the same slot (≈ the 33rd-best RB / 44th-best
+        receiver in your 11-team division draft; the 12th team for units). <b>The real draft currency</b> —
         and the one number that compares an RB vs a kicker vs a QB room on the same scale.</dd>
       <dt>Floor — a typical bad week</dt>
       <dd>25th-percentile game: 1 in 4 of his games land at or below this. The downside you can roughly count on.</dd>
@@ -193,7 +193,7 @@ function render(){
   document.getElementById("foot").innerHTML =
     `Replacement level for <b>${UNIT_VIEWS[view]||view}</b>: ${rep==null?'—':rep+' pts/game'} `
     + `&nbsp;·&nbsp; Projections are a recent-form baseline (${DATA.seasons.join("–")}), recency-weighted &amp; `
-    + `shrunk for sample size. VOR is vs this league's 22-team replacement. Rookies with no history are flagged, never invented.`;
+    + `shrunk for sample size. VOR is vs your 11-team division replacement (separate pools per division). Rookies with no history are flagged, never invented.`;
 }
 
 function buildTabs(){

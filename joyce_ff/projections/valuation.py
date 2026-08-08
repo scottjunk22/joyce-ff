@@ -5,8 +5,8 @@ Key choices (all defensible, all visible so you can disagree):
   * Projection = recency-weighted MEAN of per-game engine points. Because we
     average points (already threshold-scored), boom-bust players are correctly
     penalized — a 40/120 back scores less than a steady-80 back.
-  * Replacement level is computed from THIS league's 22-team settings, not
-    public rankings. VOR = projection - replacement projection.
+  * Replacement level is computed from THIS league's DIVISION draft (11 teams,
+    separate pools), not public rankings. VOR = projection - replacement.
   * We never invent a projection. A 2026 rookie / no-history player gets NaN
     and is surfaced as "no history", never a made-up number.
 """
@@ -21,12 +21,14 @@ from ..scoring import rules
 # Weight recent seasons more. A game's weight is set by its season.
 RECENCY_WEIGHTS = {2025: 1.0, 2024: 0.6, 2023: 0.35}
 
-# Replacement cutoffs from the league's 22-team roster math (rules.py).
-ROSTERED = {"RB": rules.ROSTERED_RB_LEAGUEWIDE,   # 66
-            "R": rules.ROSTERED_R_LEAGUEWIDE}      # 88
-STARTED = {"RB": rules.STARTED_RB_LEAGUEWIDE,      # 44
-           "R": rules.STARTED_R_LEAGUEWIDE}        # 66
-UNITS_OWNED = rules.NUM_TEAMS                        # 22 of ~32
+# Replacement cutoffs from the league's DIVISION draft math (rules.py).
+# The draft is one 11-team division from the full NFL pool (separate pools per
+# division), so replacement/scarcity are 11-team, NOT 22-team.
+ROSTERED = {"RB": rules.ROSTERED_RB_DIVISION,   # 33
+            "R": rules.ROSTERED_R_DIVISION}      # 44
+STARTED = {"RB": rules.STARTED_RB_DIVISION,      # 22
+           "R": rules.STARTED_R_DIVISION}        # 33
+UNITS_OWNED = rules.UNITS_OWNED_PER_DIVISION      # 11 of ~32 (two-thirds available)
 
 POS_TO_SLOT = {"RB": "RB", "WR": "R", "TE": "R"}
 

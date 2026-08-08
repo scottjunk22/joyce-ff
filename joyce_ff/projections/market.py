@@ -78,12 +78,12 @@ def build_comparison(seasons=history.SEASONS_DEFAULT, draft_season=2026,
     return tbl
 
 
-# "Startable" cutoffs. Ours = this league's started-leaguewide counts; standard
-# = roughly a 12-team league's startable pool (the room's draft-relevant set).
-# "Solidly startable in our system" — a margin above replacement, so a big
-# rank gap reflects a real value, not a fringe/replacement-level player.
-OUR_SOLID = {"RB": 34, "R": 50}
-STD_STARTABLE = {"RB": 36, "R": 48}
+# "Startable" cutoffs, scaled to the 11-team DIVISION draft (separate pools).
+# STD_STARTABLE ~ the players the room actually starts (division started
+# counts); OUR_SOLID is a tighter "solid starter" line so a big rank gap
+# reflects a real value, not a fringe/replacement-level player.
+STD_STARTABLE = dict(val.STARTED)                        # {'RB': 22, 'R': 33}
+OUR_SOLID = {s: max(1, round(n * 0.75)) for s, n in val.STARTED.items()}  # ~16 / ~25
 
 
 def _tag(row) -> str:
