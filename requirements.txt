@@ -2,9 +2,11 @@
 # zero runtime dependencies on purpose.
 pytest>=8.0
 
-# Data layer (Phase 1 validation + Phase 2 sync). Uncommented as each is wired
-# in and verified so we never carry an unused/unpinned dependency.
-nfl_data_py>=0.3.3     # nflverse weekly player stats + play-by-play
-pandas>=2.0            # dataframe handling for nflverse pulls
-requests>=2.31         # polite single-fetch scraping of the league site
-beautifulsoup4>=4.12   # defensive HTML parsing of hand-maintained pages
+# Data layer (Phase 1 validation + Phase 2 sync).
+# NOTE: we deliberately do NOT use nfl_data_py — it pins an old pandas with no
+# Python 3.12 wheel and fails to build. Instead we read nflverse's published
+# release files (play-by-play parquet + schedules csv) directly. Same data.
+pandas>=2.2            # dataframe handling for nflverse pulls
+pyarrow>=15            # read nflverse parquet releases
+requests>=2.31         # (available for future polite fetching)
+beautifulsoup4>=4.12   # defensive HTML parsing of the hand-maintained site

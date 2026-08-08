@@ -14,11 +14,23 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
-def _nonneg(name: str, value: int | float) -> None:
+def _notnone(name: str, value: int | float) -> None:
     if value is None:
         raise ValueError(f"{name} must not be None (use 0 for a real zero)")
+
+
+def _nonneg(name: str, value: int | float) -> None:
+    """Counts (TDs, receptions, sacks, ...) must be >= 0."""
+    _notnone(name, value)
     if value < 0:
         raise ValueError(f"{name} must be >= 0, got {value!r}")
+
+
+def _yards_ok(name: str, value: int | float) -> None:
+    """Yardage may be negative for a real game (e.g. a catch behind the line
+    for a loss). The threshold ladders score anything below the first tier as
+    0, so negatives are harmless — we only forbid None."""
+    _notnone(name, value)
 
 
 @dataclass(frozen=True)
@@ -52,11 +64,10 @@ class PlayerGame:
     passing_tds: int = 0
 
     def __post_init__(self) -> None:
-        for n in (
-            "rushing_yards", "rushing_tds", "receiving_yards", "receptions",
-            "receiving_tds", "return_tds", "two_point_conversions",
-            "passing_yards", "passing_tds",
-        ):
+        for n in ("rushing_yards", "receiving_yards", "passing_yards"):
+            _yards_ok(n, getattr(self, n))
+        for n in ("rushing_tds", "receptions", "receiving_tds", "return_tds",
+                  "two_point_conversions", "passing_tds"):
             _nonneg(n, getattr(self, n))
 
 
@@ -78,7 +89,8 @@ class QBUnitGame:
     qb_rushing_tds: int = 0
 
     def __post_init__(self) -> None:
-        for n in ("passing_yards", "passing_tds", "qb_rushing_tds"):
+        _yards_ok("passing_yards", self.passing_yards)
+        for n in ("passing_tds", "qb_rushing_tds"):
             _nonneg(n, getattr(self, n))
 
 

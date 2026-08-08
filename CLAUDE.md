@@ -73,3 +73,19 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-08-07: NFL stats via nflverse, cached to SQLite.
 - 2026-08-07: Scoring engine built dependency-free; 112 boundary/slot tests
   passing before any data layer.
+- 2026-08-08: nfl_data_py abandoned (pins pandas w/o py3.12 wheel, fails to
+  build). We read nflverse release files directly: play-by-play parquet +
+  schedules csv, cached to data/nflverse_cache/. Same underlying numbers.
+- 2026-08-08: 2025 per-player weekly stats not yet published by nflverse, but
+  2025 play-by-play IS complete — so we DERIVE all per-game stats (incl. FG
+  distances, DEF/ST box scores, return TDs) from PBP. Better single source.
+- 2026-08-08: PHASE 1 VALIDATED. `manage.py validate` reconciles the engine
+  vs the site's posted per-slot scores. The site currently exposes 2 filled
+  lineups (Super Bowl week = NFL 2025 wk22, SEA vs NE). All 18 slot values +
+  both totals (26, 44) match exactly. Week auto-identified from team-unit
+  anchors; player names auto-resolved; nothing fabricated.
+- 2026-08-08: Site team-name attribution in lineup tables is UNRELIABLE
+  (hand-maintained HTML has inconsistent per-row cell counts; a filled column
+  can land one team off — e.g. shows ~'Pike' for what is likely BGH). Slot
+  VALUES parse reliably; the fantasy-team LABEL does not. Fix in Phase 2.
+- 2026-08-08: Q10 partially answered — our team is OT Blitz (Blue conf).
