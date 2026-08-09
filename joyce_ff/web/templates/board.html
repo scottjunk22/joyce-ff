@@ -58,6 +58,35 @@
     color:var(--text);border-radius:5px;padding:3px 9px;font-size:12px}
   .dctl button:hover{border-color:var(--accent)}
   .hint{color:var(--dim);font-size:11px;font-style:italic}
+  /* Draft room */
+  .draftbar{background:var(--panel2);border-bottom:1px solid var(--line);
+    padding:8px 16px;font-size:13px}
+  .draftbar .row1{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  .draftbar button{cursor:pointer;background:var(--panel);border:1px solid var(--line);
+    color:var(--text);border-radius:6px;padding:5px 11px;font-size:13px}
+  .draftbar button.primary{background:var(--accent);color:#04121d;border-color:var(--accent);font-weight:600}
+  .draftbar button:hover{border-color:var(--accent)}
+  .draftbar select,.draftbar input{background:var(--panel);border:1px solid var(--line);
+    color:var(--text);border-radius:6px;padding:4px 8px;font-size:13px}
+  .clock{font-weight:600}
+  .clock .big{font-size:15px}
+  .onclock{padding:2px 9px;border-radius:999px;background:var(--panel);border:1px solid var(--line)}
+  .onclock.you{background:var(--good);color:#04121d;border-color:var(--good);font-weight:700}
+  .nextpick{color:var(--accent);font-weight:600}
+  .roster{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
+  .rslot{display:flex;gap:5px;align-items:center;border:1px solid var(--line);border-radius:6px;
+    padding:2px 7px;background:var(--panel);font-size:12px}
+  .rslot .pos{color:var(--dim);font-weight:700;min-width:34px}
+  .rslot.filled{border-color:var(--good)}
+  .rslot.filled .pos{color:var(--good)}
+  .rslot.need{border-color:var(--warn);border-style:dashed}
+  tr.atrisk td{background:color-mix(in srgb, var(--bad) 14%, transparent)}
+  tr.recommend td{box-shadow:inset 3px 0 0 var(--good)}
+  tr.onclockpick td{box-shadow:inset 3px 0 0 var(--accent)}
+  .riskline td{border-bottom:2px dashed var(--bad);padding:0}
+  .risktag{color:var(--bad);font-size:10px;padding:1px 5px}
+  .rec-banner{margin-top:7px;padding:5px 10px;border:1px solid var(--good);border-radius:6px;
+    background:color-mix(in srgb, var(--good) 12%, transparent);font-size:12px}
   footer{color:var(--dim);font-size:12px;padding:10px 16px;text-align:center}
   .help-btn{position:absolute;top:10px;right:16px;padding:5px 11px;border:1px solid var(--line);
     border-radius:999px;background:var(--panel2);color:var(--text);cursor:pointer;font-size:12px}
@@ -83,6 +112,8 @@
   <div class="sub" id="sub"></div>
   <div class="controls" id="tabs"></div>
 </header>
+
+<div class="draftbar" id="draftbar"></div>
 
 <div class="modal-bg" id="modalBg">
   <div class="modal">
@@ -153,6 +184,48 @@ function keyOf(r, v){
   const slot = (v === "OVERALL") ? r.slot : v;
   return UNIT_SLOTS.has(slot) ? ("unit|" + r.team + "|" + slot) : ("player|" + r.name);
 }
+
+// --- Draft room state (persisted across refresh) ---
+const SEQ = DATA.draft.sequence;                       // overall-ordered picks
+const TOTAL_PICKS = DATA.draft.slots * DATA.draft.rounds;
+let draftOn = JSON.parse(localStorage.getItem("joyceff_drafton") || "false");
+let mySlot  = JSON.parse(localStorage.getItem("joyceff_myslot")  || "null");
+let picks   = JSON.parse(localStorage.getItem("joyceff_picks")   || "[]");
+picks.forEach(p => drafted.add(p.key));                // keep pool in sync
+function saveDraft(){
+  localStorage.setItem("joyceff_drafton", JSON.stringify(draftOn));
+  localStorage.setItem("joyceff_myslot",  JSON.stringify(mySlot));
+  localStorage.setItem("joyceff_picks",   JSON.stringify(picks));
+}
+function rowByKey(key){ return DATA.overall.find(r => keyOf(r,"OVERALL")===key); }
+function currentOverall(){ return picks.length + 1; }
+function onClockSlot(){ const s = SEQ[picks.length]; return s ? s.slot : null; }
+function untilMyNext(){
+  if(mySlot==null || picks.length>=TOTAL_PICKS) return null;
+  const cur = currentOverall();
+  const next = SEQ.filter(s=>s.slot===mySlot).map(s=>s.overall).find(o=>o>=cur);
+  return next==null ? null : {next, gap: next-cur};
+}
+function myRoster(){
+  const tmpl = DATA.draft.roster_template.map(pos=>({pos, asset:null}));
+  for(const p of picks){
+    if(p.onClock!==mySlot) continue;
+    const spot = tmpl.find(t=>t.pos===p.assetSlot && t.asset===null)
+              || tmpl.find(t=>t.asset===null);
+    if(spot) spot.asset = p.name;
+  }
+  return tmpl;
+}
+function currentRecommendation(){
+  if(mySlot==null) return null;
+  const need = new Set(myRoster().filter(t=>t.asset===null).map(t=>t.pos));
+  return DATA.overall.find(r => !drafted.has(keyOf(r,"OVERALL")) && need.has(r.slot)) || null;
+}
+function undoPick(){
+  const p = picks.pop();
+  if(p){ drafted.delete(p.key); saveDrafted(); saveDraft(); renderDraft(); render(); }
+}
+
 const GLOSS = {
   rank:"Strict rank by the current sort (no ties)",
   tier:"Value groups between cliffs — same tier ≈ interchangeable",
@@ -195,11 +268,24 @@ function render(){
   document.getElementById("thead").innerHTML =
     "<tr>"+cols.map(c=>`<th data-k="${c[0]}" title="${GLOSS[c[0]]||''}">${c[1]}${sortKey===c[0]?(sortDir<0?" ▼":" ▲"):""}</th>`).join("")+"</tr>";
   const maxVor = Math.max(1, ...rows().map(r=>r.vor||0));
-  let prevTier=null, html="";
+  // Draft annotations: at-risk (won't survive to your next pick) + recommendation.
+  const um = untilMyNext();
+  const riskActive = draftOn && mySlot!=null && view==="OVERALL"
+                     && sortKey==="vor" && sortDir<0 && um && um.gap>0;
+  const riskN = riskActive ? um.gap : 0;
+  const rec = (draftOn && mySlot!=null) ? currentRecommendation() : null;
+  const recKey = rec ? keyOf(rec,"OVERALL") : null;
+  const ncols = cols.length;
+  let prevTier=null, html="", availSeen=0, lineDrawn=false;
   for(const r of rows()){
-    const isDrafted = drafted.has(keyOf(r, view));
+    const key = keyOf(r, view);
+    const isDrafted = drafted.has(key);
+    if(!isDrafted) availSeen++;
+    const atRisk = riskActive && !isDrafted && availSeen<=riskN;
     const br = (!isUnit(view) && r.tier!=null && prevTier!=null && r.tier!==prevTier) ? " tierbreak":"";
     prevTier = r.tier;
+    const cls = [br.trim(), isDrafted?"drafted":"", atRisk?"atrisk":"",
+                 (key===recKey&&!isDrafted)?"recommend":""].filter(Boolean).join(" ");
     const cells = cols.map(([k])=>{
       if(k==="slot") return `<td><span class="postag ${ptClass(r.slot)}">${r.slot}</span></td>`;
       if(k==="name"){
@@ -216,7 +302,12 @@ function render(){
       if(k==="bust") return `<td class="${bustClass(r.bust)}">${r.bust==null?'—':r.bust+'%'}</td>`;
       return `<td>${fmt(r[k])}</td>`;
     }).join("");
-    html += `<tr class="${br}${isDrafted?' drafted':''}" data-key="${keyOf(r,view)}">${cells}</tr>`;
+    html += `<tr class="${cls}" data-key="${key}">${cells}</tr>`;
+    if(riskActive && !lineDrawn && availSeen===riskN){
+      html += `<tr class="riskline"><td colspan="${ncols}"><span class="risktag">`
+            + `⚠ likely gone before your pick #${um.next} — ${riskN} pick${riskN>1?'s':''} away</span></td></tr>`;
+      lineDrawn = true;
+    }
   }
   document.getElementById("tbody").innerHTML = html ||
     `<tr><td colspan="11" class="muted" style="text-align:center;padding:20px">No matches</td></tr>`;
@@ -277,16 +368,80 @@ document.getElementById("modalClose").onclick = closeModal;
 modalBg.onclick = e => { if (e.target === modalBg) closeModal(); };
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
 
-// Click a row to toggle drafted (works in every view; persists across refresh)
+// Click a row: in draft mode it records the next pick; otherwise it toggles
+// a drafted mark. Both persist across refresh.
 document.getElementById("tbody").addEventListener("click", e => {
   const tr = e.target.closest("tr[data-key]");
   if (!tr) return;
-  const k = tr.dataset.key;
-  if (drafted.has(k)) drafted.delete(k); else drafted.add(k);
-  saveDrafted();
-  render();
+  const key = tr.dataset.key;
+  if (draftOn && mySlot != null && picks.length < TOTAL_PICKS) {
+    if (drafted.has(key)) return;                       // already off the board
+    const row = rowByKey(key);
+    const assetSlot = view === "OVERALL" ? row.slot : view;
+    const dispName = row.name || (row.team + " " + view);
+    picks.push({key, name: dispName, assetSlot, onClock: onClockSlot(), overall: currentOverall()});
+    drafted.add(key); saveDrafted(); saveDraft();
+  } else {
+    if (drafted.has(key)) drafted.delete(key); else drafted.add(key);
+    saveDrafted();
+  }
+  renderDraft(); render();
 });
 
+function renderRoster(){
+  const cells = myRoster().map(t =>
+    `<span class="rslot ${t.asset?'filled':'need'}"><span class="pos">${t.pos}</span>`
+    + `${t.asset ? t.asset : '<span class="muted">—</span>'}</span>`).join("");
+  const rec = currentRecommendation();
+  return `<div class="roster">${cells}</div>`
+    + (rec ? `<div class="rec-banner">✅ Best available for your needs: <b>${rec.name}</b> `
+        + `(${rec.slot}${rec.team ? ', '+rec.team : ''}) — VOR ${rec.vor}</div>` : "");
+}
+function renderDraft(){
+  const bar = document.getElementById("draftbar");
+  if(!draftOn){
+    bar.innerHTML = `<div class="row1"><button class="primary" id="startdraft">▶ Enter Draft Room</button>`
+      + `<span class="hint">Live pick tracker: set the card # you drew, then click each player as they're taken.</span></div>`;
+    document.getElementById("startdraft").onclick = () => {
+      draftOn = true; saveDraft();
+      if(view!=="OVERALL"){ view="OVERALL"; buildTabs(); }
+      renderDraft(); render();
+    };
+    return;
+  }
+  const done = picks.length >= TOTAL_PICKS;
+  const oc = onClockSlot(), um = untilMyNext();
+  const opts = Array.from({length:DATA.draft.slots},(_,i)=>i+1)
+    .map(n=>`<option value="${n}" ${n===mySlot?'selected':''}>${n}</option>`).join("");
+  let status;
+  if(mySlot==null){
+    status = `<span>Your card #: <select id="myslot"><option value="">—</option>${opts}</select></span>`
+      + `<span class="hint">(the Spades card you draw, 1–11)</span>`;
+  } else if(done){
+    status = `<span class="clock big">✔ Draft complete — ${TOTAL_PICKS} picks in.</span>`;
+  } else {
+    const youNow = oc===mySlot, cur=SEQ[picks.length];
+    status = `<span class="clock big">Pick ${currentOverall()}/${TOTAL_PICKS}</span>`
+      + `<span>R${cur.round}·P${cur.pick}</span>`
+      + `<span class="onclock ${youNow?'you':''}">on the clock: slot ${oc}${youNow?' — YOU ★':''}</span>`
+      + (um ? (um.gap===0 ? `<span class="nextpick">you're up now</span>`
+              : `<span class="nextpick">your next: #${um.next} (in ${um.gap})</span>`)
+            : `<span class="hint">no more picks for you</span>`);
+  }
+  bar.innerHTML = `<div class="row1"><span class="clock">🎯 Draft Room</span>${status}`
+    + `<span style="margin-left:auto"></span>`
+    + `<button id="undo" ${picks.length?'':'disabled'}>↶ undo</button>`
+    + `<button id="exitdraft">exit</button></div>`
+    + (mySlot!=null ? renderRoster() : "");
+  const ms=document.getElementById("myslot");
+  if(ms) ms.onchange=()=>{ mySlot=ms.value?parseInt(ms.value):null; saveDraft(); renderDraft(); render(); };
+  const u=document.getElementById("undo"); if(u) u.onclick=undoPick;
+  document.getElementById("exitdraft").onclick=()=>{
+    if(confirm("Exit draft room? Your picks stay saved.")){ draftOn=false; saveDraft(); renderDraft(); render(); }
+  };
+}
+
+renderDraft();
 buildTabs(); render();
 </script>
 </body>

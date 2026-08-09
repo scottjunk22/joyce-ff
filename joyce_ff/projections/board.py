@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..data_sources import nflverse as nv
+from ..draft import order as draft_order
 from ..scoring import rules
 from . import history
 from . import valuation as val
@@ -148,6 +149,13 @@ def build_all(seasons=history.SEASONS_DEFAULT, draft_season=DRAFT_SEASON) -> dic
         "players": _player_records(pboard),
         "units": _unit_records(uboard),
         "overall": _overall_records(_player_records(pboard), _unit_records(uboard)),
+        "draft": {
+            "slots": draft_order.SLOTS,
+            "rounds": draft_order.ROUNDS,
+            "order": draft_order.DRAFT_ORDER,
+            "sequence": draft_order.build_sequence(),
+            "roster_template": draft_order.ROSTER_TEMPLATE,
+        },
     }
 
 

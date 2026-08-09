@@ -66,10 +66,20 @@ from any other project on this machine.
 ## Open questions status (commissioner = Scott's dad)
 Answered: Q1 (team units ✓), Q2 (R=WR+TE, no limits ✓), Q3 (no bench/IR ✓),
 Q4 (1pt/50yds beyond 450 passing ✓), Q5 (DEF/ST gets ST pts; duplicate pts
-across owners ✓), Q7 (waivers ✓), Q8 (no trades ✓), Q10 (team = OT Blitz ✓).
-Still open: Q6 draft format/order (coming), draft slot for 2026-27
-(undetermined until draft day). Q9 schedule STRUCTURE now known (see below);
-only the 2026-27 FF-week/NFL-week offset needs confirming.
+across owners ✓), Q6 (draft order ✓, card-draw table in joyce_ff/draft),
+Q7 (waivers ✓), Q8 (no trades ✓), Q10 (team = OT Blitz ✓).
+Still open: our draft SLOT for 2026-27 (the Spades card, drawn on draft day).
+Q9 schedule STRUCTURE now known (see below); only the 2026-27 FF-week/NFL-week
+offset needs confirming.
+
+### Q6 — Draft order (confirmed 2026-08-08)
+- Card-draw: each team draws a Spades card 1-11 = their pick SLOT. The table
+  maps slot -> pick number per round (11 rounds, 4-round repeating cycle).
+  Reduced from dad's 12-team PDF by dropping the 12th slot (Scott fixed a
+  transcription error in R4/R8). Encoded + validated in joyce_ff/draft/order.py.
+- Live pick grid built (web UI "Draft Room"): on-the-clock, your next pick +
+  picks-until, roster fill, best-available-for-need, and "won't survive to
+  your next pick" at-risk line. Our slot is TBD until draft day.
 
 ### Q9 — Schedule structure (from the 2025-26 schedule, confirmed 2026-08-08)
 - 15 FF games. FF Weeks 1-4 = INTERLEAGUE (Red vs Blue, opposite conference);
