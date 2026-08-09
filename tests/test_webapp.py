@@ -32,6 +32,7 @@ def client(tmp_path):
     app.config.update(TESTING=True)
     c = app.test_client()
     c.otb = otb
+    c.dbpath = str(db)
     return c
 
 
@@ -80,6 +81,19 @@ def test_create_app_honors_env_db_path(tmp_path, monkeypatch):
 def test_wsgi_module_exposes_app():
     import wsgi
     assert wsgi.app is not None
+
+
+def test_state_season_selection(client):
+    conn = schema.connect(client.dbpath)
+    old = conn.execute("SELECT id, year FROM seasons ORDER BY year DESC LIMIT 1").fetchone()
+    sid2 = schema.seed_reference(conn, year=old["year"] + 1, label="next")
+    conn.commit()
+    conn.close()
+    d = client.get("/api/state").get_json()
+    assert d["season"]["id"] == sid2                       # newest season by default
+    assert len(d["season"]["seasons"]) == 2
+    d_old = client.get(f"/api/state?season={old['id']}").get_json()
+    assert d_old["season"]["id"] == old["id"]              # ?season selects a prior year
 
 
 def test_state_has_lineup_summary_and_alive_flag(client):

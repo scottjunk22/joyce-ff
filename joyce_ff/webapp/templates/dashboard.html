@@ -101,6 +101,7 @@
 </style></head><body>
 <header>
  <h1>🏈 Steve Joyce Fantasy Football</h1>
+ <label class="sub">Season <select id="yr"></select></label>
  <label class="sub">Week <select id="wk"></select></label>
  <span class="spacer"></span>
  <button class="btn commish" onclick="commishModal()">🛠 Commissioner</button>
@@ -128,23 +129,30 @@
 <div class="mb" id="mb"><div class="modal"><span class="x" onclick="closeM()">×</span><div id="mbody"></div></div></div>
 
 <script>
-let STATE=null, TEAMS={}, VIEW=null, CUR=null;
+let STATE=null, TEAMS={}, VIEW=null, CUR=null, SEASON=null;
 const $=id=>document.getElementById(id);
 const TRI='<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.24 3.96 1.82 18.02A2 2 0 0 0 3.5 21h17a2 2 0 0 0 1.7-2.98L13.66 3.96a2 2 0 0 0-3.42 0z"/></svg>';
 const CHK='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M5 12l5 5L20 7"/></svg>';
-async function load(week){
-  const q = week!=null ? ('?week='+week) : '';
-  STATE = await (await fetch('/api/state'+q)).json();
-  VIEW = STATE.season.week; CUR = STATE.season.current; TEAMS={};
+async function load(week, seasonId){
+  const p=new URLSearchParams();
+  if(seasonId!=null) p.set('season', seasonId);
+  if(week!=null) p.set('week', week);
+  const q=p.toString();
+  STATE = await (await fetch('/api/state'+(q?'?'+q:''))).json();
+  SEASON = STATE.season.id; VIEW = STATE.season.week; CUR = STATE.season.current; TEAMS={};
   for(const c of ['BLUE','RED']) STATE.standings[c].forEach(t=>TEAMS[t.team_id]=t);
-  buildWeekPicker(); renderScores(); renderStandings(); renderElim(); renderTx();
+  buildSeasonPicker(); buildWeekPicker(); renderScores(); renderStandings(); renderElim(); renderTx();
   $('seasonlbl').textContent = STATE.season.label;
   const lu = STATE.season.last_updated;
   $('upd').innerHTML = '— updates as games finish' + (lu ? ' · last updated '+new Date(lu).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '');
 }
+function buildSeasonPicker(){
+  $('yr').innerHTML = (STATE.season.seasons||[]).map(s=>`<option value="${s.id}" ${s.id===SEASON?'selected':''}>${s.label}</option>`).join('');
+  $('yr').onchange = e => load(null, +e.target.value);   // switch season -> its current week
+}
 function buildWeekPicker(){
   $('wk').innerHTML = STATE.season.weeks.map(w=>`<option value="${w}" ${w===VIEW?'selected':''}>${w}</option>`).join('');
-  $('wk').onchange = e => load(+e.target.value);
+  $('wk').onchange = e => load(+e.target.value, SEASON);
 }
 function renderScores(){
   $('scores').innerHTML = STATE.scoreboard.map(g=>{
@@ -188,7 +196,7 @@ function closeM(){ $('mb').classList.remove('show'); }
 $('mb').addEventListener('click',e=>{if(e.target===$('mb'))closeM();});
 
 async function boxScore(homeId,awayId){
-  const [h,a]=await Promise.all([fetch(`/api/team/${homeId}/detail?week=${VIEW}`).then(r=>r.json()),fetch(`/api/team/${awayId}/detail?week=${VIEW}`).then(r=>r.json())]);
+  const [h,a]=await Promise.all([fetch(`/api/team/${homeId}/detail?week=${VIEW}&season=${SEASON}`).then(r=>r.json()),fetch(`/api/team/${awayId}/detail?week=${VIEW}&season=${SEASON}`).then(r=>r.json())]);
   const tot=t=>t.box.reduce((s,x)=>s+(x.points||0),0);
   const th=tot(h), ta=tot(a);
   const hw=th>ta, aw=ta>th;                       // strict: a tie highlights neither
@@ -196,7 +204,7 @@ async function boxScore(homeId,awayId){
     +t.box.map(x=>`<div class="srow"><span class="slot">${x.roster_slot}</span><span class="nm">${x.display}${x.is_rental?' <span class="sub">(open)</span>':''}</span><span class="pts">${(x.points||0).toFixed(0)}</span></div>`).join('')+`</div>`;
   openM(`<h3>Box Score <span class="sub">· Week ${VIEW}</span></h3><div class="box" style="margin-top:8px">${col(h,'home',hw)}${col(a,'away',aw)}</div>`);
 }
-async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?week=${VIEW}`)).json();
+async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?week=${VIEW}&season=${SEASON}`)).json();
   const rows=d.roster.map(r=>`<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}</span></div>`).join('');
   const b=c=>`$${(Math.abs(c)/100).toFixed(0)}`;
   const bal=d.fees.balance_cents;
@@ -212,7 +220,7 @@ async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?we
 }
 let LU={team:null,sel:new Set(),items:[]};
 async function lineupModal(id){
-  const d=await (await fetch(`/api/team/${id}/detail?week=${CUR}`)).json();
+  const d=await (await fetch(`/api/team/${id}/detail?week=${CUR}&season=${SEASON}`)).json();
   const items=d.roster.map(r=>({slot:r.slot,ref:r.asset_ref,name:r.name})); (d.opens||[]).forEach(o=>items.push({slot:o.position,ref:o.asset_ref,name:o.name+' (open)'}));
   LU={team:id,sel:new Set(),items};
   const started=new Set((d.box||[]).map(x=>x.asset_ref)), unit=s=>['C','K','DEF/ST','QB'].includes(s);
@@ -238,10 +246,10 @@ function renderLineup(){ const ord={'C':0,'K':1,'DEF/ST':2,'QB':3,'RB':4,'R':5},
 function toggleStart(ref){ LU.sel.has(ref)?LU.sel.delete(ref):LU.sel.add(ref); renderLineup(); }
 async function submitLineup(){ const starters=[...LU.sel].map(ref=>({roster_slot:LU.items.find(i=>i.ref===ref).slot,asset_ref:ref}));
   const res=await fetch(`/api/team/${LU.team}/lineup`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:$('lpc').value,week:CUR,starters})});
-  const j=await res.json(); if(res.ok){alert('Lineup saved!');closeM();load(VIEW);}else alert('⚠ '+(j.error||'error')); }
+  const j=await res.json(); if(res.ok){alert('Lineup saved!');closeM();load(VIEW, SEASON);}else alert('⚠ '+(j.error||'error')); }
 
 let TX={team:null,out:null,outPos:null,in:null,mode:'trade',outName:'',inName:''};
-async function txModal(id){ const d=await (await fetch(`/api/team/${id}/detail?week=${CUR}`)).json();
+async function txModal(id){ const d=await (await fetch(`/api/team/${id}/detail?week=${CUR}&season=${SEASON}`)).json();
   TX={team:id,out:null,outPos:null,in:null,mode:'trade',outName:'',inName:''};
   const roster=d.roster.map(r=>`<div class="pl" onclick='pickOut("${r.asset_ref}","${r.slot}","${r.name.replace(/"/g,'')}")'><span><span class="pos">${r.slot}</span>${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}</span></div>`).join('');
   openM(`<h3>${d.name} — Move a player</h3>
@@ -266,7 +274,7 @@ function updateX(){ const o=TX.outName||'(your player)',i=TX.inName||'(available
   $('txx').innerHTML=TX.mode==='trade'?`⇄ <b>Trade:</b> drop <b>${o}</b>, add <b>${i}</b> permanently.`:`＋ <b>Open:</b> start <b>${i}</b> for <b>${o}</b> this week only (requires ${o} on his NFL bye). ${o} stays rostered.`; }
 async function submitTx(){ if(!TX.out||!TX.in){alert('Pick a player to move out and one to bring in.');return;}
   const res=await fetch(`/api/team/${TX.team}/${TX.mode}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:$('txpc').value,position:TX.outPos,out:TX.out,in:TX.in})});
-  const j=await res.json(); if(res.ok){alert('Done! ($2 fee)');closeM();load(VIEW);}else alert('⚠ '+(j.error||'error')); }
+  const j=await res.json(); if(res.ok){alert('Done! ($2 fee)');closeM();load(VIEW, SEASON);}else alert('⚠ '+(j.error||'error')); }
 
 let COMMISH_PC='';
 function commishModal(){ openM(`<h3>🛠 Commissioner <span class="sub">Steve &amp; Scott</span></h3>
@@ -291,8 +299,8 @@ function renderCommish(){ const teams=[...STATE.standings.BLUE,...STATE.standing
 }
 async function saveTeam(id){ const tn=$('tn_'+id).value,ds=$('ds_'+id).value,pc=$('pc_'+id).value;
   const j=await apost(`/api/admin/team/${id}`,{team_number:tn||undefined,draft_slot:ds||undefined});
-  if(j&&pc) await apost(`/api/admin/team/${id}/passcode`,{new_passcode:pc}); if(j){alert('Saved');await load(VIEW);renderCommish();} }
-async function applyPay(id){ const a=$('pay_'+id).value; if(!a)return; const j=await apost(`/api/team/${id}/payment`,{amount_cents:Math.round(parseFloat(a)*100),note:'commissioner'}); if(j){alert('Payment recorded');await load(VIEW);renderCommish();} }
-async function runCurrent(){ const j=await apost('/api/admin/run-current',{}); if(j){alert('Scored weeks: '+(j.scored_weeks.join(', ')||'none ready'));load(VIEW);} }
+  if(j&&pc) await apost(`/api/admin/team/${id}/passcode`,{new_passcode:pc}); if(j){alert('Saved');await load(VIEW, SEASON);renderCommish();} }
+async function applyPay(id){ const a=$('pay_'+id).value; if(!a)return; const j=await apost(`/api/team/${id}/payment`,{amount_cents:Math.round(parseFloat(a)*100),note:'commissioner'}); if(j){alert('Payment recorded');await load(VIEW, SEASON);renderCommish();} }
+async function runCurrent(){ const j=await apost('/api/admin/run-current',{}); if(j){alert('Scored weeks: '+(j.scored_weeks.join(', ')||'none ready'));load(VIEW, SEASON);} }
 load();
 </script></body></html>

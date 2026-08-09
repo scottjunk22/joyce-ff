@@ -51,6 +51,18 @@ def create_app(db_path: str | None = None) -> Flask:
         return db().execute(
             "SELECT id, label, current_ff_week FROM seasons ORDER BY year DESC LIMIT 1").fetchone()
 
+    def _season_sel():
+        """(selected season row, all season rows newest-first). Selection comes
+        from ?season=<id>; defaults to the newest season."""
+        rows = list(db().execute(
+            "SELECT id, year, label, current_ff_week FROM seasons ORDER BY year DESC"))
+        want = request.values.get("season")
+        if want:
+            for r in rows:
+                if r["id"] == int(want):
+                    return r, rows
+        return rows[0], rows
+
     def _passcode():
         body = request.get_json(silent=True) or {}
         return body.get("passcode") or request.form.get("passcode") or ""
@@ -113,7 +125,7 @@ def create_app(db_path: str | None = None) -> Flask:
     @app.get("/api/state")
     def state():
         conn = db()
-        s = season()
+        s, all_seasons = _season_sel()
         sid = s["id"]
         wk = int(request.args.get("week") or s["current_ff_week"])
         stand = st.compute_standings(conn, sid, wk)
@@ -198,15 +210,17 @@ def create_app(db_path: str | None = None) -> Flask:
         lineups = {"week": cur, "in": lin_in, "total": lin_in + len(lin_notin),
                    "not_in": lin_notin}
 
-        return jsonify(season={"label": s["label"], "week": wk,
-                               "current": s["current_ff_week"], "weeks": weeks, "last_updated": last},
+        return jsonify(season={"id": sid, "year": s["year"], "label": s["label"], "week": wk,
+                               "current": s["current_ff_week"], "weeks": weeks, "last_updated": last,
+                               "seasons": [{"id": r["id"], "year": r["year"], "label": r["label"]}
+                                           for r in all_seasons]},
                        standings=stand, scoreboard=board, fees=fees, pool=pool,
                        transactions=tx, lineups=lineups)
 
     @app.get("/api/team/<int:team_id>/detail")
     def team_detail(team_id):
         conn = db()
-        s = season()
+        s, _ = _season_sel()
         sid = s["id"]
         wk = int(request.args.get("week") or s["current_ff_week"])
         row = conn.execute("SELECT name, manager_names FROM teams WHERE id=?", (team_id,)).fetchone()
