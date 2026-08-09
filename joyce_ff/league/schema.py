@@ -117,6 +117,8 @@ CREATE TABLE IF NOT EXISTS roster_entries (
     acquired_ff_week INTEGER NOT NULL,
     acquired_via     TEXT NOT NULL CHECK (acquired_via IN ('DRAFT','TRADE')),
     released_ff_week INTEGER,          -- NULL = still on roster
+    slot_order       INTEGER,          -- stable within-slot rank; traded-in
+                                       -- entries inherit the replaced player's
     created_at       TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_roster_active ON roster_entries(season_id, team_id, released_ff_week);
@@ -240,7 +242,21 @@ def connect(db_path: Path | str = DEFAULT_DB_PATH) -> sqlite3.Connection:
 def init_db(conn: sqlite3.Connection) -> None:
     """Create all tables/indexes if absent. Idempotent."""
     conn.executescript(SCHEMA_SQL)
+    migrate(conn)
     conn.commit()
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """Bring an already-created DB up to the current schema. Idempotent and
+    safe to call on every startup (adds columns SQLite can't add via
+    CREATE TABLE IF NOT EXISTS on a pre-existing table)."""
+    has_roster = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='roster_entries'").fetchone()
+    if has_roster:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(roster_entries)")}
+        if "slot_order" not in cols:
+            conn.execute("ALTER TABLE roster_entries ADD COLUMN slot_order INTEGER")
+            conn.commit()
 
 
 # The 22 teams, by conference (names from the league site).

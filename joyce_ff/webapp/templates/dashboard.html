@@ -88,7 +88,7 @@
  .explain{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:12px;color:var(--dim);margin-top:10px}
  .pass{margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
  .go{background:var(--good);color:#04121d;border:0;border-radius:8px;padding:8px 16px;font-weight:700;cursor:pointer}
- .fees{border:1px solid var(--line);border-radius:10px;margin-top:12px;overflow:hidden}.fees .fhd{background:var(--panel2);padding:7px 12px;font-weight:700;display:flex;justify-content:space-between}.fbal{color:var(--warn);font-weight:800}.frow{display:flex;justify-content:space-between;padding:5px 12px;border-top:1px solid var(--line);font-size:13px}
+ .fees{border:1px solid var(--line);border-radius:10px;margin-top:12px;overflow:hidden}.fees .fhd{background:var(--panel2);padding:7px 12px;font-weight:700;display:flex;justify-content:space-between}.fbal{color:var(--warn);font-weight:800}.fbal.paid{color:var(--good)}.frow{display:flex;justify-content:space-between;padding:5px 12px;border-top:1px solid var(--line);font-size:13px}.frow .paid{color:var(--good);font-weight:700}
  .feetable{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}.feetable th,.feetable td{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left}
  /* mobile */
  @media(max-width:760px){
@@ -196,9 +196,16 @@ async function boxScore(homeId,awayId){
 }
 async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?week=${VIEW}`)).json();
   const rows=d.roster.map(r=>`<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}</span></div>`).join('');
-  const b=c=>`$${(c/100).toFixed(0)}`;
-  const fees=(d.history.length||d.fees.owed_cents)?`<div class="fees"><div class="fhd"><span>Transaction fees</span><span class="fbal">balance ${b(d.fees.balance_cents)} <span class="sub">(${b(d.fees.owed_cents)} owed − ${b(d.fees.paid_cents)} paid)</span></span></div>`
-    +d.history.map(h=>`<div class="frow"><span>W${h.week} ${h.type==='TRADE'?'⇄':'＋'} ${txSwap(h)}</span><span>$${(h.fee/100).toFixed(0)}</span></div>`).join('')+`</div>`:'';
+  const b=c=>`$${(Math.abs(c)/100).toFixed(0)}`;
+  const bal=d.fees.balance_cents;
+  const balTxt = bal>0 ? `<span class="fbal">balance ${b(bal)}</span>`
+    : bal<0 ? `<span class="fbal paid">credit ${b(bal)}</span>`
+    : `<span class="fbal paid">settled</span>`;
+  const hasFees = d.history.length||(d.payments||[]).length||d.fees.owed_cents;
+  const fees = hasFees ? `<div class="fees"><div class="fhd"><span>Transaction fees</span>${balTxt}</div>`
+    +d.history.map(h=>`<div class="frow"><span>W${h.week} ${h.type==='TRADE'?'⇄':'＋'} ${txSwap(h)}</span><span>${b(h.fee)}</span></div>`).join('')
+    +(d.payments||[]).map(p=>`<div class="frow"><span>✓ payment${p.note?` <span class="sub">(${p.note})</span>`:''}</span><span class="paid">−${b(p.amount_cents)}</span></div>`).join('')
+    +`</div>`:'';
   openM(`<h3>${d.name} — Roster</h3><div class="sub">${d.managers||''}</div><div style="margin-top:10px">${rows}</div>${fees}`);
 }
 let LU={team:null,sel:new Set(),items:[]};

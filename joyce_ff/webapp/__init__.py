@@ -28,6 +28,14 @@ def create_app(db_path: str | None = None) -> Flask:
                                 or schema.DEFAULT_DB_PATH)
     app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(16)
 
+    # Bring an existing DB up to the current schema (e.g. adds roster slot_order
+    # on the live host, which was created before that column existed).
+    _mig = schema.connect(app.config["DB_PATH"])
+    try:
+        schema.migrate(_mig)
+    finally:
+        _mig.close()
+
     def db():
         if "db" not in g:
             g.db = schema.connect(app.config["DB_PATH"])
@@ -217,8 +225,12 @@ def create_app(db_path: str | None = None) -> Flask:
                      "SELECT in_asset_ref, in_asset_kind, position FROM transactions "
                      "WHERE season_id=? AND team_id=? AND ff_week=? AND type='OPEN' AND reversed=0",
                      (sid, team_id, wk))]
+        pays = [{"amount_cents": p["amount_cents"], "note": p["note"], "at": p["applied_at"]}
+                for p in conn.execute(
+                    "SELECT amount_cents, note, applied_at FROM payments WHERE team_id=? "
+                    "ORDER BY id", (team_id,))]
         return jsonify(name=row["name"], managers=row["manager_names"],
-                       roster=roster, fees=fees, history=hist, opens=opens,
+                       roster=roster, fees=fees, history=hist, payments=pays, opens=opens,
                        box=scoring.box_score(conn, sid, wk, team_id))
 
     @app.get("/api/team/<int:team_id>/available")

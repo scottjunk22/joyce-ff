@@ -104,6 +104,15 @@ def test_roster_groups_by_slot_after_trade(db):
     assert slots == sorted(slots, key=lambda s: rank[s])
 
 
+def test_traded_player_takes_replaced_players_slot(db):
+    conn, sid, otb = db
+    rbs = [e["asset_ref"] for e in repo.current_roster(conn, otb) if e["roster_slot"] == "RB"]
+    assert rbs[0] == "p_bijan"                                   # first RB drafted
+    repo.do_trade(conn, sid, otb, "RB", "p_bijan", "p_warren", ff_week=3)
+    after = [e["asset_ref"] for e in repo.current_roster(conn, otb) if e["roster_slot"] == "RB"]
+    assert after == ["p_warren", "p_kyren", "p_cook"]            # new RB took slot 1, not last
+
+
 def test_trade_rejects_unowned_or_unavailable(db):
     conn, sid, otb = db
     with pytest.raises(repo.RuleError):
@@ -198,3 +207,10 @@ def test_fee_balance_and_payment(db):
     repo.record_payment(conn, sid, otb, 300, note="partial")
     bal = repo.fee_balance_cents(conn, otb)
     assert bal["owed_cents"] == 400 and bal["paid_cents"] == 300 and bal["balance_cents"] == 100
+
+
+def test_overpayment_leaves_a_credit(db):
+    conn, sid, otb = db
+    repo.do_trade(conn, sid, otb, "RB", "p_cook", "p_warren", 3)      # $2 owed
+    repo.record_payment(conn, sid, otb, 500, note="overpay")          # pays $5
+    assert repo.fee_balance_cents(conn, otb)["balance_cents"] == -300  # $3 credit

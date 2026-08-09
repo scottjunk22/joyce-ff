@@ -15,6 +15,18 @@ def conn():
     c.close()
 
 
+def test_migrate_adds_slot_order_to_preexisting_roster_table():
+    # simulate a DB created before slot_order existed
+    c = schema.connect(":memory:")
+    c.execute("CREATE TABLE roster_entries (id INTEGER PRIMARY KEY, roster_slot TEXT)")
+    c.commit()
+    assert "slot_order" not in {r["name"] for r in c.execute("PRAGMA table_info(roster_entries)")}
+    schema.migrate(c)
+    assert "slot_order" in {r["name"] for r in c.execute("PRAGMA table_info(roster_entries)")}
+    schema.migrate(c)   # idempotent second call must not error
+    c.close()
+
+
 def test_init_creates_all_tables(conn):
     names = {r["name"] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}

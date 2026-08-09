@@ -51,7 +51,8 @@ def current_roster(conn, team_id: int) -> list[dict]:
     return [dict(r) for r in conn.execute(
         "SELECT * FROM roster_entries WHERE team_id=? AND released_ff_week IS NULL "
         "ORDER BY CASE roster_slot WHEN 'C' THEN 0 WHEN 'K' THEN 1 WHEN 'DEF/ST' THEN 2 "
-        "WHEN 'QB' THEN 3 WHEN 'RB' THEN 4 WHEN 'R' THEN 5 ELSE 6 END, id",
+        "WHEN 'QB' THEN 3 WHEN 'RB' THEN 4 WHEN 'R' THEN 5 ELSE 6 END, "
+        "COALESCE(slot_order, id)",
         (team_id,))]
 
 
@@ -134,11 +135,14 @@ def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
 
     conn.execute("UPDATE roster_entries SET released_ff_week=? WHERE id=?", (ff_week, out["id"]))
     kind = _kind_for(position)
+    # Take the outgoing player's exact spot within its position group.
+    order = out["slot_order"] if out["slot_order"] is not None else out["id"]
     conn.execute(
         "INSERT INTO roster_entries(season_id,team_id,asset_kind,asset_ref,unit_type,"
-        "roster_slot,acquired_ff_week,acquired_via,created_at) VALUES (?,?,?,?,?,?,?, 'TRADE', ?)",
+        "roster_slot,acquired_ff_week,acquired_via,slot_order,created_at) "
+        "VALUES (?,?,?,?,?,?,?, 'TRADE', ?, ?)",
         (season_id, team_id, kind, in_ref, position if kind == "TEAM_UNIT" else None,
-         position, ff_week, _now()))
+         position, ff_week, order, _now()))
     return _log_tx(conn, season_id, team_id, ff_week, "TRADE", position,
                    out_ref, in_ref, kind)
 
