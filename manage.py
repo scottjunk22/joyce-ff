@@ -60,6 +60,20 @@ def cmd_schedule(argv: list[str]) -> int:
     return sched_main(argv)
 
 
+def cmd_league_init(_argv: list[str]) -> int:
+    from joyce_ff.league import connect, init_db, seed_reference
+
+    conn = connect()
+    init_db(conn)
+    season_id = seed_reference(conn)
+    teams = conn.execute("SELECT COUNT(*) c FROM teams WHERE season_id=?",
+                         (season_id,)).fetchone()["c"]
+    conn.close()
+    print(f"League DB ready at data/league.sqlite — season {season_id}, "
+          f"{teams} teams seeded (Blue + Red), 2 commissioners.")
+    return 0
+
+
 def cmd_sync(_argv: list[str]) -> int:
     print("sync is not implemented yet (Phase 2). No data was fetched.",
           file=sys.stderr)
@@ -79,6 +93,7 @@ COMMANDS = {
     "board": cmd_board,
     "market": cmd_market,
     "schedule": cmd_schedule,
+    "league-init": cmd_league_init,
     "sync": cmd_sync,
     "run": cmd_run,
 }
