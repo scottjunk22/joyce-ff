@@ -186,9 +186,12 @@ def _bye_count(conn, season_id, team_id, slot, ff_week) -> int:
     return n
 
 
-def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict]) -> None:
+def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
+               locked_refs=None) -> None:
     """starters: list of {roster_slot, asset_ref}. Validates the 9-man lineup,
-    the bye-flex composition, and that every starter is owned or a valid rental.
+    the bye-flex composition, that every starter is owned or a valid rental, and
+    (if locked_refs given) that no player whose game has kicked off is being
+    started or benched.
     """
     slots = [s["roster_slot"] for s in starters]
     for unit in ("C", "K", "DEF/ST", "QB"):
@@ -218,6 +221,14 @@ def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict]) -> None:
                              slot if slot in UNIT_POS else None, 1))
         else:
             raise RuleError(f"{ref} isn't on your roster or an active Open for week {ff_week}")
+
+    if locked_refs:
+        current = {r["asset_ref"] for r in conn.execute(
+            "SELECT asset_ref FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=?",
+            (season_id, team_id, ff_week))}
+        new = {s["asset_ref"] for s in starters}
+        if (current ^ new) & set(locked_refs):     # a locked asset changed status
+            raise RuleError("those players' games have already started — you can't change them now")
 
     conn.execute("DELETE FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=?",
                  (season_id, team_id, ff_week))

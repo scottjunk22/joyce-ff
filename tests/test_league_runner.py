@@ -53,6 +53,21 @@ def test_reconcile_flags_mismatch(db):
     assert rec["mismatches"][0]["team"] and rec["mismatches"][0]["computed"] == 50
 
 
+def test_carry_forward_copies_previous_lineup(db):
+    conn, sid = db
+    tid = conn.execute("SELECT id FROM teams WHERE season_id=? LIMIT 1", (sid,)).fetchone()["id"]
+    conn.execute("INSERT INTO weekly_lineups(season_id,team_id,ff_week,roster_slot,asset_kind,asset_ref) "
+                 "VALUES (?,?,3,'QB','TEAM_UNIT','KC')", (sid, tid))
+    conn.commit()
+    n = runner.carry_forward_lineups(conn, sid, 4)        # week 4 has no lineup
+    assert n == 1
+    got = conn.execute("SELECT asset_ref FROM weekly_lineups WHERE team_id=? AND ff_week=4",
+                       (tid,)).fetchall()
+    assert [r["asset_ref"] for r in got] == ["KC"]
+    # idempotent: doesn't duplicate if a lineup already exists
+    assert runner.carry_forward_lineups(conn, sid, 4) == 0
+
+
 SITE_FIXTURE = """
 <table>
   <tr><td>#</td><td>#5 Pike</td></tr>

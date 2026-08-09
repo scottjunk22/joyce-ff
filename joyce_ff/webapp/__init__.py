@@ -71,47 +71,91 @@ def create_app(db_path: str | None = None) -> Flask:
             return r["name"] if r else ref
         return f"{ref} {unit or ''}".strip()
 
+    def _asset_team(conn, sid, kind, ref):
+        if kind == "TEAM_UNIT":
+            return ref
+        r = conn.execute("SELECT nfl_team_abbr FROM nfl_players WHERE season_id=? AND gsis_id=?",
+                         (sid, ref)).fetchone()
+        return r["nfl_team_abbr"] if r else None
+
+    def _pending_teams(conn, sid, wk):
+        """NFL teams that HAVE a game this FF week that isn't final yet (i.e.
+        'still to play'). Excludes bye teams (no game) and finished teams."""
+        from ..data_sources import nflverse as nv
+        year = conn.execute("SELECT year FROM seasons WHERE id=?", (sid,)).fetchone()["year"]
+        nflw = scoring.nfl_week_for(conn, sid, wk)
+        g = nv.load_games()
+        g = g[(g["season"] == year) & (g["week"] == nflw)]
+        playing = set(g["home_team"]) | set(g["away_team"])
+        gf = g[g["home_score"].notna()]
+        final = set(gf["home_team"]) | set(gf["away_team"])
+        return playing - final
+
     # ---- read API ----
     @app.get("/api/state")
     def state():
         conn = db()
         s = season()
-        sid, wk = s["id"], s["current_ff_week"]
+        sid = s["id"]
+        wk = int(request.args.get("week") or s["current_ff_week"])
         stand = st.compute_standings(conn, sid, wk)
-        scores = {(r["team_id"]): r["computed_points"] for r in conn.execute(
+        scores = {r["team_id"]: r["computed_points"] for r in conn.execute(
             "SELECT team_id, computed_points FROM team_week_scores WHERE season_id=? AND ff_week=?",
             (sid, wk))}
+        try:
+            pending = _pending_teams(conn, sid, wk)
+        except Exception:
+            pending = set()                    # unknown -> treat as all done
+        toplay, lset = {}, {}
+        for r in conn.execute("SELECT team_id, asset_kind, asset_ref FROM weekly_lineups "
+                              "WHERE season_id=? AND ff_week=?", (sid, wk)):
+            lset[r["team_id"]] = lset.get(r["team_id"], 0) + 1
+            abbr = _asset_team(conn, sid, r["asset_kind"], r["asset_ref"])
+            if abbr and abbr in pending:
+                toplay[r["team_id"]] = toplay.get(r["team_id"], 0) + 1
+
+        def side(tid, name):
+            return {"id": tid, "name": name, "points": scores.get(tid),
+                    "to_play": toplay.get(tid, 0), "lineup_set": lset.get(tid, 0) >= 9}
         board = []
         for m in conn.execute(
-            "SELECT m.id, m.kind, m.home_team_id h, m.away_team_id a, th.name hn, ta.name an "
+            "SELECT m.kind, m.home_team_id h, m.away_team_id a, th.name hn, ta.name an "
             "FROM matchups m JOIN teams th ON th.id=m.home_team_id "
-            "JOIN teams ta ON ta.id=m.away_team_id WHERE m.season_id=? AND m.ff_week=?",
-                (sid, wk)):
-            board.append({"kind": m["kind"],
-                          "home": {"id": m["h"], "name": m["hn"], "points": scores.get(m["h"])},
-                          "away": {"id": m["a"], "name": m["an"], "points": scores.get(m["a"])}})
+            "JOIN teams ta ON ta.id=m.away_team_id WHERE m.season_id=? AND m.ff_week=?", (sid, wk)):
+            board.append({"kind": m["kind"], "home": side(m["h"], m["hn"]),
+                          "away": side(m["a"], m["an"])})
+
         tx = {"BLUE": [], "RED": []}
         for r in conn.execute(
-            "SELECT tr.ff_week w, t.name team, c.code conf, tr.type, tr.position, "
+            "SELECT tr.ff_week w, t.name team, c.code conf, tr.type, "
             "tr.out_asset_kind ok, tr.out_asset_ref oref, tr.in_asset_kind ik, tr.in_asset_ref iref "
             "FROM transactions tr JOIN teams t ON t.id=tr.team_id "
             "JOIN conferences c ON c.id=t.conference_id WHERE tr.season_id=? AND tr.reversed=0 "
             "ORDER BY tr.ff_week DESC, tr.id DESC LIMIT 20", (sid,)):
             tx[r["conf"]].append({"week": r["w"], "team": r["team"], "type": r["type"],
                 "desc": f"{_dname(conn, sid, r['ok'], r['oref'])} → {_dname(conn, sid, r['ik'], r['iref'])}"})
-        fees = {}
-        for conf in ("BLUE", "RED"):
-            for t in stand[conf]:
-                fees[t["team_id"]] = repo.fee_balance_cents(conn, t["team_id"])
-        return jsonify(season={"label": s["label"], "week": wk},
-                       standings=stand, scoreboard=board, fees=fees,
-                       pool=st.pool_status(conn, sid), transactions=tx)
+
+        fees = {t["team_id"]: repo.fee_balance_cents(conn, t["team_id"])
+                for conf in ("BLUE", "RED") for t in stand[conf]}
+        pool = {"alive": [], "eliminated": []}
+        for r in conn.execute("SELECT name, eliminated_ff_week e FROM teams WHERE season_id=? ORDER BY e, name", (sid,)):
+            if r["e"] is not None and r["e"] <= wk:
+                pool["eliminated"].append({"name": r["name"], "eliminated_ff_week": r["e"]})
+            else:
+                pool["alive"].append({"name": r["name"]})
+        weeks = [r["w"] for r in conn.execute(
+            "SELECT DISTINCT ff_week w FROM team_week_scores WHERE season_id=? ORDER BY ff_week", (sid,))] or [wk]
+        last = conn.execute("SELECT MAX(computed_at) c FROM team_week_scores WHERE season_id=?", (sid,)).fetchone()["c"]
+        return jsonify(season={"label": s["label"], "week": wk,
+                               "current": s["current_ff_week"], "weeks": weeks, "last_updated": last},
+                       standings=stand, scoreboard=board, fees=fees, pool=pool, transactions=tx)
 
     @app.get("/api/team/<int:team_id>/detail")
     def team_detail(team_id):
         conn = db()
         s = season()
-        sid, wk = s["id"], s["current_ff_week"]
+        sid = s["id"]
+        wk = int(request.args.get("week") or s["current_ff_week"])
         row = conn.execute("SELECT name, manager_names FROM teams WHERE id=?", (team_id,)).fetchone()
         roster = [{"slot": e["roster_slot"], "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"], e["unit_type"]),
                    "asset_ref": e["asset_ref"]} for e in repo.current_roster(conn, team_id)]
@@ -179,9 +223,11 @@ def create_app(db_path: str | None = None) -> Flask:
         if (bad := _guard(team_id)):
             return bad
         b = request.get_json(force=True)
+        sid, wk = season()["id"], _week(season()["current_ff_week"])
         try:
-            repo.set_lineup(db(), season()["id"], team_id,
-                            _week(season()["current_ff_week"]), b["starters"])
+            from ..league.locks import locked_assets
+            locked = locked_assets(db(), sid, wk)
+            repo.set_lineup(db(), sid, team_id, wk, b["starters"], locked_refs=locked)
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
         return jsonify(ok=True)

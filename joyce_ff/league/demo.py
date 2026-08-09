@@ -91,6 +91,8 @@ def build_demo(db_path: str | Path = schema.DEFAULT_DB_PATH) -> dict:
         st.run_elimination(conn, sid, wk)
 
     conn.execute("UPDATE seasons SET current_ff_week=?, status='active' WHERE id=?", (DEMO_WEEKS, sid))
+    # Demo is a completed season — don't enforce kickoff locks so lineups stay editable.
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('enforce_locks','0')")
     _demo_transactions(conn, sid)
 
     for tid in [r["id"] for r in conn.execute("SELECT id FROM teams WHERE season_id=?", (sid,))]:

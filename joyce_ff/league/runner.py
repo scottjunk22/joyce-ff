@@ -11,8 +11,39 @@ totals (populated by scrape.py) and flags any disagreement.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from . import scoring
 from . import standings as st
+
+
+def carry_forward_lineups(conn, season_id: int, ff_week: int) -> int:
+    """Rule: a team that didn't set a lineup keeps last week's. Copies the most
+    recent prior week's (non-rental) starters for any team missing one."""
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    filled = 0
+    for r in conn.execute("SELECT id FROM teams WHERE season_id=?", (season_id,)):
+        tid = r["id"]
+        if conn.execute("SELECT 1 FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=? LIMIT 1",
+                        (season_id, tid, ff_week)).fetchone():
+            continue
+        prev = conn.execute(
+            "SELECT MAX(ff_week) w FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week<?",
+            (season_id, tid, ff_week)).fetchone()["w"]
+        if prev is None:
+            continue
+        for s in conn.execute(
+            "SELECT roster_slot, asset_kind, asset_ref, unit_type FROM weekly_lineups "
+            "WHERE season_id=? AND team_id=? AND ff_week=? AND is_rental=0",
+                (season_id, tid, prev)):
+            conn.execute(
+                "INSERT INTO weekly_lineups(season_id,team_id,ff_week,roster_slot,asset_kind,"
+                "asset_ref,unit_type,is_rental,submitted_at) VALUES (?,?,?,?,?,?,?,0,?)",
+                (season_id, tid, ff_week, s["roster_slot"], s["asset_kind"], s["asset_ref"],
+                 s["unit_type"], now))
+        filled += 1
+    conn.commit()
+    return filled
 
 
 def run_week(conn, season_id: int, ff_week: int, *, do_ingest: bool = True,
@@ -20,6 +51,7 @@ def run_week(conn, season_id: int, ff_week: int, *, do_ingest: bool = True,
     summary: dict = {"ff_week": ff_week}
     if do_ingest:
         summary["assets_scored"] = scoring.ingest_asset_scores_from_nflverse(conn, season_id, ff_week)
+    summary["lineups_carried"] = carry_forward_lineups(conn, season_id, ff_week)
     scoring.score_team_week(conn, season_id, ff_week)
     if eliminate:
         summary["eliminated_team_id"] = st.run_elimination(conn, season_id, ff_week)

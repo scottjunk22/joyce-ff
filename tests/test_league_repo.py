@@ -161,6 +161,17 @@ def test_lineup_allows_open_rental(db):
     assert rental == 1
 
 
+def test_lineup_lock_blocks_changing_a_started_player(db):
+    conn, sid, otb = db
+    repo.set_lineup(conn, sid, otb, 10,
+                    _lineup(["p_bijan", "p_kyren"], ["p_puka", "p_lamb", "p_mcbride"]))
+    swap = _lineup(["p_cook", "p_kyren"], ["p_puka", "p_lamb", "p_mcbride"])   # bench bijan
+    with pytest.raises(repo.RuleError):
+        repo.set_lineup(conn, sid, otb, 10, swap, locked_refs={"p_bijan"})     # bijan locked
+    # a change that doesn't touch any locked player is allowed
+    repo.set_lineup(conn, sid, otb, 10, swap, locked_refs={"p_lamb"})          # lamb unchanged
+
+
 def test_lineup_rejects_unowned_non_rental(db):
     conn, sid, otb = db
     lu = _lineup(["p_bijan", "p_kyren"], ["p_warren", "p_lamb", "p_mcbride"])  # warren not ours
