@@ -60,6 +60,7 @@
  .mb{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:12px;z-index:20}
  .mb.show{display:flex}.modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:760px;width:100%;max-height:90vh;overflow:auto;padding:16px 18px}
  .modal h3{margin:0 0 3px}.modal .x{float:right;cursor:pointer;color:var(--dim);font-size:24px;line-height:1}
+ .tielbl{color:var(--text);font-weight:700}
  .srow{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:5px 2px;font-size:13px}.srow .slot{min-width:52px;color:var(--dim);font-weight:700;font-size:11px}.srow .nm{flex:1}.srow .pts{font-weight:700}
  .team{font-size:10px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:0 5px;margin-left:3px;font-weight:600;white-space:nowrap}
  .poschip{font-size:10px;color:var(--text);background:var(--line);border-radius:5px;padding:1px 6px;font-weight:700;white-space:nowrap}
@@ -200,9 +201,10 @@ async function boxScore(homeId,awayId){
   const tot=t=>t.box.reduce((s,x)=>s+(x.points||0),0);
   const th=tot(h), ta=tot(a);
   const hw=th>ta, aw=ta>th;                       // strict: a tie highlights neither
+  const tie=th===ta && (th>0||ta>0);
   const col=(t,cls,won)=>`<div class="boxcol ${cls} ${won?'won':''}"><div class="bh"><span>${t.name}</span><span class="tot">${tot(t).toFixed(0)}</span></div>`
     +t.box.map(x=>`<div class="srow"><span class="slot">${x.roster_slot}</span><span class="nm">${x.display}${x.is_rental?' <span class="sub">(open)</span>':''}</span><span class="pts">${(x.points||0).toFixed(0)}</span></div>`).join('')+`</div>`;
-  openM(`<h3>Box Score <span class="sub">· Week ${VIEW}</span></h3><div class="box" style="margin-top:8px">${col(h,'home',hw)}${col(a,'away',aw)}</div>`);
+  openM(`<h3>Box Score <span class="sub">· Week ${VIEW}</span>${tie?` <span class="sub">·</span> <span class="tielbl">Tie</span>`:''}</h3><div class="box" style="margin-top:8px">${col(h,'home',hw)}${col(a,'away',aw)}</div>`);
 }
 async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?week=${VIEW}&season=${SEASON}`)).json();
   const rows=d.roster.map(r=>`<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}</span></div>`).join('');
