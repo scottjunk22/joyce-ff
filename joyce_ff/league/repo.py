@@ -46,8 +46,12 @@ def _team_conf(conn, team_id: int) -> int:
 # --- rosters & availability ---------------------------------------------
 
 def current_roster(conn, team_id: int) -> list[dict]:
+    # Group by canonical slot order (C, K, DEF/ST, QB, RB, R) so a newly
+    # traded/opened player sits with its position instead of at the bottom.
     return [dict(r) for r in conn.execute(
-        "SELECT * FROM roster_entries WHERE team_id=? AND released_ff_week IS NULL",
+        "SELECT * FROM roster_entries WHERE team_id=? AND released_ff_week IS NULL "
+        "ORDER BY CASE roster_slot WHEN 'C' THEN 0 WHEN 'K' THEN 1 WHEN 'DEF/ST' THEN 2 "
+        "WHEN 'QB' THEN 3 WHEN 'RB' THEN 4 WHEN 'R' THEN 5 ELSE 6 END, id",
         (team_id,))]
 
 

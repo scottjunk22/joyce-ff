@@ -95,6 +95,15 @@ def test_trade_swaps_roster_and_logs_fee(db):
     assert repo.fee_balance_cents(conn, otb)["owed_cents"] == 200
 
 
+def test_roster_groups_by_slot_after_trade(db):
+    conn, sid, otb = db
+    repo.do_trade(conn, sid, otb, "RB", "p_cook", "p_warren", ff_week=3)   # new RB added
+    slots = [e["roster_slot"] for e in repo.current_roster(conn, otb)]
+    rank = {"C": 0, "K": 1, "DEF/ST": 2, "QB": 3, "RB": 4, "R": 5}
+    # the freshly-acquired RB must sit with the other RBs, not dangling at the end
+    assert slots == sorted(slots, key=lambda s: rank[s])
+
+
 def test_trade_rejects_unowned_or_unavailable(db):
     conn, sid, otb = db
     with pytest.raises(repo.RuleError):

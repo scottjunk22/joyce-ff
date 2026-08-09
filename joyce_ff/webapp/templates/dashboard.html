@@ -61,6 +61,8 @@
  .mb.show{display:flex}.modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:760px;width:100%;max-height:90vh;overflow:auto;padding:16px 18px}
  .modal h3{margin:0 0 3px}.modal .x{float:right;cursor:pointer;color:var(--dim);font-size:24px;line-height:1}
  .srow{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:5px 2px;font-size:13px}.srow .slot{min-width:52px;color:var(--dim);font-weight:700;font-size:11px}.srow .nm{flex:1}.srow .pts{font-weight:700}
+ .team{font-size:10px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:0 5px;margin-left:3px;font-weight:600;white-space:nowrap}
+ .poschip{font-size:10px;color:var(--text);background:var(--line);border-radius:5px;padding:1px 6px;font-weight:700;white-space:nowrap}
  .st{font-size:11px;border:1px solid var(--line);border-radius:6px;padding:2px 8px;margin-left:auto;cursor:pointer}.st.start{color:var(--good);border-color:var(--good)}.st.bench{color:var(--warn);border-color:var(--warn)}
  .lban{border-radius:10px;padding:8px 11px;font-size:12.5px;margin:2px 0 10px;display:flex;gap:6px;align-items:flex-start}
  .lban.ok{border:1px solid var(--good);color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent)}
@@ -174,7 +176,9 @@ function renderElim(){
     <div class="chips">${p.alive.map(t=>`<span class="echip"><span class="nm">${t.name}</span></span>`).join('')}
       ${p.eliminated.map(t=>`<span class="echip dead"><span class="nm">${t.name}</span><span class="wk">Wk ${t.eliminated_ff_week}</span></span>`).join('')}</div>`;
 }
-function renderTx(){ const row=t=>`<div class="tx"><span class="wk">W${t.week}</span> <span class="${t.type.toLowerCase()}">${t.type==='TRADE'?'⇄':'＋'}</span> <b>${t.team}</b> — ${t.desc} <span class="sub">· $2</span></div>`;
+function txSide(s){ return `${s.name}${s.kind==='PLAYER'&&s.team?` <span class="team">${s.team}</span>`:''}`; }
+function txSwap(t){ return `<span class="poschip">${t.pos}</span> ${txSide(t.out)} → ${txSide(t.in)}`; }
+function renderTx(){ const row=t=>`<div class="tx"><span class="wk">W${t.week}</span> <span class="${t.type.toLowerCase()}">${t.type==='TRADE'?'⇄':'＋'}</span> <b>${t.team}</b> — ${txSwap(t)} <span class="sub">· $2</span></div>`;
   $('txBlue').innerHTML=STATE.transactions.BLUE.map(row).join('')||'<div class="tx sub">none</div>';
   $('txRed').innerHTML=STATE.transactions.RED.map(row).join('')||'<div class="tx sub">none</div>'; }
 
@@ -191,10 +195,10 @@ async function boxScore(homeId,awayId){
   openM(`<h3>Box Score <span class="sub">· Week ${VIEW}</span></h3><div class="box" style="margin-top:8px">${col(h,'home',th>=ta&&th>0)}${col(a,'away',ta>=th&&ta>0)}</div>`);
 }
 async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?week=${VIEW}`)).json();
-  const rows=d.roster.map(r=>`<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}</span></div>`).join('');
+  const rows=d.roster.map(r=>`<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}</span></div>`).join('');
   const b=c=>`$${(c/100).toFixed(0)}`;
   const fees=(d.history.length||d.fees.owed_cents)?`<div class="fees"><div class="fhd"><span>Transaction fees</span><span class="fbal">balance ${b(d.fees.balance_cents)} <span class="sub">(${b(d.fees.owed_cents)} owed − ${b(d.fees.paid_cents)} paid)</span></span></div>`
-    +d.history.map(h=>`<div class="frow"><span>W${h.week} ${h.type==='TRADE'?'⇄':'＋'} ${h.desc}</span><span>$${(h.fee/100).toFixed(0)}</span></div>`).join('')+`</div>`:'';
+    +d.history.map(h=>`<div class="frow"><span>W${h.week} ${h.type==='TRADE'?'⇄':'＋'} ${txSwap(h)}</span><span>$${(h.fee/100).toFixed(0)}</span></div>`).join('')+`</div>`:'';
   openM(`<h3>${d.name} — Roster</h3><div class="sub">${d.managers||''}</div><div style="margin-top:10px">${rows}</div>${fees}`);
 }
 let LU={team:null,sel:new Set(),items:[]};

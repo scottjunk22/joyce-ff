@@ -78,6 +78,16 @@ def create_app(db_path: str | None = None) -> Flask:
                          (sid, ref)).fetchone()
         return r["nfl_team_abbr"] if r else None
 
+    def _tx_parts(conn, sid, pos, ok, oref, ik, iref):
+        """Structured transaction line: position + each side's name and (for
+        individual players) NFL team, so the UI can render position/team tags."""
+        def side(kind, ref):
+            d = {"name": _dname(conn, sid, kind, ref), "kind": kind}
+            if kind == "PLAYER":
+                d["team"] = _asset_team(conn, sid, kind, ref)
+            return d
+        return {"pos": pos, "out": side(ok, oref), "in": side(ik, iref)}
+
     def _pending_teams(conn, sid, wk):
         """NFL teams that HAVE a game this FF week that isn't final yet (i.e.
         'still to play'). Excludes bye teams (no game) and finished teams."""
@@ -140,13 +150,13 @@ def create_app(db_path: str | None = None) -> Flask:
 
         tx = {"BLUE": [], "RED": []}
         for r in conn.execute(
-            "SELECT tr.ff_week w, t.name team, c.code conf, tr.type, "
+            "SELECT tr.ff_week w, t.name team, c.code conf, tr.type, tr.position pos, "
             "tr.out_asset_kind ok, tr.out_asset_ref oref, tr.in_asset_kind ik, tr.in_asset_ref iref "
             "FROM transactions tr JOIN teams t ON t.id=tr.team_id "
             "JOIN conferences c ON c.id=t.conference_id WHERE tr.season_id=? AND tr.reversed=0 "
             "ORDER BY tr.ff_week DESC, tr.id DESC LIMIT 20", (sid,)):
             tx[r["conf"]].append({"week": r["w"], "team": r["team"], "type": r["type"],
-                "desc": f"{_dname(conn, sid, r['ok'], r['oref'])} → {_dname(conn, sid, r['ik'], r['iref'])}"})
+                **_tx_parts(conn, sid, r["pos"], r["ok"], r["oref"], r["ik"], r["iref"])})
 
         fees = {t["team_id"]: repo.fee_balance_cents(conn, t["team_id"])
                 for conf in ("BLUE", "RED") for t in stand[conf]}
@@ -193,12 +203,14 @@ def create_app(db_path: str | None = None) -> Flask:
         wk = int(request.args.get("week") or s["current_ff_week"])
         row = conn.execute("SELECT name, manager_names FROM teams WHERE id=?", (team_id,)).fetchone()
         roster = [{"slot": e["roster_slot"], "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"], e["unit_type"]),
-                   "asset_ref": e["asset_ref"]} for e in repo.current_roster(conn, team_id)]
+                   "asset_ref": e["asset_ref"], "kind": e["asset_kind"],
+                   "team": _asset_team(conn, sid, e["asset_kind"], e["asset_ref"])}
+                  for e in repo.current_roster(conn, team_id)]
         fees = repo.fee_balance_cents(conn, team_id)
-        hist = [{"week": t["ff_week"], "type": t["type"],
-                 "desc": f"{_dname(conn, sid, t['out_asset_kind'], t['out_asset_ref'])} → "
-                         f"{_dname(conn, sid, t['in_asset_kind'], t['in_asset_ref'])}",
-                 "fee": t["fee_cents"]} for t in repo.transaction_history(conn, team_id)]
+        hist = [{"week": t["ff_week"], "type": t["type"], "fee": t["fee_cents"],
+                 **_tx_parts(conn, sid, t["position"], t["out_asset_kind"], t["out_asset_ref"],
+                             t["in_asset_kind"], t["in_asset_ref"])}
+                for t in repo.transaction_history(conn, team_id)]
         opens = [{"asset_ref": t["in_asset_ref"], "position": t["position"],
                   "name": _dname(conn, sid, t["in_asset_kind"], t["in_asset_ref"])}
                  for t in conn.execute(
