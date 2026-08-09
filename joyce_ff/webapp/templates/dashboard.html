@@ -241,7 +241,7 @@ async function submitLineup(){ const starters=[...LU.sel].map(ref=>({roster_slot
 let TX={team:null,out:null,outPos:null,in:null,mode:'trade',outName:'',inName:''};
 async function txModal(id){ const d=await (await fetch(`/api/team/${id}/detail?week=${CUR}`)).json();
   TX={team:id,out:null,outPos:null,in:null,mode:'trade',outName:'',inName:''};
-  const roster=d.roster.map(r=>`<div class="pl" onclick='pickOut("${r.asset_ref}","${r.slot}","${r.name.replace(/"/g,'')}")'><span><span class="pos">${r.slot}</span>${r.name}</span></div>`).join('');
+  const roster=d.roster.map(r=>`<div class="pl" onclick='pickOut("${r.asset_ref}","${r.slot}","${r.name.replace(/"/g,'')}")'><span><span class="pos">${r.slot}</span>${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}</span></div>`).join('');
   openM(`<h3>${d.name} — Move a player</h3>
    <div class="seg"><button class="on" data-m="trade" onclick="setMode('trade')">⇄ Trade (permanent)</button><button data-m="open" onclick="setMode('open')">＋ Open (1 week)</button></div>
    <div class="cols"><div><h4>Your roster — move OUT</h4><div class="plist">${roster}</div></div>
@@ -257,7 +257,7 @@ async function pickOut(ref,pos,name){ TX.out=ref;TX.outPos=pos;TX.outName=name;T
   AVAIL=(await (await fetch(`/api/team/${TX.team}/available?position=${encodeURIComponent(pos)}`)).json()).available; renderAvail(''); updateX(); }
 function renderAvail(f){ const key=x=>x.gsis_id||x.abbr, nm=x=>x.name||x.abbr;
   const list=AVAIL.filter(x=>nm(x).toLowerCase().includes((f||'').toLowerCase()));
-  $('avail').innerHTML=list.length?list.map(x=>`<div class="pl ${TX.in===key(x)?'sel':''}" onclick='pickIn("${key(x)}","${nm(x).replace(/"/g,'')}")'><span><span class="pos">${TX.outPos}</span>${nm(x)}</span></div>`).join(''):'<div class="sub" style="padding:14px;text-align:center">no matches</div>'; }
+  $('avail').innerHTML=list.length?list.map(x=>`<div class="pl ${TX.in===key(x)?'sel':''}" onclick='pickIn("${key(x)}","${nm(x).replace(/"/g,'')}")'><span><span class="pos">${TX.outPos}</span>${nm(x)}${x.nfl_team_abbr?` <span class="team">${x.nfl_team_abbr}</span>`:''}</span></div>`).join(''):'<div class="sub" style="padding:14px;text-align:center">no matches</div>'; }
 function pickIn(ref,name){ TX.in=ref;TX.inName=name;renderAvail($('asearch').value);updateX(); }
 function setMode(m){ TX.mode=m;document.querySelectorAll('#mbody .seg button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));updateX(); }
 function updateX(){ const o=TX.outName||'(your player)',i=TX.inName||'(available player)';
