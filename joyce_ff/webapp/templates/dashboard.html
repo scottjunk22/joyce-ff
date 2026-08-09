@@ -22,8 +22,6 @@
  .game .r{display:flex;align-items:center;gap:8px;padding:3px 0}
  .game .r .nm{flex:1;font-weight:600}
  .game .r.win .nm{font-weight:800}
- .setdot{font-size:10px;padding:0 5px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
- .setdot.on{color:var(--good);border-color:var(--good)}
  .toplay{font-size:10px;color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent);border-radius:999px;padding:1px 6px;white-space:nowrap}
  .game .r .s{font-variant-numeric:tabular-nums;font-weight:700;min-width:26px;text-align:right}
  .game .meta{color:var(--dim);font-size:11px;margin-top:5px;border-top:1px solid var(--line);padding-top:5px;display:flex;justify-content:space-between}
@@ -48,8 +46,9 @@
  .chip{border:1px solid var(--line);background:var(--panel2);color:var(--dim);border-radius:6px;padding:1px 7px;font-size:11px;cursor:pointer}
  .chip:hover{border-color:var(--blue);color:var(--text)}
  /* elimination */
- .elim{background:color-mix(in srgb,var(--bad) 12%,transparent);border:1px solid var(--bad);border-radius:10px;padding:9px 13px;font-size:13px}
+ .elim{background:color-mix(in srgb,var(--bad) 12%,transparent);border:1px solid var(--bad);border-radius:10px;padding:11px 13px;font-size:13px}
  .elim b{color:var(--bad)}
+ .elim .etitle{font-size:15px;font-weight:800;color:var(--bad);margin-bottom:6px}
  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
  .echip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:2px 10px;font-size:12px}
  .echip.dead{opacity:.7;border-color:var(--bad)}.echip.dead .nm{text-decoration:line-through}.echip .wk{color:var(--bad);margin-left:5px;font-size:10px}
@@ -101,15 +100,14 @@
  <h2>Scoreboard <span class="sub" style="text-transform:none;letter-spacing:0" id="upd"></span></h2>
  <div class="scores" id="scores"></div>
 
- <h2>Standings <span class="sub" style="text-transform:none;letter-spacing:0">— <span style="color:var(--good)">green</span> = top 8 → playoffs</span></h2>
+ <h2>Standings</h2>
  <div class="leagues">
   <div class="lg blue"><div class="cap">BLUE CONFERENCE</div><div class="tblwrap"><table><thead><tr><th>#</th><th>Team</th><th>W-L-T</th><th>Conf</th><th>PF</th><th>PA</th></tr></thead><tbody id="blue"></tbody></table></div></div>
   <div class="lg red"><div class="cap">RED CONFERENCE</div><div class="tblwrap"><table><thead><tr><th>#</th><th>Team</th><th>W-L-T</th><th>Conf</th><th>PF</th><th>PA</th></tr></thead><tbody id="red"></tbody></table></div></div>
  </div>
- <p class="sub">Click a team for its roster. Buttons: ⚙ lineup · ⇄＋ trade/open (each asks that team's passcode).</p>
+ <p class="sub"><span style="color:var(--good);font-weight:700">Green</span> rank = top 8 → playoffs. Click a team for its roster. Buttons: ⚙ lineup · ⇄＋ trade/open (each asks that team's passcode).</p>
 
- <h2>💀 Elimination Pool</h2>
- <div class="elim" id="elimBox"></div>
+ <div class="elim" id="elimBox" style="margin-top:22px"></div>
 
  <h2>Transactions <span class="sub" style="text-transform:none;letter-spacing:0">— $2 each</span></h2>
  <div class="leagues">
@@ -142,11 +140,10 @@ function renderScores(){
     const hp=g.home.points, ap=g.away.points;
     const hw=done&&hp>ap, aw=done&&ap>hp;
     const f=v=>v==null?'<span class="sub">—</span>':(+v).toFixed(0);
-    const badge=t=>`<span class="setdot ${t.lineup_set?'on':''}">${t.lineup_set?'✓':'○'}</span>`;
     const tp=t=>t.to_play>0?`<span class="toplay">${t.to_play} to play</span>`:'';
-    const row=(t,win)=>`<div class="r ${win?'win':''}"><span class="nm">${t.name}</span>${badge(t)}${tp(t)}<span class="s">${f(t.points)}</span></div>`;
+    const row=(t,win)=>`<div class="r ${win?'win':''}"><span class="nm">${t.name}</span>${tp(t)}<span class="s">${f(t.points)}</span></div>`;
     return `<div class="game" onclick="boxScore(${g.home.id},${g.away.id})">${row(g.home,hw)}${row(g.away,aw)}
-      <div class="meta"><span class="${done?'final':''}">${done?'✔ Final':g.kind.toLowerCase()} · Week ${VIEW}</span><span class="boxlink">box score ›</span></div></div>`;
+      <div class="meta"><span class="${done?'final':''}">${done?'Final':g.kind.toLowerCase()} · Week ${VIEW}</span><span class="boxlink">box score ›</span></div></div>`;
   }).join('') || '<span class="sub">No games this week.</span>';
 }
 function teamRow(t){
@@ -160,7 +157,7 @@ function teamRow(t){
 function renderStandings(){ $('blue').innerHTML=STATE.standings.BLUE.map(teamRow).join(''); $('red').innerHTML=STATE.standings.RED.map(teamRow).join(''); }
 function renderElim(){
   const p=STATE.pool;
-  $('elimBox').innerHTML=`Each week the lowest scorer among survivors (both conferences) is out.
+  $('elimBox').innerHTML=`<div class="etitle">💀 Elimination Pool</div>Each week the lowest scorer among survivors (both conferences) is out.
     Alive <b>${p.alive.length}</b> / 22 · Eliminated <b>${p.eliminated.length}</b>.
     <span class="sub">Wk 15: top score wins $100, other 6 survivors $10 each.</span>
     <div class="chips">${p.alive.map(t=>`<span class="echip"><span class="nm">${t.name}</span></span>`).join('')}
