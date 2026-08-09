@@ -82,6 +82,19 @@ def test_wsgi_module_exposes_app():
     assert wsgi.app is not None
 
 
+def test_state_has_lineup_summary_and_alive_flag(client):
+    d = client.get("/api/state").get_json()
+    # current-week lineup-submission summary drives flags + commissioner view
+    lu = d["lineups"]
+    assert set(lu) >= {"week", "in", "total", "not_in"}
+    assert lu["in"] == 0                         # no lineups set in this fixture
+    assert lu["total"] >= 1 and len(lu["not_in"]) == lu["total"]
+    # regression: standings rows must carry `alive` — without it the UI applied
+    # the `dead` class (opacity .45) to every row and dimmed the whole table.
+    row = d["standings"]["BLUE"][0]
+    assert row["alive"] is True and "team_number" in row
+
+
 def test_admin_endpoints_require_commissioner(client):
     # team passcode is NOT enough for admin
     bad = client.post(f"/api/admin/team/{client.otb}",

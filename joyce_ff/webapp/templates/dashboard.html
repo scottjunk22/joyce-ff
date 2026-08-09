@@ -23,6 +23,7 @@
  .game .r .nm{flex:1;font-weight:600}
  .game .r.win .nm{font-weight:800}
  .toplay{font-size:10px;color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent);border-radius:999px;padding:1px 6px;white-space:nowrap}
+ .noflag{font-size:11px;color:var(--warn);white-space:nowrap;display:inline-flex;align-items:center;gap:3px;font-weight:700}
  .game .r .s{font-variant-numeric:tabular-nums;font-weight:700;min-width:26px;text-align:right}
  .game .meta{color:var(--dim);font-size:11px;margin-top:5px;border-top:1px solid var(--line);padding-top:5px;display:flex;justify-content:space-between}
  .final{color:var(--good);font-weight:700}.boxlink{color:var(--blue)}
@@ -62,6 +63,13 @@
  .modal h3{margin:0 0 3px}.modal .x{float:right;cursor:pointer;color:var(--dim);font-size:24px;line-height:1}
  .srow{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:5px 2px;font-size:13px}.srow .slot{min-width:52px;color:var(--dim);font-weight:700;font-size:11px}.srow .nm{flex:1}.srow .pts{font-weight:700}
  .st{font-size:11px;border:1px solid var(--line);border-radius:6px;padding:2px 8px;margin-left:auto;cursor:pointer}.st.start{color:var(--good);border-color:var(--good)}.st.bench{color:var(--warn);border-color:var(--warn)}
+ .lban{border-radius:10px;padding:8px 11px;font-size:12.5px;margin:2px 0 10px;display:flex;gap:6px;align-items:flex-start}
+ .lban.ok{border:1px solid var(--good);color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent)}
+ .lban.warn{border:1px solid var(--warn);color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
+ .lban svg{flex:none;margin-top:1px}
+ .lsum{margin-bottom:12px;font-size:13px}
+ .lsum .nchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+ .nchip{border:1px solid var(--bad);color:var(--bad);background:var(--panel);border-radius:999px;padding:2px 10px;font-size:12px;white-space:nowrap}
  /* box score */
  .box{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
  .boxcol{padding:0}.boxcol:first-child{border-right:1px solid var(--line)}
@@ -120,6 +128,8 @@
 <script>
 let STATE=null, TEAMS={}, VIEW=null, CUR=null;
 const $=id=>document.getElementById(id);
+const TRI='<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.24 3.96 1.82 18.02A2 2 0 0 0 3.5 21h17a2 2 0 0 0 1.7-2.98L13.66 3.96a2 2 0 0 0-3.42 0z"/></svg>';
+const CHK='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M5 12l5 5L20 7"/></svg>';
 async function load(week){
   const q = week!=null ? ('?week='+week) : '';
   STATE = await (await fetch('/api/state'+q)).json();
@@ -140,8 +150,10 @@ function renderScores(){
     const hp=g.home.points, ap=g.away.points;
     const hw=done&&hp>ap, aw=done&&ap>hp;
     const f=v=>v==null?'<span class="sub">—</span>':(+v).toFixed(0);
+    const isCur = VIEW===CUR;
     const tp=t=>t.to_play>0?`<span class="toplay">${t.to_play} to play</span>`:'';
-    const row=(t,win)=>`<div class="r ${win?'win':''}"><span class="nm">${t.name}</span>${tp(t)}<span class="s">${f(t.points)}</span></div>`;
+    const flag=t=>(isCur && !done && !t.lineup_set)?`<span class="noflag">${TRI} no lineup</span>`:'';
+    const row=(t,win)=>`<div class="r ${win?'win':''}"><span class="nm">${t.name}</span>${flag(t)}${tp(t)}<span class="s">${f(t.points)}</span></div>`;
     return `<div class="game" onclick="boxScore(${g.home.id},${g.away.id})">${row(g.home,hw)}${row(g.away,aw)}
       <div class="meta"><span class="${done?'final':''}">${done?'Final':g.kind.toLowerCase()} · Week ${VIEW}</span><span class="boxlink">box score ›</span></div></div>`;
   }).join('') || '<span class="sub">No games this week.</span>';
@@ -194,7 +206,11 @@ async function lineupModal(id){
   const started=new Set((d.box||[]).map(x=>x.asset_ref)), unit=s=>['C','K','DEF/ST','QB'].includes(s);
   if(started.size) items.forEach(i=>{if(started.has(i.ref))LU.sel.add(i.ref);});
   else{items.filter(i=>unit(i.slot)).forEach(i=>LU.sel.add(i.ref));items.filter(i=>i.slot==='RB').slice(0,2).forEach(i=>LU.sel.add(i.ref));items.filter(i=>i.slot==='R').slice(0,3).forEach(i=>LU.sel.add(i.ref));}
+  const banner = started.size
+    ? `<div class="lban ok">${CHK}<span>Your Week ${CUR} lineup is in. Players lock at their kickoff.</span></div>`
+    : `<div class="lban warn">${TRI}<span>No lineup set for Week ${CUR} — you're currently on last week's lineup. Submit below to confirm or change it.</span></div>`;
   openM(`<h3>${d.name} — Set Lineup <span class="sub">· Week ${CUR}</span></h3>
+    ${banner}
     <div class="sub">Start 9: C, K, DEF/ST, QB, 2 RB, 3 R. Players lock at their kickoff.</div>
     <div id="luRows" style="margin-top:10px"></div><div class="explain" id="luHint"></div>
     <div class="pass"><span>passcode:</span><input type="password" id="lpc" placeholder="demo"><button class="go" onclick="submitLineup()">Submit lineup</button></div>`);
@@ -247,7 +263,12 @@ function commishModal(){ openM(`<h3>🛠 Commissioner <span class="sub">Steve &a
 function commishUnlock(){ COMMISH_PC=$('cpc').value; renderCommish(); }
 async function apost(url,body){ body.passcode=COMMISH_PC; const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const j=await r.json(); if(!r.ok){alert('⚠ '+(j.error||'error'));return null;} return j; }
 function renderCommish(){ const teams=[...STATE.standings.BLUE,...STATE.standings.RED];
-  $('commBody').innerHTML=`<table class="feetable"><thead><tr><th>Team</th><th>#</th><th>Slot</th><th>New passcode</th><th></th><th>Owes</th><th>Payment</th></tr></thead><tbody>`
+  const L=STATE.lineups;
+  const lsum = L ? `<div class="lsum"><b>Lineups · Week ${L.week}:</b> <span style="color:var(--good)">${L.in}</span>/${L.total} in`
+    + (L.not_in.length ? ` · <span style="color:var(--bad)">${L.not_in.length}</span> not in`
+        + `<div class="nchips">${L.not_in.map(t=>`<span class="nchip">${TRI} ${t.name}</span>`).join('')}</div>`
+        : ` <span class="sub">— all in ✓</span>`) + `</div>` : '';
+  $('commBody').innerHTML=lsum+`<table class="feetable"><thead><tr><th>Team</th><th>#</th><th>Slot</th><th>New passcode</th><th></th><th>Owes</th><th>Payment</th></tr></thead><tbody>`
    +teams.map(t=>{const f=STATE.fees[t.team_id]||{balance_cents:0};
      return `<tr><td>${t.name}</td><td><input id="tn_${t.team_id}" style="width:40px" value="${t.team_number??''}"></td>
       <td><input id="ds_${t.team_id}" style="width:40px" value="${t.draft_slot??''}"></td>

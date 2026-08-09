@@ -99,6 +99,19 @@ def create_app(db_path: str | None = None) -> Flask:
         sid = s["id"]
         wk = int(request.args.get("week") or s["current_ff_week"])
         stand = st.compute_standings(conn, sid, wk)
+        # compute_standings returns records only; merge in per-team metadata the
+        # UI needs (alive dimming, commissioner # / slot fields).
+        meta = {r["id"]: r for r in conn.execute(
+            "SELECT id, alive, eliminated_ff_week, team_number, draft_slot "
+            "FROM teams WHERE season_id=?", (sid,))}
+        for cc in ("BLUE", "RED"):
+            for t in stand[cc]:
+                m = meta.get(t["team_id"])
+                if m:
+                    t["alive"] = bool(m["alive"])
+                    t["eliminated_ff_week"] = m["eliminated_ff_week"]
+                    t["team_number"] = m["team_number"]
+                    t["draft_slot"] = m["draft_slot"]
         scores = {r["team_id"]: r["computed_points"] for r in conn.execute(
             "SELECT team_id, computed_points FROM team_week_scores WHERE season_id=? AND ff_week=?",
             (sid, wk))}
@@ -146,9 +159,31 @@ def create_app(db_path: str | None = None) -> Flask:
         weeks = [r["w"] for r in conn.execute(
             "SELECT DISTINCT ff_week w FROM team_week_scores WHERE season_id=? ORDER BY ff_week", (sid,))] or [wk]
         last = conn.execute("SELECT MAX(computed_at) c FROM team_week_scores WHERE season_id=?", (sid,)).fetchone()["c"]
+
+        # Lineup-submission status for the CURRENT week (independent of the
+        # viewed week) — drives the straggler flags + commissioner summary.
+        cur = s["current_ff_week"]
+        alive_ids = {r["id"] for r in conn.execute(
+            "SELECT id FROM teams WHERE season_id=? AND alive=1", (sid,))}
+        cur_counts = {r["team_id"]: r["c"] for r in conn.execute(
+            "SELECT team_id, COUNT(*) c FROM weekly_lineups WHERE season_id=? AND ff_week=? "
+            "GROUP BY team_id", (sid, cur))}
+        lin_in, lin_notin = 0, []
+        for cc in ("BLUE", "RED"):
+            for t in stand[cc]:
+                if t["team_id"] not in alive_ids:
+                    continue                        # eliminated teams don't set lineups
+                if cur_counts.get(t["team_id"], 0) >= 9:
+                    lin_in += 1
+                else:
+                    lin_notin.append({"id": t["team_id"], "name": t["name"]})
+        lineups = {"week": cur, "in": lin_in, "total": lin_in + len(lin_notin),
+                   "not_in": lin_notin}
+
         return jsonify(season={"label": s["label"], "week": wk,
                                "current": s["current_ff_week"], "weeks": weeks, "last_updated": last},
-                       standings=stand, scoreboard=board, fees=fees, pool=pool, transactions=tx)
+                       standings=stand, scoreboard=board, fees=fees, pool=pool,
+                       transactions=tx, lineups=lineups)
 
     @app.get("/api/team/<int:team_id>/detail")
     def team_detail(team_id):
