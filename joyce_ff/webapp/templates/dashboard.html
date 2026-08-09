@@ -39,9 +39,8 @@
  th:nth-child(2),td:nth-child(2){text-align:left;width:100%}
  th{color:var(--dim);font-size:11px;font-weight:600;border-bottom:1px solid var(--line)}
  tbody tr{border-bottom:1px solid var(--line)}
- tbody tr.dead td{opacity:.45}
  tr.playoff td:first-child{color:var(--good);font-weight:800}
- .tname{font-weight:700;cursor:pointer;color:var(--bright)}
+ .tname{font-weight:400;cursor:pointer;color:var(--bright)}
  .tname:hover{text-decoration:underline}
  .acts{display:inline-flex;gap:4px;margin-left:8px}
  .chip{border:1px solid var(--line);background:var(--panel2);color:var(--dim);border-radius:6px;padding:1px 7px;font-size:11px;cursor:pointer}
@@ -159,7 +158,7 @@ function renderScores(){
   }).join('') || '<span class="sub">No games this week.</span>';
 }
 function teamRow(t){
-  return `<tr class="${t.playoffs?'playoff':''} ${t.alive?'':'dead'}"><td>${t.seed}</td>
+  return `<tr class="${t.playoffs?'playoff':''}"><td>${t.seed}</td>
     <td><span class="tname" onclick="roster(${t.team_id})">${t.name}</span>
     <span class="acts"><span class="chip" onclick="event.stopPropagation();lineupModal(${t.team_id})">⚙</span>
     <span class="chip" onclick="event.stopPropagation();txModal(${t.team_id})">⇄＋</span></span></td>
