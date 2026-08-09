@@ -99,8 +99,12 @@ def create_app(db_path: str | None = None) -> Flask:
             "ORDER BY tr.ff_week DESC, tr.id DESC LIMIT 20", (sid,)):
             tx[r["conf"]].append({"week": r["w"], "team": r["team"], "type": r["type"],
                 "desc": f"{_dname(conn, sid, r['ok'], r['oref'])} → {_dname(conn, sid, r['ik'], r['iref'])}"})
+        fees = {}
+        for conf in ("BLUE", "RED"):
+            for t in stand[conf]:
+                fees[t["team_id"]] = repo.fee_balance_cents(conn, t["team_id"])
         return jsonify(season={"label": s["label"], "week": wk},
-                       standings=stand, scoreboard=board,
+                       standings=stand, scoreboard=board, fees=fees,
                        pool=st.pool_status(conn, sid), transactions=tx)
 
     @app.get("/api/team/<int:team_id>/detail")
@@ -116,8 +120,14 @@ def create_app(db_path: str | None = None) -> Flask:
                  "desc": f"{_dname(conn, sid, t['out_asset_kind'], t['out_asset_ref'])} → "
                          f"{_dname(conn, sid, t['in_asset_kind'], t['in_asset_ref'])}",
                  "fee": t["fee_cents"]} for t in repo.transaction_history(conn, team_id)]
+        opens = [{"asset_ref": t["in_asset_ref"], "position": t["position"],
+                  "name": _dname(conn, sid, t["in_asset_kind"], t["in_asset_ref"])}
+                 for t in conn.execute(
+                     "SELECT in_asset_ref, in_asset_kind, position FROM transactions "
+                     "WHERE season_id=? AND team_id=? AND ff_week=? AND type='OPEN' AND reversed=0",
+                     (sid, team_id, wk))]
         return jsonify(name=row["name"], managers=row["manager_names"],
-                       roster=roster, fees=fees, history=hist,
+                       roster=roster, fees=fees, history=hist, opens=opens,
                        box=scoring.box_score(conn, sid, wk, team_id))
 
     @app.get("/api/team/<int:team_id>/available")
@@ -185,5 +195,50 @@ def create_app(db_path: str | None = None) -> Flask:
         repo.record_payment(db(), season()["id"], team_id, int(b["amount_cents"]),
                             note=b.get("note"), actor="commissioner")
         return jsonify(ok=True, balance=repo.fee_balance_cents(db(), team_id))
+
+    # ---- commissioner admin (commissioner passcode only) ----
+    def _commish():
+        return None if auth.is_commissioner(db(), _passcode()) else \
+            (jsonify(error="commissioner passcode required"), 403)
+
+    @app.post("/api/admin/team/<int:team_id>")
+    def admin_set_team(team_id):
+        if (bad := _commish()):
+            return bad
+        b = request.get_json(force=True)
+        for col in ("team_number", "draft_slot", "manager_names"):
+            if col in b and b[col] not in (None, ""):
+                val = int(b[col]) if col != "manager_names" else b[col]
+                try:
+                    db().execute(f"UPDATE teams SET {col}=? WHERE id=?", (val, team_id))
+                except Exception as e:  # e.g. UNIQUE team_number collision
+                    return jsonify(error=f"{col}: {e}"), 400
+        db().commit()
+        return jsonify(ok=True)
+
+    @app.post("/api/admin/team/<int:team_id>/passcode")
+    def admin_set_passcode(team_id):
+        if (bad := _commish()):
+            return bad
+        new = request.get_json(force=True).get("new_passcode")
+        if not new:
+            return jsonify(error="new_passcode required"), 400
+        auth.set_team_passcode(db(), team_id, new)
+        return jsonify(ok=True)
+
+    @app.post("/api/admin/run-current")
+    def admin_run_current():
+        if (bad := _commish()):
+            return bad
+        from ..league.runner import run_current
+        return jsonify(ok=True, scored_weeks=run_current(db(), season()["id"]))
+
+    @app.post("/api/admin/reverse/<int:tx_id>")
+    def admin_reverse(tx_id):
+        if (bad := _commish()):
+            return bad
+        db().execute("UPDATE transactions SET reversed=1 WHERE id=?", (tx_id,))
+        db().commit()
+        return jsonify(ok=True)
 
     return app

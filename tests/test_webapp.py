@@ -82,6 +82,26 @@ def test_wsgi_module_exposes_app():
     assert wsgi.app is not None
 
 
+def test_admin_endpoints_require_commissioner(client):
+    # team passcode is NOT enough for admin
+    bad = client.post(f"/api/admin/team/{client.otb}",
+                      json={"passcode": "otblitz", "manager_names": "X"})
+    assert bad.status_code == 403
+    ok = client.post(f"/api/admin/team/{client.otb}",
+                     json={"passcode": "commish", "manager_names": "Scott & Drew"})
+    assert ok.status_code == 200
+
+
+def test_admin_can_set_team_passcode(client):
+    r = client.post(f"/api/admin/team/{client.otb}/passcode",
+                    json={"passcode": "commish", "new_passcode": "newpc"})
+    assert r.status_code == 200
+    # the new passcode now authorizes a team action
+    t = client.post(f"/api/team/{client.otb}/trade",
+                    json={"passcode": "newpc", "position": "RB", "out": "p_bijan", "in": "p_warren"})
+    assert t.status_code == 200
+
+
 def test_payment_is_commissioner_only(client):
     bad = client.post(f"/api/team/{client.otb}/payment",
                       json={"passcode": "otblitz", "amount_cents": 200})

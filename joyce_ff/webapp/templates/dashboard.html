@@ -49,9 +49,13 @@
  .pass{margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.pass input{padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);color:var(--text)}
  .go{background:var(--good);color:#04121d;border:0;border-radius:8px;padding:8px 16px;font-weight:700;cursor:pointer}
  .fees{border:1px solid var(--line);border-radius:10px;margin-top:12px;overflow:hidden}.fees .fhd{background:var(--panel2);padding:7px 12px;font-weight:700;display:flex;justify-content:space-between}.fbal{color:var(--warn);font-weight:800}.frow{display:flex;justify-content:space-between;padding:5px 12px;border-top:1px solid var(--line);font-size:13px}
+ .st{font-size:11px;border:1px solid var(--line);border-radius:6px;padding:2px 8px;margin-left:auto}.st.start{color:var(--good);border-color:var(--good)}.st.bench{color:var(--warn);border-color:var(--warn)}
+ .feetable{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}.feetable th,.feetable td{padding:4px 6px;border-bottom:1px solid var(--line);text-align:left}
+ input{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:4px 7px;font:inherit}.btn.commish{border-color:var(--warn);color:var(--warn)}
 </style></head><body>
 <header><h1>🏈 Steve Joyce Fantasy Football</h1><span class="sub" id="seasonlbl"></span>
- <div class="spacer"></div><span class="sub">passcode: <b>demo</b> · commish: <b>commish</b></span></header>
+ <div class="spacer"></div><button class="btn commish" onclick="commishModal()">🛠 Commissioner</button>
+ <span class="sub">passcode: <b>demo</b> · commish: <b>commish</b></span></header>
 <div class="wrap">
  <h2>This Week · Scoreboard <span class="live">● LIVE</span> <span class="sub" style="text-transform:none">— click a game for the box score</span></h2>
  <div class="scores" id="scores"></div>
@@ -129,12 +133,75 @@ async function boxScore(homeId,awayId){
     +t.box.map(x=>`<div class="srow"><span class="slot">${x.roster_slot}</span><span class="nm">${x.display}${x.is_rental?' <span class="sub">(open)</span>':''}</span><span class="pts">${(x.points||0).toFixed(0)}</span></div>`).join('')+`</div>`;};
   openM(`<h3>Box Score</h3><div class="sub">Per-player, computed by the engine.</div><div class="box" style="margin-top:10px">${col(h)}${col(a)}</div>`);
 }
-async function lineupModal(id){ const d=await (await fetch(`/api/team/${id}/detail`)).json();
-  const rows=d.roster.map(r=>`<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}</span></div>`).join('');
-  openM(`<h3>${d.name} — Lineup</h3><div class="sub">Start 9 (C,K,DEF/ST,QB, 2 RB, 3 R). Full editor in the app; this is the demo view.</div>
-   <div style="margin-top:10px">${rows}</div>
-   <div class="pass"><span>passcode:</span><input type="password" id="lpc" placeholder="demo"><button class="go" onclick="alert('Demo: lineup submit posts to the passcode-gated /lineup endpoint.')">Submit</button></div>`);
+let LU={team:null,sel:new Set(),items:[]};
+async function lineupModal(id){
+  const d=await (await fetch(`/api/team/${id}/detail`)).json();
+  const items=d.roster.map(r=>({slot:r.slot,ref:r.asset_ref,name:r.name,rental:false}));
+  (d.opens||[]).forEach(o=>items.push({slot:o.position,ref:o.asset_ref,name:o.name+' (open)',rental:true}));
+  LU={team:id,sel:new Set(),items};
+  const started=new Set((d.box||[]).map(x=>x.asset_ref));
+  const units=i=>['C','K','DEF/ST','QB'].includes(i.slot);
+  if(started.size) items.forEach(i=>{if(started.has(i.ref))LU.sel.add(i.ref);});
+  else { items.filter(units).forEach(i=>LU.sel.add(i.ref));
+    items.filter(i=>i.slot==='RB').slice(0,2).forEach(i=>LU.sel.add(i.ref));
+    items.filter(i=>i.slot==='R').slice(0,3).forEach(i=>LU.sel.add(i.ref)); }
+  openM(`<h3>${d.name} — Set Lineup</h3>
+    <div class="sub">Start 9: C, K, DEF/ST, QB, 2 RB, 3 R. Bye-flex (3rd RB / 4th R) is allowed only with 2 of that position on bye — the server enforces it.</div>
+    <div id="luRows" style="margin-top:10px"></div><div class="explain" id="luHint"></div>
+    <div class="pass"><span>passcode:</span><input type="password" id="lpc" placeholder="demo"><button class="go" onclick="submitLineup()">Submit lineup</button></div>`);
+  renderLineup();
 }
+function renderLineup(){
+  const ord={'C':0,'K':1,'DEF/ST':2,'QB':3,'RB':4,'R':5}, unit=s=>['C','K','DEF/ST','QB'].includes(s);
+  const items=[...LU.items].sort((a,b)=>ord[a.slot]-ord[b.slot]);
+  $('luRows').innerHTML=items.map(i=>{const on=LU.sel.has(i.ref);
+    return `<div class="srow"><span class="slot">${i.slot}</span><span class="nm">${i.name}</span>
+     <span class="st ${on?'start':'bench'}" ${unit(i.slot)?'':`onclick="toggleStart('${i.ref}')" style="cursor:pointer"`}>${on?'START':'BENCH'}</span></div>`;}).join('');
+  const cnt=s=>[...LU.sel].filter(r=>LU.items.find(i=>i.ref===r&&i.slot===s)).length;
+  $('luHint').innerHTML=`Starting <b>${LU.sel.size}</b>/9 · RB ${cnt('RB')} · R ${cnt('R')} ${LU.sel.size===9?'✅':'— pick 9'}`;
+}
+function toggleStart(ref){ LU.sel.has(ref)?LU.sel.delete(ref):LU.sel.add(ref); renderLineup(); }
+async function submitLineup(){
+  const starters=[...LU.sel].map(ref=>({roster_slot:LU.items.find(i=>i.ref===ref).slot,asset_ref:ref}));
+  const res=await fetch(`/api/team/${LU.team}/lineup`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({passcode:$('lpc').value,starters})});
+  const j=await res.json();
+  if(res.ok){alert('Lineup saved!');closeM();load();} else alert('⚠ '+(j.error||'error'));
+}
+let COMMISH_PC='';
+function commishModal(){
+  openM(`<h3>🛠 Commissioner <span class="sub">Steve &amp; Scott</span></h3>
+   <div class="pass"><span>passcode:</span><input type="password" id="cpc" placeholder="commish" value="${COMMISH_PC}">
+     <button class="btn" onclick="commishUnlock()">Unlock</button>
+     <button class="btn" onclick="runCurrent()">▶ Score current week(s)</button></div>
+   <div id="commBody"><div class="sub">Unlock to edit team #/slot/passcode and record payments.</div></div>`);
+}
+function commishUnlock(){ COMMISH_PC=$('cpc').value; renderCommish(); }
+async function apost(url,body){ body.passcode=COMMISH_PC;
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json(); if(!r.ok){alert('⚠ '+(j.error||'error'));return null;} return j; }
+function renderCommish(){ const teams=[...STATE.standings.BLUE,...STATE.standings.RED];
+  $('commBody').innerHTML=`<table class="feetable"><thead><tr><th>Team</th><th>#</th><th>Slot</th><th>New passcode</th><th></th><th>Owes</th><th>Payment</th></tr></thead><tbody>`
+   +teams.map(t=>{const f=STATE.fees[t.team_id]||{balance_cents:0};
+     return `<tr><td>${t.name}</td>
+      <td><input id="tn_${t.team_id}" style="width:40px" value="${t.team_number??''}"></td>
+      <td><input id="ds_${t.team_id}" style="width:40px" value="${t.draft_slot??''}"></td>
+      <td><input id="pc_${t.team_id}" style="width:80px" placeholder="—"></td>
+      <td><button class="chip" onclick="saveTeam(${t.team_id})">save</button></td>
+      <td>$${(f.balance_cents/100).toFixed(0)}</td>
+      <td><input id="pay_${t.team_id}" style="width:38px" placeholder="$"><button class="chip" onclick="applyPay(${t.team_id})">pay</button></td></tr>`;}).join('')
+   +`</tbody></table>`;
+}
+async function saveTeam(id){ const tn=$('tn_'+id).value,ds=$('ds_'+id).value,pc=$('pc_'+id).value;
+  const j=await apost(`/api/admin/team/${id}`,{team_number:tn||undefined,draft_slot:ds||undefined});
+  if(j&&pc) await apost(`/api/admin/team/${id}/passcode`,{new_passcode:pc});
+  if(j){alert('Saved'); await load(); renderCommish();}
+}
+async function applyPay(id){ const a=$('pay_'+id).value; if(!a)return;
+  const j=await apost(`/api/team/${id}/payment`,{amount_cents:Math.round(parseFloat(a)*100),note:'commissioner'});
+  if(j){alert('Payment recorded'); await load(); renderCommish();} }
+async function runCurrent(){ const j=await apost('/api/admin/run-current',{});
+  if(j){alert('Scored weeks: '+(j.scored_weeks.join(', ')||'none ready yet')); load();} }
 
 let TX={team:null,out:null,outPos:null,in:null,mode:'trade'};
 async function txModal(id){ const d=await (await fetch(`/api/team/${id}/detail`)).json();
