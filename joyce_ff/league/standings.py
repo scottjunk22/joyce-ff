@@ -125,7 +125,14 @@ def _rank(teamstats: list[dict], results: list[tuple]) -> list[dict]:
 def run_elimination(conn, season_id: int, ff_week: int) -> int | None:
     """Eliminate the lowest-scoring team AMONG SURVIVORS this week. Returns the
     eliminated team_id (or None if no scored survivors). Tie for lowest is
-    broken by lowest season points-for so far, then name (rule pending)."""
+    broken by lowest season points-for so far, then name (rule pending).
+
+    Idempotent: if an elimination already happened this week, return it."""
+    already = conn.execute(
+        "SELECT id FROM teams WHERE season_id=? AND eliminated_ff_week=?",
+        (season_id, ff_week)).fetchone()
+    if already:
+        return already["id"]
     rows = conn.execute(
         "SELECT tw.team_id, tw.computed_points FROM team_week_scores tw "
         "JOIN teams t ON t.id=tw.team_id "

@@ -95,10 +95,41 @@ def cmd_serve(argv: list[str]) -> int:
     return 0
 
 
+def cmd_run_week(argv: list[str]) -> int:
+    from joyce_ff.league import connect
+    from joyce_ff.league.runner import reconcile_week, run_week
+
+    if not argv or not argv[0].isdigit():
+        print("usage: run-week N", file=sys.stderr)
+        return 1
+    wk = int(argv[0])
+    conn = connect()
+    sid = conn.execute("SELECT id FROM seasons ORDER BY year DESC LIMIT 1").fetchone()["id"]
+    s = run_week(conn, sid, wk)
+    elim = s.get("eliminated_team_id")
+    ename = conn.execute("SELECT name FROM teams WHERE id=?", (elim,)).fetchone() if elim else None
+    print(f"Week {wk}: scored {len(s['team_scores'])} teams"
+          + (f", scored {s['assets_scored']} NFL assets" if 'assets_scored' in s else "")
+          + (f"; eliminated {ename['name']}" if ename else ""))
+    rec = reconcile_week(conn, sid, wk)
+    if rec["checked"]:
+        print(f"Reconcile vs legacy site: {rec['matched']}/{rec['checked']} match"
+              + (f"  MISMATCHES: {rec['mismatches']}" if rec["mismatches"] else ""))
+    conn.close()
+    return 0
+
+
 def cmd_sync(_argv: list[str]) -> int:
-    print("sync is not implemented yet (Phase 2). No data was fetched.",
-          file=sys.stderr)
-    return 2
+    from joyce_ff.league import connect
+    from joyce_ff.league.scrape import scrape_and_store
+
+    conn = connect()
+    s = conn.execute("SELECT id, current_ff_week FROM seasons ORDER BY year DESC LIMIT 1").fetchone()
+    r = scrape_and_store(conn, s["id"], s["current_ff_week"])
+    print(f"Scraped legacy site (snapshot {r['sha']}): stored {r['matched']} posted totals"
+          + (f"; unmatched labels: {r['unmatched']}" if r["unmatched"] else ""))
+    conn.close()
+    return 0
 
 
 def cmd_run(argv: list[str]) -> int:
@@ -116,6 +147,7 @@ COMMANDS = {
     "schedule": cmd_schedule,
     "league-init": cmd_league_init,
     "demo-seed": cmd_demo_seed,
+    "run-week": cmd_run_week,
     "serve": cmd_serve,
     "sync": cmd_sync,
     "run": cmd_run,
