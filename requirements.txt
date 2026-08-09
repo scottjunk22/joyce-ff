@@ -10,3 +10,4 @@ pandas>=2.2            # dataframe handling for nflverse pulls
 pyarrow>=15            # read nflverse parquet releases
 requests>=2.31         # (available for future polite fetching)
 beautifulsoup4>=4.12   # defensive HTML parsing of the hand-maintained site
+flask>=3.1             # league web app (stevejoyceff.com)

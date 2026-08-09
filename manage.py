@@ -74,6 +74,16 @@ def cmd_league_init(_argv: list[str]) -> int:
     return 0
 
 
+def cmd_serve(argv: list[str]) -> int:
+    from joyce_ff.webapp import create_app
+
+    port = int(argv[argv.index("--port") + 1]) if "--port" in argv else 5000
+    app = create_app()
+    print(f"Serving the league site at http://127.0.0.1:{port}  (Ctrl+C to stop)")
+    app.run(host="127.0.0.1", port=port, debug="--debug" in argv)
+    return 0
+
+
 def cmd_sync(_argv: list[str]) -> int:
     print("sync is not implemented yet (Phase 2). No data was fetched.",
           file=sys.stderr)
@@ -94,6 +104,7 @@ COMMANDS = {
     "market": cmd_market,
     "schedule": cmd_schedule,
     "league-init": cmd_league_init,
+    "serve": cmd_serve,
     "sync": cmd_sync,
     "run": cmd_run,
 }
