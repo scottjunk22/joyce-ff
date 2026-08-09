@@ -11,6 +11,9 @@ here — routes stay dumb on purpose.
 
 from __future__ import annotations
 
+import os
+import secrets
+
 from flask import Flask, g, jsonify, render_template, request
 
 from ..league import auth, repo, schema, scoring
@@ -19,7 +22,11 @@ from ..league import standings as st
 
 def create_app(db_path: str | None = None) -> Flask:
     app = Flask(__name__)
-    app.config["DB_PATH"] = str(db_path or schema.DEFAULT_DB_PATH)
+    # DB location: explicit arg > JOYCE_DB_PATH env (a persistent host path) >
+    # the default. Secret key from env in production; ephemeral otherwise.
+    app.config["DB_PATH"] = str(db_path or os.environ.get("JOYCE_DB_PATH")
+                                or schema.DEFAULT_DB_PATH)
+    app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(16)
 
     def db():
         if "db" not in g:

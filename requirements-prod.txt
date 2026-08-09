@@ -1,0 +1,5 @@
+# Production hosts (Linux) install this. It adds a real WSGI server on top of
+# the base requirements. Do NOT install this on Windows — gunicorn is
+# Linux-only; local dev uses requirements.txt + `manage.py serve`.
+-r requirements.txt
+gunicorn>=21.2

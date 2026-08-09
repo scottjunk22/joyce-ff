@@ -64,6 +64,24 @@ def test_valid_trade_succeeds(client):
     assert r.status_code == 200 and r.get_json()["ok"] is True
 
 
+def test_create_app_honors_env_db_path(tmp_path, monkeypatch):
+    db = tmp_path / "env.sqlite"
+    conn = schema.connect(db)
+    schema.init_db(conn)
+    schema.seed_reference(conn)
+    conn.close()
+    monkeypatch.setenv("JOYCE_DB_PATH", str(db))
+    app = create_app()
+    assert app.config["DB_PATH"] == str(db)
+    with app.test_client() as c:
+        assert c.get("/healthz").status_code == 200
+
+
+def test_wsgi_module_exposes_app():
+    import wsgi
+    assert wsgi.app is not None
+
+
 def test_payment_is_commissioner_only(client):
     bad = client.post(f"/api/team/{client.otb}/payment",
                       json={"passcode": "otblitz", "amount_cents": 200})

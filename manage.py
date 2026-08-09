@@ -119,6 +119,18 @@ def cmd_run_week(argv: list[str]) -> int:
     return 0
 
 
+def cmd_run_current(_argv: list[str]) -> int:
+    from joyce_ff.league import connect
+    from joyce_ff.league.runner import run_current
+
+    conn = connect()
+    sid = conn.execute("SELECT id FROM seasons ORDER BY year DESC LIMIT 1").fetchone()["id"]
+    ran = run_current(conn, sid)
+    print(f"Auto-scored FF weeks: {ran or 'none ready yet'}")
+    conn.close()
+    return 0
+
+
 def cmd_sync(_argv: list[str]) -> int:
     from joyce_ff.league import connect
     from joyce_ff.league.scrape import scrape_and_store
@@ -148,6 +160,7 @@ COMMANDS = {
     "league-init": cmd_league_init,
     "demo-seed": cmd_demo_seed,
     "run-week": cmd_run_week,
+    "run-current": cmd_run_current,
     "serve": cmd_serve,
     "sync": cmd_sync,
     "run": cmd_run,
