@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Steve Joyce Fantasy Football</title>
+<style>
+ :root{--bg:#0f1216;--panel:#161b22;--panel2:#1d242d;--line:#2b333d;--text:#e7eaf0;
+   --dim:#9aa4b2;--blue:#4c8dff;--red:#ff5d6c;--good:#4ade80;--warn:#fbbf24;--bad:#f87171}
+ @media(prefers-color-scheme:light){:root{--bg:#eef1f6;--panel:#fff;--panel2:#f0f3f8;
+   --line:#d9e0ea;--text:#131922;--dim:#5c6673;--blue:#1663d6;--red:#d62b3b}}
+ *{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+ header{background:var(--panel);border-bottom:1px solid var(--line);padding:14px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+ h1{margin:0;font-size:19px}.sub{color:var(--dim);font-size:12px}.spacer{margin-left:auto}
+ .btn{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer}
+ .btn.commish{border-color:var(--warn);color:var(--warn)}
+ .wrap{max-width:1120px;margin:0 auto;padding:18px 20px}
+ h2{font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:22px 0 10px}
+ .live{color:var(--good);font-weight:700}
+ .scores{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+ .game{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer}
+ .game:hover{border-color:var(--blue)}.game .r{display:flex;justify-content:space-between;padding:3px 0}
+ .game .r.win{font-weight:700}.game .meta{color:var(--dim);font-size:11px;margin-top:5px;border-top:1px solid var(--line);padding-top:5px}
+ .leagues{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+ @media(max-width:820px){.leagues,.cols{grid-template-columns:1fr!important}}
+ .lg{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+ .lg .cap{padding:9px 13px;font-weight:800}.lg.blue .cap{background:color-mix(in srgb,var(--blue) 22%,transparent);border-bottom:2px solid var(--blue)}
+ .lg.red .cap{background:color-mix(in srgb,var(--red) 22%,transparent);border-bottom:2px solid var(--red)}
+ table{width:100%;border-collapse:collapse}th,td{padding:6px 9px;text-align:right;white-space:nowrap;font-size:13px}
+ th:nth-child(2),td:nth-child(2){text-align:left;width:100%}th{color:var(--dim);font-size:11px;border-bottom:1px solid var(--line)}
+ tbody tr{border-bottom:1px solid var(--line)}tr.dead{opacity:.5}
+ tr.playoff td:first-child{color:var(--good);font-weight:700}
+ .tname{font-weight:600;cursor:pointer}.tname:hover{text-decoration:underline}
+ .acts{display:inline-flex;gap:4px;margin-left:8px}.chip{border:1px solid var(--line);background:var(--panel2);color:var(--dim);border-radius:6px;padding:1px 7px;font-size:11px;cursor:pointer}
+ .chip:hover{border-color:var(--blue);color:var(--text)}
+ .chips{display:flex;flex-wrap:wrap;gap:6px}.echip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:2px 10px;font-size:12px}
+ .echip.dead{opacity:.7;border-color:var(--bad)}.echip.dead .nm{text-decoration:line-through}.echip .wk{color:var(--bad);margin-left:5px;font-size:10px}
+ .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+ .txlist{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+ .txlist .cap{padding:8px 13px;font-weight:800;border-bottom:2px solid var(--line)}
+ .tx{padding:7px 13px;border-bottom:1px solid var(--line);font-size:13px}.tx .wk{color:var(--dim)}.tx .trade{color:var(--blue)}.tx .open{color:var(--warn)}
+ .mb{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:16px;z-index:20}
+ .mb.show{display:flex}.modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:760px;width:100%;max-height:88vh;overflow:auto;padding:18px 20px}
+ .modal h3{margin:0 0 3px}.modal .x{float:right;cursor:pointer;color:var(--dim);font-size:22px}
+ .srow{display:flex;gap:8px;border-bottom:1px solid var(--line);padding:4px 2px;font-size:13px}.srow .slot{min-width:52px;color:var(--dim);font-weight:700;font-size:11px}.srow .nm{flex:1}.srow .pts{font-weight:600}
+ .box{display:grid;grid-template-columns:1fr 1fr;gap:14px}.boxcol .tot{font-weight:800;display:flex;justify-content:space-between;margin-bottom:6px}
+ .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:8px 0}.seg button{background:var(--panel2);border:0;color:var(--text);padding:6px 14px;cursor:pointer}.seg button.on{background:var(--blue);color:#04121d;font-weight:700}
+ .plist{border:1px solid var(--line);border-radius:8px;max-height:230px;overflow:auto}.pl{display:flex;justify-content:space-between;padding:6px 9px;border-bottom:1px solid var(--line);cursor:pointer}.pl:hover{background:var(--panel2)}.pl.sel{background:color-mix(in srgb,var(--blue) 22%,transparent)}.pl .pos{color:var(--dim);font-size:11px;min-width:52px;display:inline-block}
+ .searchbox{width:100%;padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);color:var(--text);margin-bottom:6px}
+ .explain{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:12px;color:var(--dim);margin-top:10px}
+ .pass{margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.pass input{padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);color:var(--text)}
+ .go{background:var(--good);color:#04121d;border:0;border-radius:8px;padding:8px 16px;font-weight:700;cursor:pointer}
+ .fees{border:1px solid var(--line);border-radius:10px;margin-top:12px;overflow:hidden}.fees .fhd{background:var(--panel2);padding:7px 12px;font-weight:700;display:flex;justify-content:space-between}.fbal{color:var(--warn);font-weight:800}.frow{display:flex;justify-content:space-between;padding:5px 12px;border-top:1px solid var(--line);font-size:13px}
+</style></head><body>
+<header><h1>🏈 Steve Joyce Fantasy Football</h1><span class="sub" id="seasonlbl"></span>
+ <div class="spacer"></div><span class="sub">passcode: <b>demo</b> · commish: <b>commish</b></span></header>
+<div class="wrap">
+ <h2>This Week · Scoreboard <span class="live">● LIVE</span> <span class="sub" style="text-transform:none">— click a game for the box score</span></h2>
+ <div class="scores" id="scores"></div>
+ <h2>Standings</h2>
+ <div class="leagues"><div class="lg blue"><div class="cap" style="color:var(--blue)">BLUE CONFERENCE</div>
+   <table><thead><tr><th>#</th><th>Team</th><th>W-L-T</th><th>Conf</th><th>PF</th><th>PA</th></tr></thead><tbody id="blue"></tbody></table></div>
+  <div class="lg red"><div class="cap" style="color:var(--red)">RED CONFERENCE</div>
+   <table><thead><tr><th>#</th><th>Team</th><th>W-L-T</th><th>Conf</th><th>PF</th><th>PA</th></tr></thead><tbody id="red"></tbody></table></div></div>
+ <p class="sub">Click a team for its roster. Buttons: ⚙ Lineup · ⇄ Trade · ＋ Open (each asks that team's passcode). * = top 8 → playoffs.</p>
+ <h2>💀 Elimination Pool</h2>
+ <div class="cols"><div><h4 class="sub">✅ Still alive</h4><div class="chips" id="alive"></div></div>
+  <div><h4 class="sub">💀 Eliminated</h4><div class="chips" id="dead"></div></div></div>
+ <h2>Transactions <span class="sub" style="text-transform:none">— $2 each</span></h2>
+ <div class="leagues"><div class="txlist"><div class="cap" style="color:var(--blue)">BLUE CONFERENCE</div><div id="txBlue"></div></div>
+  <div class="txlist"><div class="cap" style="color:var(--red)">RED CONFERENCE</div><div id="txRed"></div></div></div>
+</div>
+
+<div class="mb" id="mb"><div class="modal"><span class="x" onclick="closeM()">×</span><div id="mbody"></div></div></div>
+
+<script>
+let STATE=null, TEAMS={};
+const $=id=>document.getElementById(id);
+async function load(){
+  STATE=await (await fetch('/api/state')).json();
+  $('seasonlbl').textContent=`${STATE.season.label} · week ${STATE.season.week}`;
+  for(const conf of ['BLUE','RED']) STATE.standings[conf].forEach(t=>TEAMS[t.team_id]=t);
+  renderScores(); renderStandings(); renderPool(); renderTx();
+}
+function renderScores(){
+  $('scores').innerHTML=STATE.scoreboard.map((g,i)=>{
+    const hp=g.home.points, ap=g.away.points, done=hp!=null&&ap!=null;
+    const hw=done&&hp>=ap, aw=done&&ap>=hp;
+    const f=v=>v==null?'<span class="sub">—</span>':(+v).toFixed(0);
+    return `<div class="game" onclick='boxScore(${g.home.id},${g.away.id})'>
+      <div class="r ${hw?'win':''}"><span>${g.home.name}</span><span>${f(hp)}</span></div>
+      <div class="r ${aw?'win':''}"><span>${g.away.name}</span><span>${f(ap)}</span></div>
+      <div class="meta"><span>${g.kind.toLowerCase()} · wk ${STATE.season.week}</span><span class="live">box ›</span></div></div>`;}).join('')
+    || '<span class="sub">No games scored yet.</span>';
+}
+function teamRow(t){
+  return `<tr class="${t.playoffs?'playoff':''} ${t.alive?'':'dead'}"><td>${t.seed}${t.playoffs?'*':''}</td>
+    <td><span class="tname" onclick="roster(${t.team_id})">${t.name}</span>
+    <span class="acts"><span class="chip" onclick="lineupModal(${t.team_id})">⚙</span>
+    <span class="chip" onclick="txModal(${t.team_id})">⇄ ＋</span></span></td>
+    <td>${t.wins}-${t.losses}-${t.ties}</td><td>${t.conf_wins}-${t.conf_losses}</td>
+    <td>${t.pf.toFixed(0)}</td><td>${t.pa.toFixed(0)}</td></tr>`;
+}
+function renderStandings(){ $('blue').innerHTML=STATE.standings.BLUE.map(teamRow).join('');
+  $('red').innerHTML=STATE.standings.RED.map(teamRow).join(''); }
+function renderPool(){
+  $('alive').innerHTML=STATE.pool.alive.map(t=>`<span class="echip"><span class="nm">${t.name}</span></span>`).join('');
+  $('dead').innerHTML=STATE.pool.eliminated.map(t=>`<span class="echip dead"><span class="nm">${t.name}</span><span class="wk">Wk ${t.eliminated_ff_week}</span></span>`).join('');
+}
+function renderTx(){ const row=t=>`<div class="tx"><span class="wk">W${t.week}</span>
+   <span class="${t.type.toLowerCase()}">${t.type==='TRADE'?'⇄':'＋'}</span> <b>${t.team}</b> — ${t.desc} <span class="sub">· $2</span></div>`;
+  $('txBlue').innerHTML=STATE.transactions.BLUE.map(row).join('')||'<div class="tx sub">none yet</div>';
+  $('txRed').innerHTML=STATE.transactions.RED.map(row).join('')||'<div class="tx sub">none yet</div>'; }
+
+// ---- modals ----
+function openM(html){ $('mbody').innerHTML=html; $('mb').classList.add('show'); }
+function closeM(){ $('mb').classList.remove('show'); }
+$('mb').addEventListener('click',e=>{if(e.target===$('mb'))closeM();});
+
+async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail`)).json();
+  const rows=d.roster.map(r=>`<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}</span></div>`).join('');
+  const bal=(c=>`$${(c/100).toFixed(0)}`);
+  const fees=`<div class="fees"><div class="fhd"><span>Transaction fees</span><span class="fbal">balance ${bal(d.fees.balance_cents)} <span class="sub">(${bal(d.fees.owed_cents)} owed − ${bal(d.fees.paid_cents)} paid)</span></span></div>`
+    +d.history.map(h=>`<div class="frow"><span>W${h.week} ${h.type==='TRADE'?'⇄':'＋'} ${h.desc}</span><span>$${(h.fee/100).toFixed(0)}</span></div>`).join('')+`</div>`;
+  openM(`<h3>${d.name} — Roster</h3><div class="sub">${d.managers||''}</div><div style="margin-top:10px">${rows}</div>${d.history.length||d.fees.owed_cents?fees:''}`);
+}
+async function boxScore(homeId,awayId){
+  const [h,a]=await Promise.all([fetch(`/api/team/${homeId}/detail`).then(r=>r.json()),fetch(`/api/team/${awayId}/detail`).then(r=>r.json())]);
+  const col=t=>{const tot=t.box.reduce((s,x)=>s+(x.points||0),0);
+    return `<div class="boxcol"><div class="tot"><span>${t.name}</span><span>${tot.toFixed(0)}</span></div>`
+    +t.box.map(x=>`<div class="srow"><span class="slot">${x.roster_slot}</span><span class="nm">${x.display}${x.is_rental?' <span class="sub">(open)</span>':''}</span><span class="pts">${(x.points||0).toFixed(0)}</span></div>`).join('')+`</div>`;};
+  openM(`<h3>Box Score</h3><div class="sub">Per-player, computed by the engine.</div><div class="box" style="margin-top:10px">${col(h)}${col(a)}</div>`);
+}
+async function lineupModal(id){ const d=await (await fetch(`/api/team/${id}/detail`)).json();
+  const rows=d.roster.map(r=>`<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}</span></div>`).join('');
+  openM(`<h3>${d.name} — Lineup</h3><div class="sub">Start 9 (C,K,DEF/ST,QB, 2 RB, 3 R). Full editor in the app; this is the demo view.</div>
+   <div style="margin-top:10px">${rows}</div>
+   <div class="pass"><span>passcode:</span><input type="password" id="lpc" placeholder="demo"><button class="go" onclick="alert('Demo: lineup submit posts to the passcode-gated /lineup endpoint.')">Submit</button></div>`);
+}
+
+let TX={team:null,out:null,outPos:null,in:null,mode:'trade'};
+async function txModal(id){ const d=await (await fetch(`/api/team/${id}/detail`)).json();
+  TX={team:id,out:null,outPos:null,in:null,mode:'trade'};
+  const roster=d.roster.map(r=>`<div class="pl" onclick='pickOut("${r.asset_ref}","${r.slot}","${r.name.replace(/"/g,'')}")'><span><span class="pos">${r.slot}</span>${r.name}</span></div>`).join('');
+  openM(`<h3>${d.name} — Move a player</h3>
+   <div class="seg"><button class="on" data-m="trade" onclick="setMode('trade')">⇄ Trade (permanent)</button><button data-m="open" onclick="setMode('open')">＋ Open (1 week)</button></div>
+   <div class="cols"><div><h4 class="sub">Your roster — move OUT</h4><div class="plist">${roster}</div></div>
+    <div><h4 class="sub" id="ah">Available — pick a player first</h4><input class="searchbox" id="asearch" placeholder="search…" oninput="filterAvail(this.value)" disabled><div class="plist" id="avail"><div class="sub" style="padding:14px;text-align:center">← pick a player on the left</div></div></div></div>
+   <div class="explain" id="txx"></div>
+   <div class="pass"><span>passcode:</span><input type="password" id="txpc" placeholder="demo"><button class="go" onclick="submitTx()">Confirm</button></div>`);
+  updateX();
+}
+let AVAIL=[];
+async function pickOut(ref,pos,name){ TX.out=ref;TX.outPos=pos;TX.outName=name;TX.in=null;
+  document.querySelectorAll('#mbody .cols .plist .pl').forEach(p=>p.classList.remove('sel'));
+  event.currentTarget.classList.add('sel');
+  $('ah').textContent=`Available ${pos} — alphabetical`; const sb=$('asearch');sb.disabled=false;sb.value='';
+  AVAIL=(await (await fetch(`/api/team/${TX.team}/available?position=${encodeURIComponent(pos)}`)).json()).available;
+  renderAvail(''); updateX();
+}
+function renderAvail(f){ const key=x=>x.gsis_id||x.abbr, nm=x=>x.name||x.abbr;
+  const list=AVAIL.filter(x=>nm(x).toLowerCase().includes((f||'').toLowerCase()));
+  $('avail').innerHTML=list.length?list.map(x=>`<div class="pl ${TX.in===key(x)?'sel':''}" onclick='pickIn("${key(x)}","${nm(x).replace(/"/g,'')}")'><span><span class="pos">${TX.outPos}</span>${nm(x)}</span></div>`).join(''):'<div class="sub" style="padding:14px;text-align:center">no matches</div>'; }
+function filterAvail(v){ renderAvail(v); }
+function pickIn(ref,name){ TX.in=ref;TX.inName=name;renderAvail($('asearch').value);updateX(); }
+function setMode(m){ TX.mode=m;document.querySelectorAll('#mbody .seg button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));updateX(); }
+function updateX(){ const o=TX.outName||'(your player)',i=TX.inName||'(available player)';
+  $('txx').innerHTML=TX.mode==='trade'?`⇄ <b>Trade:</b> drop <b>${o}</b>, add <b>${i}</b> permanently.`
+    :`＋ <b>Open:</b> start <b>${i}</b> for <b>${o}</b> this week only (requires ${o} on his NFL bye). ${o} stays rostered.`; }
+async function submitTx(){ if(!TX.out||!TX.in){alert('Pick a player to move out and one to bring in.');return;}
+  const pc=$('txpc').value; const url=`/api/team/${TX.team}/${TX.mode}`;
+  const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({passcode:pc,position:TX.outPos,out:TX.out,in:TX.in})});
+  const j=await res.json();
+  if(res.ok){ alert('Done! '+(TX.mode==='trade'?'Trade':'Open')+' saved. ($2 fee)'); closeM(); load(); }
+  else alert('⚠ '+(j.error||'error'));
+}
+load();
+</script></body></html>

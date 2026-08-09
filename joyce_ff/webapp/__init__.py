@@ -11,28 +11,10 @@ here — routes stay dumb on purpose.
 
 from __future__ import annotations
 
-from flask import Flask, g, jsonify, render_template_string, request
+from flask import Flask, g, jsonify, render_template, request
 
-from ..league import auth, repo, schema
+from ..league import auth, repo, schema, scoring
 from ..league import standings as st
-
-DASHBOARD = """<!doctype html><meta charset=utf-8><title>Steve Joyce FF</title>
-<style>body{font:15px system-ui;margin:2rem;max-width:900px}h1{margin:0}
-table{border-collapse:collapse;width:100%;margin:.5rem 0}td,th{padding:4px 8px;border-bottom:1px solid #ccc;text-align:left}
-.dim{color:#777}</style>
-<h1>🏈 Steve Joyce Fantasy Football</h1>
-<p class=dim>{{ season.label }} · week {{ season.current_ff_week }} · {{ nteams }} teams · live at stevejoyceff.com</p>
-{% for conf, rows in standings.items() %}
-<h3>{{ conf }} Conference</h3>
-<table><tr><th>#</th><th>Team</th><th>W-L-T</th><th>Conf</th><th>PF</th><th>PA</th></tr>
-{% for t in rows %}<tr><td>{{ t.seed }}{% if t.playoffs %}*{% endif %}</td><td>{{ t.name }}</td>
-<td>{{ t.wins }}-{{ t.losses }}-{{ t.ties }}</td><td>{{ t.conf_wins }}-{{ t.conf_losses }}</td>
-<td>{{ '%.0f'|format(t.pf) }}</td><td>{{ '%.0f'|format(t.pa) }}</td></tr>{% endfor %}</table>
-{% endfor %}
-<p class=dim>💀 Elimination pool — alive {{ pool.alive|length }} / {{ nteams }} ·
-eliminated {{ pool.eliminated|length }}</p>
-<p class=dim>* top 8 make the playoffs. (Mock UI ports next; this confirms live data + API.)</p>
-"""
 
 
 def create_app(db_path: str | None = None) -> Flask:
@@ -69,19 +51,68 @@ def create_app(db_path: str | None = None) -> Flask:
     # ---- pages ----
     @app.get("/")
     def dashboard():
-        s = season()
-        conn = db()
-        n = conn.execute("SELECT COUNT(*) c FROM teams WHERE season_id=?", (s["id"],)).fetchone()["c"]
-        return render_template_string(
-            DASHBOARD, season=s, nteams=n,
-            standings=st.compute_standings(conn, s["id"], s["current_ff_week"]),
-            pool=st.pool_status(conn, s["id"]))
+        return render_template("dashboard.html")
 
     @app.get("/healthz")
     def health():
         return {"ok": True}
 
+    def _dname(conn, sid, kind, ref, unit=None):
+        if kind == "PLAYER":
+            r = conn.execute("SELECT name FROM nfl_players WHERE season_id=? AND gsis_id=?",
+                             (sid, ref)).fetchone()
+            return r["name"] if r else ref
+        return f"{ref} {unit or ''}".strip()
+
     # ---- read API ----
+    @app.get("/api/state")
+    def state():
+        conn = db()
+        s = season()
+        sid, wk = s["id"], s["current_ff_week"]
+        stand = st.compute_standings(conn, sid, wk)
+        scores = {(r["team_id"]): r["computed_points"] for r in conn.execute(
+            "SELECT team_id, computed_points FROM team_week_scores WHERE season_id=? AND ff_week=?",
+            (sid, wk))}
+        board = []
+        for m in conn.execute(
+            "SELECT m.id, m.kind, m.home_team_id h, m.away_team_id a, th.name hn, ta.name an "
+            "FROM matchups m JOIN teams th ON th.id=m.home_team_id "
+            "JOIN teams ta ON ta.id=m.away_team_id WHERE m.season_id=? AND m.ff_week=?",
+                (sid, wk)):
+            board.append({"kind": m["kind"],
+                          "home": {"id": m["h"], "name": m["hn"], "points": scores.get(m["h"])},
+                          "away": {"id": m["a"], "name": m["an"], "points": scores.get(m["a"])}})
+        tx = {"BLUE": [], "RED": []}
+        for r in conn.execute(
+            "SELECT tr.ff_week w, t.name team, c.code conf, tr.type, tr.position, "
+            "tr.out_asset_kind ok, tr.out_asset_ref oref, tr.in_asset_kind ik, tr.in_asset_ref iref "
+            "FROM transactions tr JOIN teams t ON t.id=tr.team_id "
+            "JOIN conferences c ON c.id=t.conference_id WHERE tr.season_id=? AND tr.reversed=0 "
+            "ORDER BY tr.ff_week DESC, tr.id DESC LIMIT 20", (sid,)):
+            tx[r["conf"]].append({"week": r["w"], "team": r["team"], "type": r["type"],
+                "desc": f"{_dname(conn, sid, r['ok'], r['oref'])} → {_dname(conn, sid, r['ik'], r['iref'])}"})
+        return jsonify(season={"label": s["label"], "week": wk},
+                       standings=stand, scoreboard=board,
+                       pool=st.pool_status(conn, sid), transactions=tx)
+
+    @app.get("/api/team/<int:team_id>/detail")
+    def team_detail(team_id):
+        conn = db()
+        s = season()
+        sid, wk = s["id"], s["current_ff_week"]
+        row = conn.execute("SELECT name, manager_names FROM teams WHERE id=?", (team_id,)).fetchone()
+        roster = [{"slot": e["roster_slot"], "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"], e["unit_type"]),
+                   "asset_ref": e["asset_ref"]} for e in repo.current_roster(conn, team_id)]
+        fees = repo.fee_balance_cents(conn, team_id)
+        hist = [{"week": t["ff_week"], "type": t["type"],
+                 "desc": f"{_dname(conn, sid, t['out_asset_kind'], t['out_asset_ref'])} → "
+                         f"{_dname(conn, sid, t['in_asset_kind'], t['in_asset_ref'])}",
+                 "fee": t["fee_cents"]} for t in repo.transaction_history(conn, team_id)]
+        return jsonify(name=row["name"], managers=row["manager_names"],
+                       roster=roster, fees=fees, history=hist,
+                       box=scoring.box_score(conn, sid, wk, team_id))
+
     @app.get("/api/team/<int:team_id>/available")
     def available(team_id):
         conn = db()

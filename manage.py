@@ -74,6 +74,17 @@ def cmd_league_init(_argv: list[str]) -> int:
     return 0
 
 
+def cmd_demo_seed(_argv: list[str]) -> int:
+    from joyce_ff.league.demo import build_demo
+
+    print("Building demo league (loading NFL data + scoring 3 real weeks)...")
+    r = build_demo()
+    print(f"Demo ready at data/league.sqlite — season {r['season_id']}, "
+          f"{r['weeks']} weeks scored, {r['alive']} alive / {r['eliminated']} eliminated.")
+    print("Team passcode: 'demo' · Commissioner passcode: 'commish'. Run: python manage.py serve")
+    return 0
+
+
 def cmd_serve(argv: list[str]) -> int:
     from joyce_ff.webapp import create_app
 
@@ -104,6 +115,7 @@ COMMANDS = {
     "market": cmd_market,
     "schedule": cmd_schedule,
     "league-init": cmd_league_init,
+    "demo-seed": cmd_demo_seed,
     "serve": cmd_serve,
     "sync": cmd_sync,
     "run": cmd_run,
