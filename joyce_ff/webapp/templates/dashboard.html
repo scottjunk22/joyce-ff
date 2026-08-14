@@ -258,7 +258,9 @@ async function lineupModal(id){
   LU={team:id,sel:new Set(),items};
   const started=new Set((d.box||[]).map(x=>x.asset_ref)), unit=s=>['C','K','DEF/ST','QB'].includes(s);
   if(started.size) items.forEach(i=>{if(started.has(i.ref))LU.sel.add(i.ref);});
-  else{items.filter(i=>unit(i.slot)).forEach(i=>LU.sel.add(i.ref));items.filter(i=>i.slot==='RB').slice(0,2).forEach(i=>LU.sel.add(i.ref));items.filter(i=>i.slot==='R').slice(0,3).forEach(i=>LU.sel.add(i.ref));}
+  else{['C','K','DEF/ST','QB'].forEach(s=>{const f=items.find(i=>i.slot===s);if(f)LU.sel.add(f.ref);});
+       items.filter(i=>i.slot==='RB').slice(0,2).forEach(i=>LU.sel.add(i.ref));
+       items.filter(i=>i.slot==='R').slice(0,3).forEach(i=>LU.sel.add(i.ref));}
   const banner = started.size
     ? `<div class="lban ok">${CHK}<span>Your Week ${CUR} lineup is in. Players lock at their kickoff.</span></div>`
     : `<div class="lban warn">${TRI}<span>No lineup set for Week ${CUR} — you're currently on last week's lineup. Submit below to confirm or change it.</span></div>`;
@@ -271,12 +273,17 @@ async function lineupModal(id){
 }
 function renderLineup(){ const ord={'C':0,'K':1,'DEF/ST':2,'QB':3,'RB':4,'R':5}, unit=s=>['C','K','DEF/ST','QB'].includes(s);
   const items=[...LU.items].sort((a,b)=>ord[a.slot]-ord[b.slot]);
+  const cnt={}; LU.items.forEach(i=>cnt[i.slot]=(cnt[i.slot]||0)+1);
+  const clickable=i=> !unit(i.slot) || cnt[i.slot]>1;   // a unit toggles only when an Open gives it a choice
   $('luRows').innerHTML=items.map(i=>{const on=LU.sel.has(i.ref);
-    return `<div class="srow"><span class="slot">${i.slot}</span><span class="nm">${i.name}</span><span class="st ${on?'start':'bench'}" ${unit(i.slot)?'':`onclick="toggleStart('${i.ref}')"`}>${on?'START':'BENCH'}</span></div>`;}).join('');
+    return `<div class="srow"><span class="slot">${i.slot}</span><span class="nm">${i.name}</span><span class="st ${on?'start':'bench'}" ${clickable(i)?`onclick="toggleStart('${i.ref}')"`:''}>${on?'START':'BENCH'}</span></div>`;}).join('');
   const c=s=>[...LU.sel].filter(r=>LU.items.find(i=>i.ref===r&&i.slot===s)).length;
   $('luHint').innerHTML=`Starting <b>${LU.sel.size}</b>/9 · RB ${c('RB')} · R ${c('R')} ${LU.sel.size===9?'✅':'— pick 9'}`;
 }
-function toggleStart(ref){ LU.sel.has(ref)?LU.sel.delete(ref):LU.sel.add(ref); renderLineup(); }
+function toggleStart(ref){ const it=LU.items.find(i=>i.ref===ref), unit=['C','K','DEF/ST','QB'].includes(it.slot);
+  if(unit){ LU.items.filter(i=>i.slot===it.slot&&i.ref!==ref).forEach(i=>LU.sel.delete(i.ref)); LU.sel.add(ref); }  // radio: one per unit slot
+  else { LU.sel.has(ref)?LU.sel.delete(ref):LU.sel.add(ref); }
+  renderLineup(); }
 async function submitLineup(){ const starters=[...LU.sel].map(ref=>({roster_slot:LU.items.find(i=>i.ref===ref).slot,asset_ref:ref}));
   const res=await fetch(`/api/team/${LU.team}/lineup`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:$('lpc').value,week:CUR,starters})});
   const j=await res.json(); if(res.ok){alert('Lineup saved!');closeM();load(VIEW, SEASON);}else alert('⚠ '+(j.error||'error')); }
@@ -307,7 +314,11 @@ function updateX(){ const o=TX.outName||'(your player)',i=TX.inName||'(available
   $('txx').innerHTML=TX.mode==='trade'?`⇄ <b>Trade:</b> drop <b>${o}</b>, add <b>${i}</b> permanently.`:`＋ <b>Open:</b> start <b>${i}</b> for <b>${o}</b> this week only (requires ${o} on his NFL bye). ${o} stays rostered.`; }
 async function submitTx(){ if(!TX.out||!TX.in){alert('Pick a player to move out and one to bring in.');return;}
   const res=await fetch(`/api/team/${TX.team}/${TX.mode}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:$('txpc').value,position:TX.outPos,out:TX.out,in:TX.in})});
-  const j=await res.json(); if(res.ok){alert('Done! ($2 fee)');closeM();load(VIEW, SEASON);}else alert('⚠ '+(j.error||'error')); }
+  const j=await res.json(); if(res.ok){
+    const msg = j.fee_cents ? `Done — $${(j.fee_cents/100).toFixed(0)} fee.`
+      : `Done — free move. ${j.free_left} free ${j.free_left===1?'move':'moves'} left this season.`;
+    alert(msg); closeM(); load(VIEW, SEASON);
+  } else alert('⚠ '+(j.error||'error')); }
 
 let COMMISH_PC='';
 function commishModal(){ openM(`<h3>🛠 Commissioner <span class="sub">Steve &amp; Scott</span></h3>

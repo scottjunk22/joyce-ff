@@ -108,6 +108,13 @@ def create_app(db_path: str | None = None) -> Flask:
             return d
         return {"pos": pos, "out": side(ok, oref), "in": side(ik, iref)}
 
+    def _tx_fee_info(tx_id, team_id):
+        """What a just-made transaction actually cost + free trades left, so the
+        UI can say 'free (2 left)' vs '$2 fee' instead of always '$2'."""
+        fee = db().execute("SELECT fee_cents FROM transactions WHERE id=?",
+                            (tx_id,)).fetchone()["fee_cents"]
+        return {"fee_cents": fee, "free_left": repo.fee_balance_cents(db(), team_id)["free_left"]}
+
     def _account(conn, sid, team_id):
         """A team's money: fees owed/paid plus elimination-pool winnings, netted."""
         a = repo.fee_balance_cents(conn, team_id)
@@ -293,7 +300,7 @@ def create_app(db_path: str | None = None) -> Flask:
                                b["out"], b["in"], _week(season()["current_ff_week"]))
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
-        return jsonify(ok=True, transaction_id=tx)
+        return jsonify(ok=True, transaction_id=tx, **_tx_fee_info(tx, team_id))
 
     @app.post("/api/team/<int:team_id>/open")
     def open_(team_id):
@@ -305,7 +312,7 @@ def create_app(db_path: str | None = None) -> Flask:
                               b["out"], b["in"], _week(season()["current_ff_week"]))
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
-        return jsonify(ok=True, transaction_id=tx)
+        return jsonify(ok=True, transaction_id=tx, **_tx_fee_info(tx, team_id))
 
     @app.post("/api/team/<int:team_id>/lineup")
     def lineup(team_id):
