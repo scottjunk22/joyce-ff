@@ -100,7 +100,7 @@ def test_run_elimination_removes_lowest_survivor(db):
                      "VALUES (?,?,1,?)", (sid, tid, pts))
     conn.commit()
     out = standings.run_elimination(conn, sid, 1)
-    assert out == ids[1]
+    assert out == [ids[1]]
     row = conn.execute("SELECT alive, eliminated_ff_week FROM teams WHERE id=?", (ids[1],)).fetchone()
     assert row["alive"] == 0 and row["eliminated_ff_week"] == 1
     status = standings.pool_status(conn, sid)
@@ -112,4 +112,4 @@ def test_run_elimination_removes_lowest_survivor(db):
         conn.execute("INSERT INTO team_week_scores(season_id,team_id,ff_week,computed_points) "
                      "VALUES (?,?,2,?)", (sid, tid, pts))
     conn.commit()
-    assert standings.run_elimination(conn, sid, 2) == ids[2]   # not the already-dead team
+    assert standings.run_elimination(conn, sid, 2) == [ids[2]]   # not the already-dead team

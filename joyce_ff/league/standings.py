@@ -122,38 +122,30 @@ def _rank(teamstats: list[dict], results: list[tuple]) -> list[dict]:
 
 # --- elimination pool ----------------------------------------------------
 
-def run_elimination(conn, season_id: int, ff_week: int) -> int | None:
-    """Eliminate the lowest-scoring team AMONG SURVIVORS this week. Returns the
-    eliminated team_id (or None if no scored survivors). Tie for lowest is
-    broken by lowest season points-for so far, then name (rule pending).
+def run_elimination(conn, season_id: int, ff_week: int) -> list[int]:
+    """Eliminate the lowest-scoring team(s) AMONG SURVIVORS this week. Per the
+    commissioner: a tie for the lowest score eliminates ALL tied teams (no
+    tiebreak). Returns the list of eliminated team_ids (empty if none scored).
 
-    Idempotent: if an elimination already happened this week, return it."""
-    already = conn.execute(
+    Idempotent: if elimination already happened this week, return those ids."""
+    already = [r["id"] for r in conn.execute(
         "SELECT id FROM teams WHERE season_id=? AND eliminated_ff_week=?",
-        (season_id, ff_week)).fetchone()
+        (season_id, ff_week))]
     if already:
-        return already["id"]
+        return already
     rows = conn.execute(
         "SELECT tw.team_id, tw.computed_points FROM team_week_scores tw "
         "JOIN teams t ON t.id=tw.team_id "
         "WHERE tw.season_id=? AND tw.ff_week=? AND t.alive=1 AND tw.computed_points IS NOT NULL",
         (season_id, ff_week)).fetchall()
     if not rows:
-        return None
+        return []
     low = min(r["computed_points"] for r in rows)
     tied = [r["team_id"] for r in rows if r["computed_points"] == low]
-    if len(tied) > 1:
-        pf = {r["team_id"]: r["s"] for r in conn.execute(
-            "SELECT team_id, COALESCE(SUM(computed_points),0) s FROM team_week_scores "
-            "WHERE season_id=? AND ff_week<=? AND team_id IN (%s) GROUP BY team_id"
-            % ",".join("?" * len(tied)), (season_id, ff_week, *tied))}
-        names = {r["id"]: r["name"] for r in conn.execute(
-            "SELECT id, name FROM teams WHERE id IN (%s)" % ",".join("?" * len(tied)), tied)}
-        tied.sort(key=lambda tid: (pf.get(tid, 0), names[tid]))
-    out = tied[0]
-    conn.execute("UPDATE teams SET alive=0, eliminated_ff_week=? WHERE id=?", (ff_week, out))
+    conn.executemany("UPDATE teams SET alive=0, eliminated_ff_week=? WHERE id=?",
+                     [(ff_week, tid) for tid in tied])
     conn.commit()
-    return out
+    return tied
 
 
 def pool_status(conn, season_id: int) -> dict:

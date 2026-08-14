@@ -32,12 +32,22 @@ def test_run_week_scores_and_advances_and_is_idempotent(db):
     _seed_week(conn, sid, 1, list(zip(ids, (70, 40, 60))))     # middle is lowest
     s = runner.run_week(conn, sid, 1, do_ingest=False)
     assert s["team_scores"][ids[1]] == 40
-    assert s["eliminated_team_id"] == ids[1]
+    assert s["eliminated_team_ids"] == [ids[1]]
     assert conn.execute("SELECT current_ff_week FROM seasons WHERE id=?", (sid,)).fetchone()[0] == 1
     # re-run must NOT eliminate a second team
     s2 = runner.run_week(conn, sid, 1, do_ingest=False)
-    assert s2["eliminated_team_id"] == ids[1]
+    assert s2["eliminated_team_ids"] == [ids[1]]
     assert conn.execute("SELECT COUNT(*) c FROM teams WHERE season_id=? AND alive=0", (sid,)).fetchone()["c"] == 1
+
+
+def test_tie_for_lowest_eliminates_all_tied_teams(db):
+    conn, sid = db
+    ids = [r["id"] for r in conn.execute("SELECT id FROM teams WHERE season_id=? ORDER BY id LIMIT 3", (sid,))]
+    _seed_week(conn, sid, 1, list(zip(ids, (70, 40, 40))))     # two teams tie for lowest
+    s = runner.run_week(conn, sid, 1, do_ingest=False)
+    assert set(s["eliminated_team_ids"]) == {ids[1], ids[2]}   # both go, no tiebreak
+    assert conn.execute("SELECT COUNT(*) c FROM teams WHERE season_id=? AND alive=0",
+                        (sid,)).fetchone()["c"] == 2
 
 
 def test_reconcile_flags_mismatch(db):
