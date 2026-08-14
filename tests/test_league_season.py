@@ -153,3 +153,17 @@ def test_final_payout_splits_on_top_tie(db):
 def test_final_payout_none_before_final_week(db):
     conn, sid = db
     assert standings.final_payout(conn, sid) is None
+
+
+def test_box_score_is_slot_ordered(db):
+    conn, sid = db
+    tid = conn.execute("SELECT id FROM teams WHERE season_id=? LIMIT 1", (sid,)).fetchone()["id"]
+    # insert starters scrambled, with a unit (DEF/ST) last — as a mid-week Open toggle would
+    for slot, kind, ref in [("QB", "TEAM_UNIT", "KC"), ("RB", "PLAYER", "p1"),
+                            ("R", "PLAYER", "p2"), ("C", "TEAM_UNIT", "NE"),
+                            ("DEF/ST", "TEAM_UNIT", "BUF")]:
+        conn.execute("INSERT INTO weekly_lineups(season_id,team_id,ff_week,roster_slot,"
+                     "asset_kind,asset_ref) VALUES (?,?,1,?,?,?)", (sid, tid, slot, kind, ref))
+    conn.commit()
+    order = [b["roster_slot"] for b in scoring.box_score(conn, sid, 1, tid)]
+    assert order == ["C", "DEF/ST", "QB", "RB", "R"]   # canonical order, not insertion order

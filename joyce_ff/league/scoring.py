@@ -124,7 +124,9 @@ def box_score(conn, season_id: int, ff_week: int, team_id: int) -> list[dict]:
         "AND a.asset_kind=l.asset_kind AND a.asset_ref=l.asset_ref "
         "AND (l.asset_kind='PLAYER' OR a.unit_type=l.roster_slot) "
         "LEFT JOIN nfl_players p ON p.season_id=l.season_id AND p.gsis_id=l.asset_ref "
-        "WHERE l.season_id=? AND l.ff_week=? AND l.team_id=?",
+        "WHERE l.season_id=? AND l.ff_week=? AND l.team_id=? "
+        "ORDER BY CASE l.roster_slot WHEN 'C' THEN 0 WHEN 'K' THEN 1 WHEN 'DEF/ST' THEN 2 "
+        "WHEN 'QB' THEN 3 WHEN 'RB' THEN 4 WHEN 'R' THEN 5 ELSE 6 END, l.id",
         (season_id, ff_week, team_id))
     out = []
     for r in rows:
