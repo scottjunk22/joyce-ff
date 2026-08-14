@@ -218,7 +218,8 @@ def create_app(db_path: str | None = None) -> Flask:
                                "seasons": [{"id": r["id"], "year": r["year"], "label": r["label"]}
                                            for r in all_seasons]},
                        standings=stand, scoreboard=board, fees=fees, pool=pool,
-                       transactions=tx, lineups=lineups, byes=byes)
+                       transactions=tx, lineups=lineups, byes=byes,
+                       payout=st.final_payout(conn, sid))
 
     @app.get("/api/team/<int:team_id>/detail")
     def team_detail(team_id):

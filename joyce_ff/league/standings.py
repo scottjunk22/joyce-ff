@@ -148,6 +148,37 @@ def run_elimination(conn, season_id: int, ff_week: int) -> list[int]:
     return tied
 
 
+FINAL_WEEK = 15                 # 15-game season; the pool pays out after wk 15
+TOP_PRIZE_CENTS = 10000         # $100 to the top score (split if tied)
+SURVIVOR_PRIZE_CENTS = 1000     # $10 to every other surviving team
+
+
+def final_payout(conn, season_id: int, final_week: int = FINAL_WEEK) -> dict | None:
+    """Elimination-pool payout after the final week. The lowest scorer(s) are
+    already eliminated for that week (run_elimination); among the survivors the
+    top score splits $100 and every other survivor gets $10. Returns None until
+    the final week is scored."""
+    rows = conn.execute(
+        "SELECT t.id, t.name, t.alive, tw.computed_points pts "
+        "FROM teams t JOIN team_week_scores tw ON tw.season_id=t.season_id "
+        "AND tw.team_id=t.id AND tw.ff_week=? "
+        "WHERE t.season_id=? AND (t.alive=1 OR t.eliminated_ff_week=?) "
+        "AND tw.computed_points IS NOT NULL",
+        (final_week, season_id, final_week)).fetchall()
+    if not rows:
+        return None
+    top = max(r["pts"] for r in rows)
+    survivors = [r for r in rows if r["alive"]]          # remaining after wk-15 cut
+    winners = [r for r in survivors if r["pts"] == top]
+    others = [r for r in survivors if r["pts"] != top]
+    per_winner = TOP_PRIZE_CENTS // len(winners) if winners else 0
+    return {"final_week": final_week, "top_points": top,
+            "winners": [{"name": r["name"], "points": r["pts"], "cents": per_winner}
+                        for r in winners],
+            "others": [{"name": r["name"], "points": r["pts"], "cents": SURVIVOR_PRIZE_CENTS}
+                       for r in sorted(others, key=lambda r: (-r["pts"], r["name"]))]}
+
+
 def pool_status(conn, season_id: int) -> dict:
     alive, dead = [], []
     for r in conn.execute("SELECT name, alive, eliminated_ff_week FROM teams WHERE season_id=? "

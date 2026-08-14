@@ -49,6 +49,10 @@
  .elim{background:color-mix(in srgb,var(--bad) 12%,transparent);border:1px solid var(--bad);border-radius:10px;padding:11px 13px;font-size:13px}
  .elim b{color:var(--bad)}
  .elim .etitle{font-size:15px;font-weight:800;color:var(--bad);margin-bottom:6px}
+ .payout{border:1px solid var(--good);border-radius:8px;padding:8px 11px;margin:9px 0;background:color-mix(in srgb,var(--good) 8%,transparent)}
+ .payout .ptitle{font-weight:800;color:var(--good);margin-bottom:4px}
+ .payout .prow{display:flex;justify-content:space-between;padding:2px 0;font-size:13px}
+ .payout .amt{color:var(--good);font-weight:800}.payout .amt2{color:var(--good);font-weight:600}
  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
  .echip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:2px 10px;font-size:12px}
  .echip.dead{opacity:.7;border-color:var(--bad)}.echip.dead .nm{text-decoration:line-through}.echip .wk{color:var(--bad);margin-left:5px;font-size:10px}
@@ -191,10 +195,15 @@ function teamRow(t){
 }
 function renderStandings(){ $('blue').innerHTML=STATE.standings.BLUE.map(teamRow).join(''); $('red').innerHTML=STATE.standings.RED.map(teamRow).join(''); }
 function renderElim(){
-  const p=STATE.pool;
+  const p=STATE.pool, po=STATE.payout, b=c=>`$${(c/100).toFixed(0)}`;
+  const payoutHtml = po ? `<div class="payout"><div class="ptitle">🏆 Week ${po.final_week} payout</div>`
+    + po.winners.map(w=>`<div class="prow"><span><b>${w.name}</b> <span class="sub">top score ${(+w.points).toFixed(0)}${po.winners.length>1?' · tie, split':''}</span></span><span class="amt">${b(w.cents)}</span></div>`).join('')
+    + po.others.map(o=>`<div class="prow"><span>${o.name} <span class="sub">${(+o.points).toFixed(0)}</span></span><span class="amt2">${b(o.cents)}</span></div>`).join('')
+    + `</div>` : '';
   $('elimBox').innerHTML=`<div class="etitle">💀 Elimination Pool</div>Each week the lowest scorer among survivors (both conferences) is out — a tie for lowest eliminates every tied team.
     Alive <b>${p.alive.length}</b> / 22 · Eliminated <b>${p.eliminated.length}</b>.
     <div class="sub" style="margin-top:5px">Wk 15: the top score wins $100 (split if tied); every other surviving team gets $10.</div>
+    ${payoutHtml}
     <div class="chips">${p.alive.map(t=>`<span class="echip"><span class="nm">${t.name}</span></span>`).join('')}
       ${p.eliminated.map(t=>`<span class="echip dead"><span class="nm">${t.name}</span><span class="wk">Wk ${t.eliminated_ff_week}</span></span>`).join('')}</div>`;
 }

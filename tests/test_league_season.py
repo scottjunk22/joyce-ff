@@ -113,3 +113,43 @@ def test_run_elimination_removes_lowest_survivor(db):
                      "VALUES (?,?,2,?)", (sid, tid, pts))
     conn.commit()
     assert standings.run_elimination(conn, sid, 2) == [ids[2]]   # not the already-dead team
+
+
+def _week15_scenario(conn, sid, survivor_scores):
+    """Leave len(survivor_scores) teams as wk-15 survivors with given scores;
+    mark everyone else eliminated earlier. Returns the survivor team ids."""
+    ids = [r["id"] for r in conn.execute(
+        "SELECT id FROM teams WHERE season_id=? ORDER BY id", (sid,))]
+    survivors = ids[:len(survivor_scores)]
+    for tid in ids[len(survivor_scores):]:
+        conn.execute("UPDATE teams SET alive=0, eliminated_ff_week=5 WHERE id=?", (tid,))
+    for tid, pts in zip(survivors, survivor_scores):
+        conn.execute("INSERT INTO team_week_scores(season_id,team_id,ff_week,computed_points) "
+                     "VALUES (?,?,15,?)", (sid, tid, pts))
+    conn.commit()
+    return survivors
+
+
+def test_final_payout_top_100_others_10(db):
+    conn, sid = db
+    _week15_scenario(conn, sid, (100, 90, 80, 70, 50))     # last is lowest -> out
+    standings.run_elimination(conn, sid, 15)
+    po = standings.final_payout(conn, sid)
+    assert len(po["winners"]) == 1 and po["winners"][0]["cents"] == 10000
+    assert po["winners"][0]["points"] == 100
+    assert len(po["others"]) == 3 and all(o["cents"] == 1000 for o in po["others"])  # 90,80,70
+    assert po["top_points"] == 100
+
+
+def test_final_payout_splits_on_top_tie(db):
+    conn, sid = db
+    _week15_scenario(conn, sid, (100, 100, 80, 40))        # two tie for top; 40 out
+    standings.run_elimination(conn, sid, 15)
+    po = standings.final_payout(conn, sid)
+    assert len(po["winners"]) == 2 and all(w["cents"] == 5000 for w in po["winners"])  # split $100
+    assert len(po["others"]) == 1 and po["others"][0]["cents"] == 1000                 # the 80
+
+
+def test_final_payout_none_before_final_week(db):
+    conn, sid = db
+    assert standings.final_payout(conn, sid) is None
