@@ -28,8 +28,8 @@
  .toolbar{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
  .tab{font-size:13px;border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:8px;padding:5px 12px;cursor:pointer}
  .tab.on{color:var(--bright);border-color:var(--blue)}
- .help{font-size:12px;border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:8px;padding:5px 10px;cursor:pointer}
- .search{width:170px;margin-left:auto}
+ .help{font-size:12px;border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:8px;padding:5px 10px;cursor:pointer;margin-left:auto}
+ .search{width:170px}
  .explain{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:12px;font-size:13px;line-height:1.5}
  .explain h3{margin:0 0 4px;font-size:14px}.explain .lead{color:var(--dim);margin-bottom:9px}
  .explain dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:3px 12px}
@@ -45,7 +45,12 @@
  tbody tr:hover{background:var(--panel2)}
  .vor{font-variant-numeric:tabular-nums;font-weight:800;color:var(--good)}
  .vor.lo{color:var(--dim);font-weight:600}
+ .vorbar{display:inline-block;height:9px;background:color-mix(in srgb,var(--good) 55%,transparent);border-radius:2px;vertical-align:middle;margin-right:6px}
  .tier{color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:0 6px;font-size:11px}
+ tr.tierbreak td{border-top:2px solid var(--blue)}
+ .postag{display:inline-block;min-width:40px;text-align:center;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;color:#04121d}
+ .pt-RB{background:#4ade80}.pt-R{background:#5cc8ff}.pt-QB{background:#c084fc}.pt-K{background:#fbbf24}.pt-DEFST{background:#2dd4bf}.pt-C{background:#cbd5e1}
+ .bust-lo{color:var(--good)}.bust-mid{color:var(--warn)}.bust-hi{color:var(--bad);font-weight:700}
  .nm{font-weight:600;color:var(--bright)}
  .tm{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:0 5px;margin-left:4px}
  .flag{font-size:10px;border-radius:5px;padding:0 5px;margin-left:5px}
@@ -118,6 +123,12 @@ function sortRows(list){
 }
 function clickSort(col){ if(sortCol===col) sortDir=-sortDir; else { sortCol=col; sortDir=(col==='name'||col==='team'||col==='slot')?1:-1; } render(); }
 function fmt(v){ return v==null?'<span class="sub">—</span>':(+v).toFixed(2); }
+function ptClass(slot){ return 'pt-'+String(slot).replace('/',''); }
+function bustClass(b){ return b==null?'':b<20?'bust-lo':b<33?'bust-mid':'bust-hi'; }
+function maxVor(list){ let m=0; for(const r of list){ if(r.vor!=null&&r.vor>m)m=r.vor; } return m||1; }
+function vorCell(v,mx){ const w=v==null?0:Math.max(0,(v/mx)*70), lo=(v==null||v<0.3);
+  return `<td><span class="vorbar" style="width:${w}px"></span><span class="vor ${lo?'lo':''}">${v==null?'—':(v>0?'+':'')+v.toFixed(2)}</span></td>`; }
+function bustCell(b){ return `<td class="${bustClass(b)}">${b==null?'<span class="sub">—</span>':b+'%'}</td>`; }
 
 function explainer(){
   return `<div class="explain"><h3>How to read the board</h3>
@@ -153,29 +164,28 @@ function th(field,label,cls){ const arw=sortCol===field?(sortDir<0?' ▼':' ▲'
 function playerTable(){
   const isOverall=tab==='overall';
   let list=sortRows(rows()); if(q) list=list.filter(r=>r.name.toLowerCase().includes(q.toLowerCase()));
+  const mx=maxVor(list), tierGroup=(sortCol==='vor'); let prev=null;
   const head=`<tr><th title="${TIP.rank}">#</th>${th('tier','Tier')}${isOverall?th('slot','Pos','l'):''}${th('name','Asset','l')}<th class="l">Tm</th>${th('proj','Proj/g')}${th('vor','VOR')}${th('floor','Flr')}${th('ceil','Ceil')}${th('bust','Bust%')}${th('games25','G25')}</tr>`;
   const body=list.map((r,i)=>{
-    const vorlo=(r.vor==null||r.vor<0.3);
+    const brk=(tierGroup&&prev!=null&&r.tier!=null&&r.tier!==prev)?' tierbreak':''; prev=r.tier;
     const flags=(r.no_history?'<span class="flag rk">no NFL history</span>':'')+(r.low_sample&&!r.no_history?'<span class="flag lo">small sample</span>':'');
-    return `<tr><td>${i+1}</td><td><span class="tier">T${r.tier??'—'}</span></td>
-      ${isOverall?`<td class="l"><span class="sub">${r.slot}</span></td>`:''}
+    return `<tr class="${brk}"><td>${i+1}</td><td><span class="tier">T${r.tier??'—'}</span></td>
+      ${isOverall?`<td class="l"><span class="postag ${ptClass(r.slot)}">${r.slot}</span></td>`:''}
       <td class="l"><span class="nm">${r.name}</span>${flags}</td>
       <td class="l">${r.team?`<span class="tm">${r.team}</span>`:'<span class="sub">—</span>'}</td>
-      <td>${fmt(r.proj)}</td>
-      <td class="vor ${vorlo?'lo':''}">${r.vor==null?'—':(r.vor>0?'+':'')+r.vor.toFixed(2)}</td>
-      <td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td>
-      <td>${r.bust==null?'<span class="sub">—</span>':r.bust+'%'}</td><td>${r.games25??0}</td></tr>`;
+      <td>${fmt(r.proj)}</td>${vorCell(r.vor,mx)}<td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td>
+      ${bustCell(r.bust)}<td>${r.games25??0}</td></tr>`;
   }).join('')||'<tr><td class="l sub" colspan="10" style="padding:14px">no matches</td></tr>';
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
 function unitTable(){
   let list=sortRows(rows()); if(q) list=list.filter(r=>r.team.toLowerCase().includes(q.toLowerCase()));
-  const head=`<tr><th title="${TIP.rank}">#</th>${th('team','Team unit','l')}${th('proj','Proj/g')}${th('vor','VOR')}${th('floor','Flr')}${th('ceil','Ceil')}${th('games25','G25')}</tr>`;
-  const body=list.map((r,i)=>{const vorlo=(r.vor==null||r.vor<0.3);
-    return `<tr><td>${i+1}</td><td class="l"><span class="nm">${r.team}</span> <span class="sub">${tab}</span></td>
-      <td>${fmt(r.proj)}</td>
-      <td class="vor ${vorlo?'lo':''}">${r.vor==null?'—':(r.vor>0?'+':'')+r.vor.toFixed(2)}</td>
-      <td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td><td>${r.games25??0}</td></tr>`;}).join('');
+  const mx=maxVor(list);
+  const head=`<tr><th title="${TIP.rank}">#</th>${th('team','Team unit','l')}${th('proj','Proj/g')}${th('vor','VOR')}${th('floor','Flr')}${th('ceil','Ceil')}${th('bust','Bust%')}${th('games25','G25')}</tr>`;
+  const body=list.map((r,i)=>{
+    return `<tr><td>${i+1}</td><td class="l"><span class="postag ${ptClass(tab)}">${r.team}</span></td>
+      <td>${fmt(r.proj)}</td>${vorCell(r.vor,mx)}<td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td>
+      ${bustCell(r.bust)}<td>${r.games25??0}</td></tr>`;}).join('');
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
 init();

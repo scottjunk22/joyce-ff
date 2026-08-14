@@ -68,6 +68,8 @@ def _unit_records(unit_boards) -> dict:
                 "vor": _num(r.get("vor")),
                 "floor": _num(r.get("p25")),
                 "ceil": _num(r.get("p75")),
+                "bust": (None if _num(r.get("bust_rate")) is None
+                         else round(r["bust_rate"] * 100)),
                 "games25": int(r["games_2025"]) if _num(r.get("games_2025")) is not None else 0,
             })
         out[unit] = rows
@@ -101,7 +103,8 @@ def _overall_records(player_recs: list[dict], unit_recs: dict,
             rows.append({"slot": unit, "name": f"{u['team']} {unit}",
                          "team": u["team"], "position": unit,
                          "proj": u["proj"], "vor": u["vor"],
-                         "floor": u["floor"], "ceil": u["ceil"], "bust": None,
+                         "floor": u["floor"], "ceil": u["ceil"],
+                         "bust": u.get("bust"),
                          "games25": u["games25"], "low_sample": False,
                          "no_history": False})
 
