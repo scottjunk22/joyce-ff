@@ -108,6 +108,13 @@ def create_app(db_path: str | None = None) -> Flask:
             return d
         return {"pos": pos, "out": side(ok, oref), "in": side(ik, iref)}
 
+    def _account(conn, sid, team_id):
+        """A team's money: fees owed/paid plus elimination-pool winnings, netted."""
+        a = repo.fee_balance_cents(conn, team_id)
+        a["winnings_cents"] = st.team_winnings_cents(conn, sid, team_id)
+        a["net_cents"] = a["balance_cents"] - a["winnings_cents"]
+        return a
+
     def _pending_teams(conn, sid, wk):
         """NFL teams that HAVE a game this FF week that isn't final yet (i.e.
         'still to play'). Excludes bye teams (no game) and finished teams."""
@@ -178,7 +185,7 @@ def create_app(db_path: str | None = None) -> Flask:
             tx[r["conf"]].append({"week": r["w"], "team": r["team"], "type": r["type"],
                 **_tx_parts(conn, sid, r["pos"], r["ok"], r["oref"], r["ik"], r["iref"])})
 
-        fees = {t["team_id"]: repo.fee_balance_cents(conn, t["team_id"])
+        fees = {t["team_id"]: _account(conn, sid, t["team_id"])
                 for conf in ("BLUE", "RED") for t in stand[conf]}
         pool = {"alive": [], "eliminated": []}
         for r in conn.execute("SELECT name, eliminated_ff_week e FROM teams WHERE season_id=? ORDER BY e, name", (sid,)):
@@ -237,7 +244,7 @@ def create_app(db_path: str | None = None) -> Flask:
                            "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"], e["unit_type"]),
                            "asset_ref": e["asset_ref"], "kind": e["asset_kind"],
                            "team": team, "bye": team in byes})
-        fees = repo.fee_balance_cents(conn, team_id)
+        fees = _account(conn, sid, team_id)
         hist = [{"week": t["ff_week"], "type": t["type"], "fee": t["fee_cents"],
                  **_tx_parts(conn, sid, t["position"], t["out_asset_kind"], t["out_asset_ref"],
                              t["in_asset_kind"], t["in_asset_ref"])}

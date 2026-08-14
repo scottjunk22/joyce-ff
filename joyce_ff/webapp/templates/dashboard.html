@@ -239,14 +239,15 @@ async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?we
   const rows=d.roster.map(r=>`<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}${r.bye?` <span class="tag-bye">BYE</span>`:''}</span></div>`).join('');
   const openRows=(d.opens||[]).map(o=>`<div class="srow"><span class="slot">${o.position}</span><span class="nm">${o.name} <span class="tag-open">OPEN</span></span></div>`).join('');
   const b=c=>`$${(Math.abs(c)/100).toFixed(0)}`;
-  const f=d.fees, bal=f.balance_cents;
-  const balTxt = bal>0 ? `<span class="fbal">balance ${b(bal)}</span>`
+  const f=d.fees, bal=f.net_cents;
+  const balTxt = bal>0 ? `<span class="fbal">owes ${b(bal)}</span>`
     : bal<0 ? `<span class="fbal paid">credit ${b(bal)}</span>`
     : `<span class="fbal paid">settled</span>`;
-  const fees = `<div class="fees"><div class="fhd"><span>Fees <span class="sub">· ${f.free_used}/5 free trades used</span></span>${balTxt}</div>`
+  const fees = `<div class="fees"><div class="fhd"><span>Account <span class="sub">· ${f.free_used}/5 free trades used</span></span>${balTxt}</div>`
     +`<div class="frow"><span>Entry fee</span><span>${b(f.entry_fee_cents)}</span></div>`
     +d.history.map(h=>`<div class="frow"><span>W${h.week} ${h.type==='TRADE'?'⇄':'＋'} ${txSwap(h)}</span><span>${h.fee?b(h.fee):'<span class="sub">free</span>'}</span></div>`).join('')
     +(d.payments||[]).map(p=>`<div class="frow"><span>✓ payment${p.note?` <span class="sub">(${p.note})</span>`:''}</span><span class="paid">−${b(p.amount_cents)}</span></div>`).join('')
+    +(f.winnings_cents?`<div class="frow"><span>🏆 Week 15 winnings</span><span class="paid">−${b(f.winnings_cents)}</span></div>`:'')
     +`</div>`;
   openM(`<h3>${d.name} — Roster</h3><div class="sub">${d.managers||''}</div><div style="margin-top:10px">${rows}</div>${openRows?`<div class="sub" style="margin-top:10px">Open this week (1-week rentals)</div>${openRows}`:''}${fees}`);
 }
@@ -320,13 +321,14 @@ function renderCommish(){ const teams=[...STATE.standings.BLUE,...STATE.standing
     + (L.not_in.length ? ` · <span style="color:var(--bad)">${L.not_in.length}</span> not in`
         + `<div class="nchips">${L.not_in.map(t=>`<span class="nchip">${TRI} ${t.name}</span>`).join('')}</div>`
         : ` <span class="sub">— all in ✓</span>`) + `</div>` : '';
-  $('commBody').innerHTML=lsum+`<table class="feetable"><thead><tr><th>Team</th><th>#</th><th>Slot</th><th>New passcode</th><th></th><th>Owes</th><th>Payment</th></tr></thead><tbody>`
-   +teams.map(t=>{const f=STATE.fees[t.team_id]||{balance_cents:0};
+  const bal=c=>c<0?`<span style="color:var(--good)">cr $${(Math.abs(c)/100).toFixed(0)}</span>`:`$${(c/100).toFixed(0)}`;
+  $('commBody').innerHTML=lsum+`<table class="feetable"><thead><tr><th>Team</th><th>#</th><th>Slot</th><th>New passcode</th><th></th><th>Balance</th><th>Payment</th></tr></thead><tbody>`
+   +teams.map(t=>{const f=STATE.fees[t.team_id]||{net_cents:0};
      return `<tr><td>${t.name}</td><td><input id="tn_${t.team_id}" style="width:40px" value="${t.team_number??''}"></td>
       <td><input id="ds_${t.team_id}" style="width:40px" value="${t.draft_slot??''}"></td>
       <td><input id="pc_${t.team_id}" style="width:80px" placeholder="—"></td>
       <td><button class="chip" onclick="saveTeam(${t.team_id})">save</button></td>
-      <td>$${(f.balance_cents/100).toFixed(0)}</td>
+      <td>${bal(f.net_cents)}</td>
       <td><input id="pay_${t.team_id}" style="width:38px" placeholder="$"><button class="chip" onclick="applyPay(${t.team_id})">pay</button></td></tr>`;}).join('')+`</tbody></table>`;
 }
 async function saveTeam(id){ const tn=$('tn_'+id).value,ds=$('ds_'+id).value,pc=$('pc_'+id).value;

@@ -173,10 +173,23 @@ def final_payout(conn, season_id: int, final_week: int = FINAL_WEEK) -> dict | N
     others = [r for r in survivors if r["pts"] != top]
     per_winner = TOP_PRIZE_CENTS // len(winners) if winners else 0
     return {"final_week": final_week, "top_points": top,
-            "winners": [{"name": r["name"], "points": r["pts"], "cents": per_winner}
-                        for r in winners],
-            "others": [{"name": r["name"], "points": r["pts"], "cents": SURVIVOR_PRIZE_CENTS}
+            "winners": [{"team_id": r["id"], "name": r["name"], "points": r["pts"],
+                         "cents": per_winner} for r in winners],
+            "others": [{"team_id": r["id"], "name": r["name"], "points": r["pts"],
+                        "cents": SURVIVOR_PRIZE_CENTS}
                        for r in sorted(others, key=lambda r: (-r["pts"], r["name"]))]}
+
+
+def team_winnings_cents(conn, season_id: int, team_id: int,
+                        final_week: int = FINAL_WEEK) -> int:
+    """What this team is owed from the elimination-pool payout (0 if none)."""
+    po = final_payout(conn, season_id, final_week)
+    if not po:
+        return 0
+    for e in po["winners"] + po["others"]:
+        if e["team_id"] == team_id:
+            return e["cents"]
+    return 0
 
 
 def pool_status(conn, season_id: int) -> dict:
