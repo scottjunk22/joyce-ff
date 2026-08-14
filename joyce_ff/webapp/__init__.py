@@ -338,6 +338,12 @@ def create_app(db_path: str | None = None) -> Flask:
             repo.set_lineup(db(), sid, team_id, wk, b["starters"], locked_refs=locked)
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
+        # If this week is already scored, refresh the stored team total so the
+        # scoreboard/standings match the new lineup (the box score already sums
+        # the live lineup). Skipped for a not-yet-scored week.
+        if db().execute("SELECT 1 FROM asset_week_scores WHERE season_id=? AND ff_week=? LIMIT 1",
+                        (sid, wk)).fetchone():
+            scoring.score_team_week(db(), sid, wk)
         return jsonify(ok=True)
 
     @app.post("/api/team/<int:team_id>/payment")

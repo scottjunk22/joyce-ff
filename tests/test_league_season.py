@@ -155,6 +155,28 @@ def test_final_payout_none_before_final_week(db):
     assert standings.final_payout(conn, sid) is None
 
 
+def test_score_team_week_reflects_lineup_change(db):
+    conn, sid = db
+    tid = conn.execute("SELECT id FROM teams WHERE season_id=? LIMIT 1", (sid,)).fetchone()["id"]
+    for ref, pts in [("KC", 11), ("SF", 27)]:
+        conn.execute("INSERT INTO asset_week_scores(season_id,ff_week,asset_kind,asset_ref,"
+                     "unit_type,points,computed_at) VALUES (?,1,'TEAM_UNIT',?, 'QB',?, 't')",
+                     (sid, ref, pts))
+
+    def start(ref):
+        conn.execute("DELETE FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=1",
+                     (sid, tid))
+        conn.execute("INSERT INTO weekly_lineups(season_id,team_id,ff_week,roster_slot,"
+                     "asset_kind,asset_ref) VALUES (?,?,1,'QB','TEAM_UNIT',?)", (sid, tid, ref))
+        conn.commit()
+        scoring.score_team_week(conn, sid, 1)
+        return conn.execute("SELECT computed_points FROM team_week_scores WHERE team_id=? "
+                            "AND ff_week=1", (tid,)).fetchone()["computed_points"]
+
+    assert start("KC") == 11
+    assert start("SF") == 27          # re-scoring after a lineup change updates the stored total
+
+
 def test_box_score_is_slot_ordered(db):
     conn, sid = db
     tid = conn.execute("SELECT id FROM teams WHERE season_id=? LIMIT 1", (sid,)).fetchone()["id"]
