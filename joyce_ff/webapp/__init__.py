@@ -188,12 +188,12 @@ def create_app(db_path: str | None = None) -> Flask:
 
         tx = {"BLUE": [], "RED": []}
         for r in conn.execute(
-            "SELECT tr.ff_week w, t.name team, c.code conf, tr.type, tr.position pos, "
+            "SELECT tr.id id, tr.ff_week w, t.name team, c.code conf, tr.type, tr.position pos, "
             "tr.out_asset_kind ok, tr.out_asset_ref oref, tr.in_asset_kind ik, tr.in_asset_ref iref "
             "FROM transactions tr JOIN teams t ON t.id=tr.team_id "
             "JOIN conferences c ON c.id=t.conference_id WHERE tr.season_id=? AND tr.reversed=0 "
             "ORDER BY tr.ff_week DESC, tr.id DESC LIMIT 20", (sid,)):
-            tx[r["conf"]].append({"week": r["w"], "team": r["team"], "type": r["type"],
+            tx[r["conf"]].append({"id": r["id"], "week": r["w"], "team": r["team"], "type": r["type"],
                 **_tx_parts(conn, sid, r["pos"], r["ok"], r["oref"], r["ik"], r["iref"])})
 
         fees = {t["team_id"]: _account(conn, sid, t["team_id"])
@@ -405,8 +405,17 @@ def create_app(db_path: str | None = None) -> Flask:
     def admin_reverse(tx_id):
         if (bad := _commish()):
             return bad
-        db().execute("UPDATE transactions SET reversed=1 WHERE id=?", (tx_id,))
-        db().commit()
+        repo.reverse_transaction(db(), tx_id)
         return jsonify(ok=True)
+
+    @app.post("/api/admin/convert/<int:tx_id>")
+    def admin_convert(tx_id):
+        if (bad := _commish()):
+            return bad
+        try:
+            new_id = repo.convert_transaction(db(), season()["id"], tx_id)
+        except repo.RuleError as e:
+            return jsonify(error=str(e)), 400
+        return jsonify(ok=True, transaction_id=new_id)
 
     return app

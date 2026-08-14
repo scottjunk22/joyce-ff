@@ -94,6 +94,14 @@
  .tag-open{font-size:10px;color:var(--blue);border:1px solid var(--blue);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
  /* trade/open */
  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:8px 0}.seg button{background:var(--panel2);border:0;color:var(--text);padding:6px 14px;cursor:pointer}.seg button.on{background:var(--blue);color:#04121d;font-weight:700}
+ .txseg{display:flex;gap:8px;margin:10px 0}
+ .txmode{flex:1;border:1px solid var(--line);border-radius:8px;padding:7px 10px;cursor:pointer}
+ .txmode.t.on{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 14%,transparent)}
+ .txmode.o.on{border-color:var(--blue);background:color-mix(in srgb,var(--blue) 12%,transparent)}
+ .txmode.dis{opacity:.4;pointer-events:none}
+ .txmode .t1{font-weight:700}.txmode .t2{font-size:11px;color:var(--dim)}
+ .txhint{font-size:12px;color:var(--warn);margin-top:8px}
+ .txwarn{border:2px solid var(--warn);border-radius:9px;padding:11px;background:color-mix(in srgb,var(--warn) 10%,transparent);margin:0 0 12px}
  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}.col h4{margin:0 0 6px;font-size:12px;color:var(--dim)}
  .plist{border:1px solid var(--line);border-radius:8px;max-height:230px;overflow:auto}.pl{display:flex;justify-content:space-between;padding:6px 9px;border-bottom:1px solid var(--line);cursor:pointer}.pl:hover{background:var(--panel2)}.pl.sel{background:color-mix(in srgb,var(--blue) 22%,transparent)}.pl .pos{color:var(--dim);font-size:11px;min-width:52px;display:inline-block}
  .searchbox{width:100%;margin-bottom:6px}
@@ -294,37 +302,62 @@ async function submitLineup(){ const starters=[...LU.sel].map(ref=>({roster_slot
   const res=await fetch(`/api/team/${LU.team}/lineup`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:$('lpc').value,week:LU.week,starters})});
   const j=await res.json(); if(res.ok){alert('Lineup saved!');closeM();load(VIEW, SEASON);}else alert('⚠ '+(j.error||'error')); }
 
-let TX={team:null,out:null,outPos:null,in:null,mode:'trade',outName:'',inName:''};
-async function txModal(id){ const d=await (await fetch(`/api/team/${id}/detail?week=${CUR}&season=${SEASON}`)).json();
-  TX={team:id,out:null,outPos:null,in:null,mode:'trade',outName:'',inName:''};
-  const roster=d.roster.map(r=>`<div class="pl" onclick='pickOut("${r.asset_ref}","${r.slot}","${r.name.replace(/"/g,'')}")'><span><span class="pos">${r.slot}</span>${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}</span></div>`).join('');
-  openM(`<h3>${d.name} — Move a player</h3>
-   <div class="seg"><button class="on" data-m="trade" onclick="setMode('trade')">⇄ Trade (permanent)</button><button data-m="open" onclick="setMode('open')">＋ Open (1 week)</button></div>
-   <div class="cols"><div><h4>Your roster — move OUT</h4><div class="plist">${roster}</div></div>
-    <div><h4 id="ah">Available — pick a player first</h4><input class="searchbox" id="asearch" placeholder="search…" oninput="renderAvail(this.value)" disabled><div class="plist" id="avail"><div class="sub" style="padding:14px;text-align:center">← pick a player on the left</div></div></div></div>
-   <div class="explain" id="txx"></div>
-   <div class="pass"><span>passcode:</span><input type="password" id="txpc" placeholder="demo"><button class="go" onclick="submitTx()">Confirm</button></div>`);
-  updateX();
+let TX={};
+async function txModal(id){
+  const d=await (await fetch(`/api/team/${id}/detail?week=${CUR}&season=${SEASON}`)).json();
+  TX={team:id,teamName:d.name,roster:d.roster,out:null,outPos:null,outName:'',outBye:false,
+      in:null,inName:'',mode:'trade',avail:[],filter:'',step:'build',pc:''};
+  openM('<div id="txbody"></div>'); renderTxBuild();
 }
-let AVAIL=[];
-async function pickOut(ref,pos,name){ TX.out=ref;TX.outPos=pos;TX.outName=name;TX.in=null;
-  document.querySelectorAll('#mbody .cols .plist .pl').forEach(p=>p.classList.remove('sel')); event.currentTarget.classList.add('sel');
-  $('ah').textContent=`Available ${pos} — alphabetical`; const sb=$('asearch');sb.disabled=false;sb.value='';
-  AVAIL=(await (await fetch(`/api/team/${TX.team}/available?position=${encodeURIComponent(pos)}`)).json()).available; renderAvail(''); updateX(); }
-function renderAvail(f){ const key=x=>x.gsis_id||x.abbr, nm=x=>x.name||x.abbr;
-  const list=AVAIL.filter(x=>nm(x).toLowerCase().includes((f||'').toLowerCase()));
-  $('avail').innerHTML=list.length?list.map(x=>`<div class="pl ${TX.in===key(x)?'sel':''}" onclick='pickIn("${key(x)}","${nm(x).replace(/"/g,'')}")'><span><span class="pos">${TX.outPos}</span>${nm(x)}${x.nfl_team_abbr?` <span class="team">${x.nfl_team_abbr}</span>`:''}</span></div>`).join(''):'<div class="sub" style="padding:14px;text-align:center">no matches</div>'; }
-function pickIn(ref,name){ TX.in=ref;TX.inName=name;renderAvail($('asearch').value);updateX(); }
-function setMode(m){ TX.mode=m;document.querySelectorAll('#mbody .seg button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));updateX(); }
-function updateX(){ const o=TX.outName||'(your player)',i=TX.inName||'(available player)';
-  $('txx').innerHTML=TX.mode==='trade'?`⇄ <b>Trade:</b> drop <b>${o}</b>, add <b>${i}</b> permanently.`:`＋ <b>Open:</b> start <b>${i}</b> for <b>${o}</b> this week only (requires ${o} on his NFL bye). ${o} stays rostered.`; }
-async function submitTx(){ if(!TX.out||!TX.in){alert('Pick a player to move out and one to bring in.');return;}
-  const res=await fetch(`/api/team/${TX.team}/${TX.mode}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:$('txpc').value,position:TX.outPos,out:TX.out,in:TX.in})});
-  const j=await res.json(); if(res.ok){
-    const msg = j.fee_cents ? `Done — $${(j.fee_cents/100).toFixed(0)} fee.`
-      : `Done — free move. ${j.free_left} free ${j.free_left===1?'move':'moves'} left this season.`;
-    alert(msg); closeM(); load(VIEW, SEASON);
-  } else alert('⚠ '+(j.error||'error')); }
+function txSetMode(m){ if(m==='open'&&!(TX.out&&TX.outBye))return; TX.mode=m; renderTxBuild(); }
+async function pickOut(ref,pos,bye){
+  const r=TX.roster.find(x=>x.asset_ref===ref)||{};
+  TX.out=ref;TX.outPos=pos;TX.outName=r.name||ref;TX.outBye=!!bye;TX.in=null;TX.inName='';TX.filter='';
+  if(!TX.outBye&&TX.mode==='open')TX.mode='trade';
+  renderTxBuild();
+  TX.avail=(await (await fetch(`/api/team/${TX.team}/available?position=${encodeURIComponent(pos)}`)).json()).available;
+  renderTxBuild();
+}
+function pickIn(key){ const x=TX.avail.find(a=>(a.gsis_id||a.abbr)===key)||{}; TX.in=key;TX.inName=x.name||x.abbr||key; renderTxBuild(); }
+function txFilter(v){ TX.filter=v; const el=$('avail'); if(el)el.innerHTML=availHtml(); }
+function availHtml(){ if(!TX.out)return '<div class="sub" style="padding:14px;text-align:center">← pick a player on the left</div>';
+  const nm=x=>x.name||x.abbr, list=TX.avail.filter(x=>nm(x).toLowerCase().includes((TX.filter||'').toLowerCase()));
+  if(!list.length)return '<div class="sub" style="padding:14px;text-align:center">no matches</div>';
+  return list.map(x=>{const key=x.gsis_id||x.abbr;
+    return `<div class="pl ${TX.in===key?'sel':''}" onclick='pickIn(${JSON.stringify(key)})'><span><span class="pos">${TX.outPos}</span>${nm(x)}${x.nfl_team_abbr?` <span class="team">${x.nfl_team_abbr}</span>`:''}</span></div>`;}).join('');
+}
+function renderTxBuild(){ if(TX.step==='review')return renderTxReview();
+  const openOk=TX.out&&TX.outBye;
+  const rosterList=TX.roster.map(r=>`<div class="pl ${TX.out===r.asset_ref?'sel':''}" onclick='pickOut(${JSON.stringify(r.asset_ref)},${JSON.stringify(r.slot)},${r.bye?1:0})'><span><span class="pos">${r.slot}</span>${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}${r.bye?' <span class="tag-bye">BYE</span>':''}</span></div>`).join('');
+  const hint=TX.out?(TX.outBye?`<div class="txhint">💡 ${TX.outName} is on bye — most managers <b>Open</b> (rent) a bye player rather than Trade him away.</div>`:`<div class="sub" style="margin-top:8px">Open is unavailable — ${TX.outName} isn't on a bye this week, so only Trade applies.</div>`):'';
+  $('txbody').innerHTML=`<h3>${TX.teamName} — Move a player</h3>
+    <div class="txseg">
+      <div class="txmode t ${TX.mode==='trade'?'on':''}" onclick="txSetMode('trade')"><div class="t1">⇄ Trade</div><div class="t2">permanent · can't undo</div></div>
+      <div class="txmode o ${TX.mode==='open'?'on':''} ${openOk?'':'dis'}" onclick="txSetMode('open')"><div class="t1">＋ Open</div><div class="t2">${TX.out?(TX.outBye?'1-week rental':'bye players only'):'1-week rental'}</div></div>
+    </div>
+    <div class="cols"><div><h4>Your roster — move OUT</h4><div class="plist">${rosterList}</div></div>
+      <div><h4>${TX.out?'Available '+TX.outPos:'Available'}</h4><input class="searchbox" id="asearch" placeholder="search…" ${TX.out?'':'disabled'} oninput="txFilter(this.value)" value="${TX.filter||''}"><div class="plist" id="avail">${availHtml()}</div></div></div>
+    ${hint}
+    <div class="pass"><span>passcode:</span><input type="password" id="txpc" placeholder="demo" value="${TX.pc||''}"><button class="go" onclick="txReview()">Review →</button></div>`;
+}
+function txReview(){ if(!TX.out||!TX.in){alert('Pick a player to move out and one to bring in.');return;}
+  TX.pc=$('txpc').value; TX.step='review'; renderTxReview(); }
+function txBack(){ TX.step='build'; renderTxBuild(); }
+function txSwitchOpen(){ TX.mode='open'; renderTxReview(); }
+function renderTxReview(){ const isTrade=TX.mode==='trade', mismatch=isTrade&&TX.outBye;
+  $('txbody').innerHTML=`<h3>Review this move</h3>
+    ${mismatch?`<div class="txwarn"><div style="font-weight:800;color:var(--warn)">⚠ ${TX.outName} is on his bye this week</div><div style="font-size:13px;margin:5px 0 10px">A <b>Trade is permanent</b> and can't be undone. Since he's on bye, did you mean to <b>Open</b> him — a 1-week rental that keeps him on your roster?</div><button class="go" style="background:var(--blue)" onclick="txSwitchOpen()">Switch to Open</button></div>`:''}
+    <div style="font-weight:700;color:${isTrade?'var(--bad)':'var(--blue)'};margin-bottom:4px">${isTrade?'⇄ Permanent trade':'＋ Open · 1-week rental'}</div>
+    <div style="font-size:13px;line-height:1.6">Drop <b>${TX.outName}</b><br>${isTrade?'Add':'Start'} <b>${TX.inName}</b>${isTrade?' — <span style="color:var(--bad)">permanently</span>':' — this week only; '+TX.outName+' stays rostered'}</div>
+    <div class="pass"><button class="chip" onclick="txBack()">← Back</button><span style="flex:1"></span><button class="go" style="${isTrade?'background:var(--bad);color:#fff':''}" onclick="submitTx()">${isTrade?'Confirm — trade permanently':'Confirm — Open'}</button></div>`;
+}
+async function submitTx(){
+  const res=await fetch(`/api/team/${TX.team}/${TX.mode}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:TX.pc,position:TX.outPos,out:TX.out,in:TX.in})});
+  const j=await res.json();
+  if(res.ok){ const isTrade=TX.mode==='trade';
+    const feeMsg=j.fee_cents?`$${(j.fee_cents/100).toFixed(0)} fee`:`free move · ${j.free_left} left`;
+    alert((isTrade?'Traded — permanent. ':'Opened — 1 week only. ')+feeMsg); closeM(); load(VIEW, SEASON);
+  } else { alert('⚠ '+(j.error||'error')); TX.step='build'; renderTxBuild(); } }
 
 let COMMISH_PC='';
 function commishModal(){ openM(`<h3>🛠 Commissioner <span class="sub">Steve &amp; Scott</span></h3>
@@ -350,10 +383,20 @@ function renderCommish(){ const L=STATE.lineups;
   const table=(teams,label,color)=>`<div style="margin:12px 0 4px;font-weight:800;color:${color}">${label}</div>`
     +`<div style="overflow-x:auto"><table class="feetable"><thead><tr><th>Team</th><th>#</th><th>Slot</th><th>Passcode</th><th></th><th>Score W${VIEW}</th><th>Balance</th><th>Pay</th></tr></thead><tbody>`
     +teams.map(row).join('')+`</tbody></table></div>`;
+  const txs=[...STATE.transactions.BLUE,...STATE.transactions.RED].sort((a,b)=>b.id-a.id);
+  const txSection = txs.length ? `<div style="margin:14px 0 4px;font-weight:800">Recent moves <span class="sub">— convert a mis-toggled Trade/Open, or reverse it</span></div>`
+    +txs.map(t=>`<div class="frow"><span><span class="wk">W${t.week}</span> ${t.type==='TRADE'?'⇄':'＋'} <b>${t.team}</b> — ${txSwap(t)}</span>
+      <span style="display:flex;gap:5px;white-space:nowrap"><button class="chip" onclick="convertTx(${t.id},'${t.type}')">→ ${t.type==='TRADE'?'Open':'Trade'}</button><button class="chip" style="border-color:var(--bad);color:var(--bad)" onclick="reverseTx(${t.id})">reverse</button></span></div>`).join('')
+    +`<div class="sub" style="margin-top:6px">To fix the wrong player: reverse the move, then redo it correctly from the team's ⇄＋.</div>` : '';
   $('commBody').innerHTML=lsum
     +table(STATE.standings.BLUE,'BLUE CONFERENCE','var(--blue)')
-    +table(STATE.standings.RED,'RED CONFERENCE','var(--red)');
+    +table(STATE.standings.RED,'RED CONFERENCE','var(--red)')
+    +txSection;
 }
+async function convertTx(id,type){ if(!confirm(`Convert this ${type} to ${type==='TRADE'?'an Open (1-week rental)':'a permanent Trade'}?`))return;
+  const j=await apost(`/api/admin/convert/${id}`,{}); if(j){alert('Converted.');await load(VIEW, SEASON);renderCommish();} }
+async function reverseTx(id){ if(!confirm('Reverse (undo) this move? For a trade this restores the roster.'))return;
+  const j=await apost(`/api/admin/reverse/${id}`,{}); if(j){alert('Reversed.');await load(VIEW, SEASON);renderCommish();} }
 async function saveTeam(id){ const tn=$('tn_'+id).value,ds=$('ds_'+id).value,pc=$('pc_'+id).value;
   const j=await apost(`/api/admin/team/${id}`,{team_number:tn||undefined,draft_slot:ds||undefined});
   if(j&&pc) await apost(`/api/admin/team/${id}/passcode`,{new_passcode:pc}); if(j){alert('Saved');await load(VIEW, SEASON);renderCommish();} }

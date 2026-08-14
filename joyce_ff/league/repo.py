@@ -166,6 +166,43 @@ def do_open(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
                    out_ref, in_ref, _kind_for(position))
 
 
+def reverse_transaction(conn, tx_id) -> None:
+    """Undo a transaction (commissioner). A TRADE restores the roster (bring the
+    dropped player back, remove the added one); an OPEN drops its rental from
+    that week's lineup. The row is marked reversed either way. Idempotent."""
+    tx = conn.execute("SELECT * FROM transactions WHERE id=?", (tx_id,)).fetchone()
+    if not tx or tx["reversed"]:
+        return
+    if tx["type"] == "TRADE":
+        conn.execute("DELETE FROM roster_entries WHERE team_id=? AND asset_ref=? AND "
+                     "acquired_via='TRADE' AND acquired_ff_week=? AND released_ff_week IS NULL",
+                     (tx["team_id"], tx["in_asset_ref"], tx["ff_week"]))
+        conn.execute("UPDATE roster_entries SET released_ff_week=NULL WHERE team_id=? AND "
+                     "asset_ref=? AND released_ff_week=?",
+                     (tx["team_id"], tx["out_asset_ref"], tx["ff_week"]))
+    else:  # OPEN — pull the rental out of that week's lineup if it was started
+        conn.execute("DELETE FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=? "
+                     "AND asset_ref=? AND is_rental=1",
+                     (tx["season_id"], tx["team_id"], tx["ff_week"], tx["in_asset_ref"]))
+    conn.execute("UPDATE transactions SET reversed=1 WHERE id=?", (tx_id,))
+    conn.commit()
+
+
+def convert_transaction(conn, season_id, tx_id) -> int:
+    """Flip a transaction between TRADE and OPEN (commissioner fix for the
+    'forgot to toggle Open' mistake): reverse the original, then redo it as the
+    other type with the same players. Returns the new transaction id."""
+    tx = conn.execute("SELECT * FROM transactions WHERE id=?", (tx_id,)).fetchone()
+    if not tx:
+        raise RuleError("no such transaction")
+    if tx["reversed"]:
+        raise RuleError("that transaction was already reversed")
+    reverse_transaction(conn, tx_id)
+    args = (conn, season_id, tx["team_id"], tx["position"],
+            tx["out_asset_ref"], tx["in_asset_ref"], tx["ff_week"])
+    return do_open(*args) if tx["type"] == "TRADE" else do_trade(*args)
+
+
 def _tx_count(conn, team_id) -> int:
     """How many trades+opens this team has made (non-reversed)."""
     return conn.execute("SELECT COUNT(*) c FROM transactions WHERE team_id=? AND reversed=0",

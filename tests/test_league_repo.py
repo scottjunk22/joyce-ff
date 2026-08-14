@@ -115,6 +115,37 @@ def test_traded_player_takes_replaced_players_slot(db):
     assert after == ["p_warren", "p_kyren", "p_cook"]            # new RB took slot 1, not last
 
 
+def test_reverse_trade_restores_roster(db):
+    conn, sid, otb = db
+    tx = repo.do_trade(conn, sid, otb, "RB", "p_cook", "p_warren", 3)
+    assert "p_warren" in {e["asset_ref"] for e in repo.current_roster(conn, otb)}
+    repo.reverse_transaction(conn, tx)
+    refs = {e["asset_ref"] for e in repo.current_roster(conn, otb)}
+    assert "p_cook" in refs and "p_warren" not in refs          # roster restored
+    assert repo.fee_balance_cents(conn, otb)["free_used"] == 0  # reversed doesn't count
+
+
+def test_convert_trade_to_open(db):
+    conn, sid, otb = db
+    tx = repo.do_trade(conn, sid, otb, "R", "p_puka", "p_thielen", 5)   # puka (MIA) bye wk5
+    assert "p_puka" not in {e["asset_ref"] for e in repo.current_roster(conn, otb)}
+    new = repo.convert_transaction(conn, sid, tx)
+    refs = {e["asset_ref"] for e in repo.current_roster(conn, otb)}
+    assert "p_puka" in refs and "p_thielen" not in refs        # open = rental, roster restored
+    assert conn.execute("SELECT type FROM transactions WHERE id=?", (new,)).fetchone()["type"] == "OPEN"
+    assert conn.execute("SELECT reversed FROM transactions WHERE id=?", (tx,)).fetchone()["reversed"] == 1
+
+
+def test_convert_open_to_trade(db):
+    conn, sid, otb = db
+    tx = repo.do_open(conn, sid, otb, "R", "p_puka", "p_thielen", 5)
+    assert "p_puka" in {e["asset_ref"] for e in repo.current_roster(conn, otb)}   # open kept roster
+    new = repo.convert_transaction(conn, sid, tx)
+    refs = {e["asset_ref"] for e in repo.current_roster(conn, otb)}
+    assert "p_thielen" in refs and "p_puka" not in refs        # now a permanent trade
+    assert conn.execute("SELECT type FROM transactions WHERE id=?", (new,)).fetchone()["type"] == "TRADE"
+
+
 def test_trade_rejects_unowned_or_unavailable(db):
     conn, sid, otb = db
     with pytest.raises(repo.RuleError):
