@@ -113,6 +113,23 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-08-11: COMMISSIONER ANSWERS (dad). (1) Per-player kickoff lock is
+  sufficient — NO separate Sunday-noon deadline. (2) Unset lineup carries
+  forward previous week; commissioner can adjust if needed. (3) ELIMINATION:
+  a tie for the LOWEST score eliminates ALL tied teams (no tiebreak), every
+  week AND Week 15 (implemented in standings.run_elimination). Week-15 payout:
+  top score $100 (ties for top SPLIT it); every other remaining survivor $10.
+  (4) 2026-27 schedule offset (FF wk1 = NFL wk3) still believed correct.
+  (5) Draft-order table confirmed good.
+- 2026-08-11: FEE MODEL (dad). Entry fee $80/team, a line item under each
+  roster's fees. It INCLUDES 5 free trades; the 6th+ trade costs the usual
+  fee. Each roster must show free-trades-used (n/5). OPEN vs trade counting
+  against the 5 free = TBD (ask). [Not yet implemented.]
+- 2026-08-11: PENDING FEATURES (dad requests, to design): (A) $80 entry-fee
+  line + 5-free-trades counter per roster; (B) mark Open players + list Bye
+  teams above/below scoreboard and flag Bye/Open players within rosters;
+  (C) click a player in a box score to see his point breakdown (from scoring
+  ScoreBreakdown).
 - 2026-08-07: C/K/DEF/QB modeled as NFL team units (confirmed).
 - 2026-08-07: No existing commissioner spreadsheet; scrape + manual CSV
   fallback is the league-state source.
