@@ -76,18 +76,10 @@ def _unit_records(unit_boards) -> dict:
     return out
 
 
-def _median(xs: list[float]) -> float:
-    s = sorted(xs)
-    n = len(s)
-    if n == 0:
-        return 0.0
-    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
-
-
 def _overall_records(player_recs: list[dict], unit_recs: dict,
-                     gap_mult: float = 1.8) -> list[dict]:
+                     min_gap: float = val.TIER_GAP) -> list[dict]:
     """Merge individuals + team units into one VOR-sorted draft order, with
-    tiers recomputed by VOR cliffs across the whole merged list."""
+    tiers recomputed by absolute VOR gaps across the whole merged list."""
     rows = []
     for p in player_recs:
         if p["vor"] is None:
@@ -110,11 +102,9 @@ def _overall_records(player_recs: list[dict], unit_recs: dict,
 
     rows.sort(key=lambda r: r["vor"], reverse=True)
     vals = [r["vor"] for r in rows]
-    drops = [vals[i] - vals[i + 1] for i in range(len(vals) - 1)]
-    med = _median([d for d in drops if d > 0])
     tier = 1
     for i, r in enumerate(rows):
-        if i > 0 and med > 0 and (vals[i - 1] - vals[i]) > gap_mult * med:
+        if i > 0 and (vals[i - 1] - vals[i]) >= min_gap:
             tier += 1
         r["rank"] = i + 1
         r["tier"] = tier

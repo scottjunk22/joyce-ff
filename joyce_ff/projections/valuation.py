@@ -126,22 +126,23 @@ def _add_vor(board: pd.DataFrame) -> pd.DataFrame:
     return board
 
 
-def _add_tiers(board: pd.DataFrame, gap_mult: float = 1.8) -> pd.DataFrame:
-    """Tier by VOR cliffs within each slot: a new tier starts where the drop to
-    the next player is unusually large (> gap_mult x the median drop)."""
+# A new tier starts at a VOR drop of at least this many pts/game. Absolute (not
+# relative to the slot) so a "tier" means the same value step everywhere — a
+# dense position (R) gets fewer, honest tiers instead of one-per-player.
+TIER_GAP = 0.3
+
+
+def _add_tiers(board: pd.DataFrame, min_gap: float = TIER_GAP) -> pd.DataFrame:
+    """Tier by VOR within each slot: a new tier starts where the drop to the
+    next player is at least `min_gap` pts/game. Comparable across positions."""
     board["tier"] = np.nan
     for slot in board["slot"].dropna().unique():
         sub = (board[(board["slot"] == slot) & board["vor"].notna()]
                .sort_values("vor", ascending=False))
-        if len(sub) < 2:
-            board.loc[sub.index, "tier"] = 1
-            continue
         vals = sub["vor"].to_numpy()
-        drops = -np.diff(vals)                 # positive gaps between neighbours
-        med = np.median(drops[drops > 0]) if np.any(drops > 0) else 0.0
-        tier, tiers = 1, [1]
-        for dgap in drops:
-            if med > 0 and dgap > gap_mult * med:
+        tier, tiers = 1, []
+        for i, v in enumerate(vals):
+            if i > 0 and (vals[i - 1] - v) >= min_gap:
                 tier += 1
             tiers.append(tier)
         board.loc[sub.index, "tier"] = tiers
