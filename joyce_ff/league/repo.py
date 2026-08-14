@@ -13,7 +13,9 @@ from datetime import datetime, timezone
 INDIVIDUAL_POS = {"RB", "R"}
 UNIT_POS = {"QB", "K", "DEF/ST", "C"}
 POS_TO_NFL = {"RB": ("RB",), "R": ("WR", "TE")}   # R = WR + TE
-FEE_CENTS = 200
+FEE_CENTS = 200          # per transaction, once the free ones are used up
+ENTRY_FEE_CENTS = 8000   # $80 season entry fee, owed by every team
+FREE_TRADES = 5          # trades + opens combined that are free (in the entry fee)
 
 # Legal weekly skill compositions -> required bye condition (or None).
 #   (nRB, nR): the count of started RB and R
@@ -164,14 +166,21 @@ def do_open(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
                    out_ref, in_ref, _kind_for(position))
 
 
+def _tx_count(conn, team_id) -> int:
+    """How many trades+opens this team has made (non-reversed)."""
+    return conn.execute("SELECT COUNT(*) c FROM transactions WHERE team_id=? AND reversed=0",
+                        (team_id,)).fetchone()["c"]
+
+
 def _log_tx(conn, season_id, team_id, ff_week, typ, position, out_ref, in_ref, in_kind) -> int:
     kind_out = _kind_for(position)
+    fee = 0 if _tx_count(conn, team_id) < FREE_TRADES else FEE_CENTS   # first 5 are free
     cur = conn.execute(
         "INSERT INTO transactions(season_id,team_id,ff_week,type,position,"
         "out_asset_kind,out_asset_ref,in_asset_kind,in_asset_ref,fee_cents,created_at) "
         "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (season_id, team_id, ff_week, typ, position, kind_out, out_ref, in_kind,
-         in_ref, FEE_CENTS, _now()))
+         in_ref, fee, _now()))
     conn.commit()
     return int(cur.lastrowid)
 
@@ -251,11 +260,15 @@ def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
 # --- fees ----------------------------------------------------------------
 
 def fee_balance_cents(conn, team_id) -> dict:
-    owed = conn.execute("SELECT COALESCE(SUM(fee_cents),0) s FROM transactions "
-                        "WHERE team_id=? AND reversed=0", (team_id,)).fetchone()["s"]
+    tx_fees = conn.execute("SELECT COALESCE(SUM(fee_cents),0) s FROM transactions "
+                           "WHERE team_id=? AND reversed=0", (team_id,)).fetchone()["s"]
     paid = conn.execute("SELECT COALESCE(SUM(amount_cents),0) s FROM payments "
                         "WHERE team_id=?", (team_id,)).fetchone()["s"]
-    return {"owed_cents": owed, "paid_cents": paid, "balance_cents": owed - paid}
+    owed = ENTRY_FEE_CENTS + tx_fees                 # $80 entry + any paid transactions
+    used = _tx_count(conn, team_id)
+    return {"entry_fee_cents": ENTRY_FEE_CENTS, "tx_fee_cents": tx_fees,
+            "owed_cents": owed, "paid_cents": paid, "balance_cents": owed - paid,
+            "free_used": min(used, FREE_TRADES), "free_left": max(0, FREE_TRADES - used)}
 
 
 def record_payment(conn, season_id, team_id, amount_cents, note=None, actor=None) -> None:

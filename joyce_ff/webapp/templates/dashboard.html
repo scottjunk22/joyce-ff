@@ -209,15 +209,15 @@ async function boxScore(homeId,awayId){
 async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?week=${VIEW}&season=${SEASON}`)).json();
   const rows=d.roster.map(r=>`<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}</span></div>`).join('');
   const b=c=>`$${(Math.abs(c)/100).toFixed(0)}`;
-  const bal=d.fees.balance_cents;
+  const f=d.fees, bal=f.balance_cents;
   const balTxt = bal>0 ? `<span class="fbal">balance ${b(bal)}</span>`
     : bal<0 ? `<span class="fbal paid">credit ${b(bal)}</span>`
     : `<span class="fbal paid">settled</span>`;
-  const hasFees = d.history.length||(d.payments||[]).length||d.fees.owed_cents;
-  const fees = hasFees ? `<div class="fees"><div class="fhd"><span>Transaction fees</span>${balTxt}</div>`
-    +d.history.map(h=>`<div class="frow"><span>W${h.week} ${h.type==='TRADE'?'⇄':'＋'} ${txSwap(h)}</span><span>${b(h.fee)}</span></div>`).join('')
+  const fees = `<div class="fees"><div class="fhd"><span>Fees <span class="sub">· ${f.free_used}/5 free trades used</span></span>${balTxt}</div>`
+    +`<div class="frow"><span>Entry fee</span><span>${b(f.entry_fee_cents)}</span></div>`
+    +d.history.map(h=>`<div class="frow"><span>W${h.week} ${h.type==='TRADE'?'⇄':'＋'} ${txSwap(h)}</span><span>${h.fee?b(h.fee):'<span class="sub">free</span>'}</span></div>`).join('')
     +(d.payments||[]).map(p=>`<div class="frow"><span>✓ payment${p.note?` <span class="sub">(${p.note})</span>`:''}</span><span class="paid">−${b(p.amount_cents)}</span></div>`).join('')
-    +`</div>`:'';
+    +`</div>`;
   openM(`<h3>${d.name} — Roster</h3><div class="sub">${d.managers||''}</div><div style="margin-top:10px">${rows}</div>${fees}`);
 }
 let LU={team:null,sel:new Set(),items:[]};

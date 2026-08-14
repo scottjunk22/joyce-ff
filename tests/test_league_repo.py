@@ -92,7 +92,9 @@ def test_trade_swaps_roster_and_logs_fee(db):
     repo.do_trade(conn, sid, otb, "RB", "p_cook", "p_warren", ff_week=3)
     refs = {e["asset_ref"] for e in repo.current_roster(conn, otb)}
     assert "p_warren" in refs and "p_cook" not in refs
-    assert repo.fee_balance_cents(conn, otb)["owed_cents"] == 200
+    bal = repo.fee_balance_cents(conn, otb)
+    assert bal["tx_fee_cents"] == 0 and bal["free_used"] == 1        # first trade is free
+    assert bal["owed_cents"] == repo.ENTRY_FEE_CENTS                 # only the $80 entry fee
 
 
 def test_roster_groups_by_slot_after_trade(db):
@@ -127,7 +129,7 @@ def test_open_requires_the_player_to_be_on_bye(db):
     conn, sid, otb = db
     # Puka (MIA) is on bye week 5 -> allowed
     repo.do_open(conn, sid, otb, "R", "p_puka", "p_thielen", ff_week=5)
-    assert repo.fee_balance_cents(conn, otb)["owed_cents"] == 200
+    assert repo.fee_balance_cents(conn, otb)["free_used"] == 1       # an open uses a free slot
     # Lamb (DAL, bye 11) is NOT on bye week 5 -> rejected
     with pytest.raises(repo.RuleError):
         repo.do_open(conn, sid, otb, "R", "p_lamb", "p_thielen", ff_week=5)
@@ -199,18 +201,35 @@ def test_lineup_rejects_unowned_non_rental(db):
 
 # --- fees ---------------------------------------------------------------
 
-def test_fee_balance_and_payment(db):
+def test_entry_fee_free_trades_and_payment(db):
     conn, sid, otb = db
-    repo.do_trade(conn, sid, otb, "RB", "p_cook", "p_warren", 3)      # $2
-    repo.do_open(conn, sid, otb, "R", "p_puka", "p_thielen", 5)       # $2
-    assert repo.fee_balance_cents(conn, otb)["balance_cents"] == 400
-    repo.record_payment(conn, sid, otb, 300, note="partial")
+    bal0 = repo.fee_balance_cents(conn, otb)
+    assert bal0["owed_cents"] == repo.ENTRY_FEE_CENTS and bal0["free_left"] == 5   # just entry fee
+    repo.do_trade(conn, sid, otb, "RB", "p_cook", "p_warren", 3)      # 1st trade: free
+    repo.do_open(conn, sid, otb, "R", "p_puka", "p_thielen", 5)       # 1st open: free
+    bal1 = repo.fee_balance_cents(conn, otb)
+    assert bal1["tx_fee_cents"] == 0 and bal1["free_used"] == 2 and bal1["free_left"] == 3
+    assert bal1["owed_cents"] == repo.ENTRY_FEE_CENTS                 # still only the entry fee
+    repo.record_payment(conn, sid, otb, 3000, note="partial")
+    assert repo.fee_balance_cents(conn, otb)["balance_cents"] == repo.ENTRY_FEE_CENTS - 3000
+
+
+def test_sixth_transaction_costs_the_fee(db):
+    conn, sid, otb = db
+    for _ in range(5):    # five free trades/opens already used
+        conn.execute("INSERT INTO transactions(season_id,team_id,ff_week,type,position,"
+                     "out_asset_kind,out_asset_ref,in_asset_kind,in_asset_ref,fee_cents,created_at) "
+                     "VALUES (?,?,1,'TRADE','RB','PLAYER','a','PLAYER','b',0,'t')", (sid, otb))
+    conn.commit()
+    assert repo.fee_balance_cents(conn, otb)["free_left"] == 0
+    repo.do_trade(conn, sid, otb, "RB", "p_cook", "p_warren", 3)      # 6th -> $2
     bal = repo.fee_balance_cents(conn, otb)
-    assert bal["owed_cents"] == 400 and bal["paid_cents"] == 300 and bal["balance_cents"] == 100
+    assert bal["tx_fee_cents"] == repo.FEE_CENTS and bal["free_used"] == 5
+    assert bal["owed_cents"] == repo.ENTRY_FEE_CENTS + repo.FEE_CENTS
 
 
 def test_overpayment_leaves_a_credit(db):
     conn, sid, otb = db
-    repo.do_trade(conn, sid, otb, "RB", "p_cook", "p_warren", 3)      # $2 owed
-    repo.record_payment(conn, sid, otb, 500, note="overpay")          # pays $5
-    assert repo.fee_balance_cents(conn, otb)["balance_cents"] == -300  # $3 credit
+    owed = repo.fee_balance_cents(conn, otb)["owed_cents"]            # $80 entry fee
+    repo.record_payment(conn, sid, otb, owed + 500, note="overpay")   # pays $5 over
+    assert repo.fee_balance_cents(conn, otb)["balance_cents"] == -500  # $5 credit
