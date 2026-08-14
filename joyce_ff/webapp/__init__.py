@@ -156,9 +156,12 @@ def create_app(db_path: str | None = None) -> Flask:
                     t["eliminated_ff_week"] = m["eliminated_ff_week"]
                     t["team_number"] = m["team_number"]
                     t["draft_slot"] = m["draft_slot"]
-        scores = {r["team_id"]: r["computed_points"] for r in conn.execute(
-            "SELECT team_id, computed_points FROM team_week_scores WHERE season_id=? AND ff_week=?",
-            (sid, wk))}
+        scores, adjusted = {}, set()
+        for r in conn.execute("SELECT team_id, computed_points, adjusted FROM team_week_scores "
+                              "WHERE season_id=? AND ff_week=?", (sid, wk)):
+            scores[r["team_id"]] = r["computed_points"]
+            if r["adjusted"]:
+                adjusted.add(r["team_id"])
         try:
             pending = _pending_teams(conn, sid, wk)
         except Exception:
@@ -173,7 +176,8 @@ def create_app(db_path: str | None = None) -> Flask:
 
         def side(tid, name):
             return {"id": tid, "name": name, "points": scores.get(tid),
-                    "to_play": toplay.get(tid, 0), "lineup_set": lset.get(tid, 0) >= 9}
+                    "to_play": toplay.get(tid, 0), "lineup_set": lset.get(tid, 0) >= 9,
+                    "adjusted": tid in adjusted}
         board = []
         for m in conn.execute(
             "SELECT m.kind, m.home_team_id h, m.away_team_id a, th.name hn, ta.name an "
@@ -266,9 +270,14 @@ def create_app(db_path: str | None = None) -> Flask:
                 for p in conn.execute(
                     "SELECT amount_cents, note, applied_at FROM payments WHERE team_id=? "
                     "ORDER BY id", (team_id,))]
+        tw = conn.execute("SELECT computed_points, adjusted FROM team_week_scores "
+                          "WHERE season_id=? AND team_id=? AND ff_week=?",
+                          (sid, team_id, wk)).fetchone()
         return jsonify(name=row["name"], managers=row["manager_names"],
                        roster=roster, fees=fees, history=hist, payments=pays, opens=opens,
-                       box=scoring.box_score(conn, sid, wk, team_id))
+                       box=scoring.box_score(conn, sid, wk, team_id),
+                       adjusted=bool(tw and tw["adjusted"]),
+                       team_total=(tw["computed_points"] if tw else None))
 
     @app.get("/api/team/<int:team_id>/available")
     def available(team_id):
@@ -319,10 +328,13 @@ def create_app(db_path: str | None = None) -> Flask:
         if (bad := _guard(team_id)):
             return bad
         b = request.get_json(force=True)
-        sid, wk = season()["id"], _week(season()["current_ff_week"])
+        s = season(); sid, wk = s["id"], _week(s["current_ff_week"])
+        is_comm = auth.is_commissioner(db(), _passcode())
+        if wk != s["current_ff_week"] and not is_comm:
+            return jsonify(error="only the commissioner can change another week's lineup"), 400
         try:
             from ..league.locks import locked_assets
-            locked = locked_assets(db(), sid, wk)
+            locked = set() if is_comm else locked_assets(db(), sid, wk)   # commissioner bypasses kickoff locks
             repo.set_lineup(db(), sid, team_id, wk, b["starters"], locked_refs=locked)
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
@@ -366,6 +378,20 @@ def create_app(db_path: str | None = None) -> Flask:
         if not new:
             return jsonify(error="new_passcode required"), 400
         auth.set_team_passcode(db(), team_id, new)
+        return jsonify(ok=True)
+
+    @app.post("/api/admin/team/<int:team_id>/score")
+    def admin_set_score(team_id):
+        if (bad := _commish()):
+            return bad
+        b = request.get_json(force=True)
+        wk, pts = int(b["week"]), float(b["points"])
+        db().execute(
+            "INSERT INTO team_week_scores(season_id,team_id,ff_week,computed_points,adjusted,computed_at) "
+            "VALUES (?,?,?,?,1, datetime('now')) ON CONFLICT(season_id,team_id,ff_week) DO UPDATE SET "
+            "computed_points=excluded.computed_points, adjusted=1, computed_at=datetime('now')",
+            (season()["id"], team_id, wk, pts))
+        db().commit()
         return jsonify(ok=True)
 
     @app.post("/api/admin/run-current")

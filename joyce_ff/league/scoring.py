@@ -108,7 +108,8 @@ def score_team_week(conn, season_id: int, ff_week: int) -> None:
         conn.execute(
             "INSERT INTO team_week_scores(season_id,team_id,ff_week,computed_points,computed_at) "
             "VALUES (?,?,?,?,?) ON CONFLICT(season_id,team_id,ff_week) DO UPDATE SET "
-            "computed_points=excluded.computed_points, computed_at=excluded.computed_at",
+            "computed_points=excluded.computed_points, computed_at=excluded.computed_at "
+            "WHERE team_week_scores.adjusted=0",   # never clobber a commissioner override
             (season_id, team_id, ff_week, total, _now()))
     conn.commit()
 

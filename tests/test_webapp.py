@@ -109,6 +109,31 @@ def test_state_has_lineup_summary_and_alive_flag(client):
     assert row["alive"] is True and "team_number" in row
 
 
+def test_admin_score_override(client):
+    bad = client.post(f"/api/admin/team/{client.otb}/score",
+                      json={"passcode": "otblitz", "week": 1, "points": 99})
+    assert bad.status_code == 403                                    # team passcode not enough
+    ok = client.post(f"/api/admin/team/{client.otb}/score",
+                     json={"passcode": "commish", "week": 1, "points": 99})
+    assert ok.status_code == 200
+    conn = schema.connect(client.dbpath)
+    r = conn.execute("SELECT computed_points, adjusted FROM team_week_scores "
+                     "WHERE team_id=? AND ff_week=1", (client.otb,)).fetchone()
+    conn.close()
+    assert r["computed_points"] == 99 and r["adjusted"] == 1
+
+
+def test_only_commissioner_edits_other_weeks(client):
+    cur = client.get("/api/state").get_json()["season"]["current"]
+    mgr = client.post(f"/api/team/{client.otb}/lineup",
+                      json={"passcode": "otblitz", "week": cur + 1, "starters": []})
+    assert mgr.status_code == 400 and "commissioner" in mgr.get_json()["error"]
+    # commissioner passes the week gate (then fails on the empty roster, a different error)
+    comm = client.post(f"/api/team/{client.otb}/lineup",
+                       json={"passcode": "commish", "week": cur + 1, "starters": []})
+    assert comm.status_code == 400 and "commissioner can change" not in comm.get_json().get("error", "")
+
+
 def test_admin_endpoints_require_commissioner(client):
     # team passcode is NOT enough for admin
     bad = client.post(f"/api/admin/team/{client.otb}",

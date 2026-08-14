@@ -196,6 +196,7 @@ CREATE TABLE IF NOT EXISTS team_week_scores (
     computed_points REAL,
     posted_points   REAL,              -- scraped from legacy site (cross-check)
     finalized       INTEGER NOT NULL DEFAULT 0,
+    adjusted        INTEGER NOT NULL DEFAULT 0,  -- 1 = commissioner-overridden total
     computed_at     TEXT,
     UNIQUE(season_id, team_id, ff_week)
 );
@@ -258,6 +259,13 @@ def migrate(conn: sqlite3.Connection) -> None:
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(roster_entries)")}
         if "slot_order" not in cols:
             conn.execute("ALTER TABLE roster_entries ADD COLUMN slot_order INTEGER")
+            conn.commit()
+
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='team_week_scores'").fetchone():
+        tcols = {r["name"] for r in conn.execute("PRAGMA table_info(team_week_scores)")}
+        if "adjusted" not in tcols:
+            conn.execute("ALTER TABLE team_week_scores ADD COLUMN adjusted INTEGER NOT NULL DEFAULT 0")
             conn.commit()
 
     # asset_week_scores originally keyed without unit_type, so an NFL team's

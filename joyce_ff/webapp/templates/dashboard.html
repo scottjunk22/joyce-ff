@@ -24,6 +24,7 @@
  .game .r.win .nm{font-weight:800}
  .toplay{font-size:10px;color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent);border-radius:999px;padding:1px 6px;white-space:nowrap}
  .noflag{font-size:11px;color:var(--warn);white-space:nowrap;display:inline-flex;align-items:center;gap:3px;font-weight:700}
+ .adj{font-size:9px;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:0 4px;white-space:nowrap}
  .game .r .s{font-variant-numeric:tabular-nums;font-weight:700;min-width:26px;text-align:right}
  .game .meta{color:var(--dim);font-size:11px;margin-top:5px;border-top:1px solid var(--line);padding-top:5px;display:flex;justify-content:space-between}
  .final{color:var(--good);font-weight:700}.boxlink{color:var(--blue)}
@@ -174,7 +175,7 @@ function renderScores(){
     const isCur = VIEW===CUR;
     const tp=t=>t.to_play>0?`<span class="toplay">${t.to_play} to play</span>`:'';
     const flag=t=>(isCur && !done && !t.lineup_set)?`<span class="noflag">${TRI} no lineup</span>`:'';
-    const row=(t,win)=>`<div class="r ${win?'win':''}"><span class="nm">${t.name}</span>${flag(t)}${tp(t)}<span class="s">${f(t.points)}</span></div>`;
+    const row=(t,win)=>`<div class="r ${win?'win':''}"><span class="nm">${t.name}</span>${flag(t)}${tp(t)}${t.adjusted?'<span class="adj" title="commissioner-adjusted">adj</span>':''}<span class="s">${f(t.points)}</span></div>`;
     return `<div class="game" onclick="boxScore(${g.home.id},${g.away.id})">${row(g.home,hw)}${row(g.away,aw)}
       <div class="meta"><span class="${done?'final':''}">${done?'Final':g.kind.toLowerCase()} · Week ${VIEW}</span><span class="boxlink">box score ›</span></div></div>`;
   }).join('') || '<span class="sub">No games this week.</span>';
@@ -221,7 +222,7 @@ $('mb').addEventListener('click',e=>{if(e.target===$('mb'))closeM();});
 
 async function boxScore(homeId,awayId){
   const [h,a]=await Promise.all([fetch(`/api/team/${homeId}/detail?week=${VIEW}&season=${SEASON}`).then(r=>r.json()),fetch(`/api/team/${awayId}/detail?week=${VIEW}&season=${SEASON}`).then(r=>r.json())]);
-  const tot=t=>t.box.reduce((s,x)=>s+(x.points||0),0);
+  const tot=t=> (t.adjusted && t.team_total!=null) ? t.team_total : t.box.reduce((s,x)=>s+(x.points||0),0);
   const th=tot(h), ta=tot(a);
   const hw=th>ta, aw=ta>th;                       // strict: a tie highlights neither
   const tie=th===ta && (th>0||ta>0);
@@ -232,7 +233,9 @@ async function boxScore(homeId,awayId){
       +`<span class="pts">${(x.points||0).toFixed(0)}</span></div>`
       +(has?`<div class="bd" style="display:none">${bdLines(x)}</div>`:'');};
   const col=(t,cls,won)=>`<div class="boxcol ${cls} ${won?'won':''}"><div class="bh"><span>${t.name}</span><span class="tot">${tot(t).toFixed(0)}</span></div>`
-    +t.box.map(entry).join('')+`</div>`;
+    +t.box.map(entry).join('')
+    +(t.adjusted?`<div class="bdline" style="color:var(--warn);padding-left:10px">⚠ commissioner-adjusted total; player lines are the raw scores</div>`:'')
+    +`</div>`;
   openM(`<h3>Box Score <span class="sub">· Week ${VIEW}</span>${tie?` <span class="sub">·</span> <span class="tielbl">Tie</span>`:''}</h3><div class="box" style="margin-top:8px">${col(h,'home',hw)}${col(a,'away',aw)}</div>`);
 }
 async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?week=${VIEW}&season=${SEASON}`)).json();
@@ -252,19 +255,22 @@ async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?we
   openM(`<h3>${d.name} — Roster</h3><div class="sub">${d.managers||''}</div><div style="margin-top:10px">${rows}</div>${openRows?`<div class="sub" style="margin-top:10px">Open this week (1-week rentals)</div>${openRows}`:''}${fees}`);
 }
 let LU={team:null,sel:new Set(),items:[]};
-async function lineupModal(id){
-  const d=await (await fetch(`/api/team/${id}/detail?week=${CUR}&season=${SEASON}`)).json();
+async function lineupModal(id, wk){
+  wk = wk || CUR;
+  const d=await (await fetch(`/api/team/${id}/detail?week=${wk}&season=${SEASON}`)).json();
   const items=d.roster.map(r=>({slot:r.slot,ref:r.asset_ref,name:r.name})); (d.opens||[]).forEach(o=>items.push({slot:o.position,ref:o.asset_ref,name:o.name+' (open)'}));
-  LU={team:id,sel:new Set(),items};
+  LU={team:id,week:wk,sel:new Set(),items};
   const started=new Set((d.box||[]).map(x=>x.asset_ref)), unit=s=>['C','K','DEF/ST','QB'].includes(s);
   if(started.size) items.forEach(i=>{if(started.has(i.ref))LU.sel.add(i.ref);});
   else{['C','K','DEF/ST','QB'].forEach(s=>{const f=items.find(i=>i.slot===s);if(f)LU.sel.add(f.ref);});
        items.filter(i=>i.slot==='RB').slice(0,2).forEach(i=>LU.sel.add(i.ref));
        items.filter(i=>i.slot==='R').slice(0,3).forEach(i=>LU.sel.add(i.ref));}
   const banner = started.size
-    ? `<div class="lban ok">${CHK}<span>Your Week ${CUR} lineup is in. Players lock at their kickoff.</span></div>`
-    : `<div class="lban warn">${TRI}<span>No lineup set for Week ${CUR} — you're currently on last week's lineup. Submit below to confirm or change it.</span></div>`;
-  openM(`<h3>${d.name} — Set Lineup <span class="sub">· Week ${CUR}</span></h3>
+    ? `<div class="lban ok">${CHK}<span>Week ${wk} lineup is in. Players lock at their kickoff.</span></div>`
+    : `<div class="lban warn">${TRI}<span>No lineup set for Week ${wk} — currently on last week's lineup. Submit below to confirm or change it.</span></div>`;
+  let wkOpts='';for(let w=1;w<=CUR;w++)wkOpts+=`<option value="${w}" ${w===wk?'selected':''}>${w}</option>`;
+  openM(`<h3>${d.name} — Set Lineup</h3>
+    <div style="margin:2px 0 8px"><label class="sub">Week <select id="luwk" onchange="lineupModal(${id},+this.value)">${wkOpts}</select></label> <span class="sub">· past weeks are commissioner-only</span></div>
     ${banner}
     <div class="sub">Start 9: C, K, DEF/ST, QB, 2 RB, 3 R. Players lock at their kickoff.</div>
     <div id="luRows" style="margin-top:10px"></div><div class="explain" id="luHint"></div>
@@ -285,7 +291,7 @@ function toggleStart(ref){ const it=LU.items.find(i=>i.ref===ref), unit=['C','K'
   else { LU.sel.has(ref)?LU.sel.delete(ref):LU.sel.add(ref); }
   renderLineup(); }
 async function submitLineup(){ const starters=[...LU.sel].map(ref=>({roster_slot:LU.items.find(i=>i.ref===ref).slot,asset_ref:ref}));
-  const res=await fetch(`/api/team/${LU.team}/lineup`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:$('lpc').value,week:CUR,starters})});
+  const res=await fetch(`/api/team/${LU.team}/lineup`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:$('lpc').value,week:LU.week,starters})});
   const j=await res.json(); if(res.ok){alert('Lineup saved!');closeM();load(VIEW, SEASON);}else alert('⚠ '+(j.error||'error')); }
 
 let TX={team:null,out:null,outPos:null,in:null,mode:'trade',outName:'',inName:''};
@@ -323,29 +329,36 @@ async function submitTx(){ if(!TX.out||!TX.in){alert('Pick a player to move out 
 let COMMISH_PC='';
 function commishModal(){ openM(`<h3>🛠 Commissioner <span class="sub">Steve &amp; Scott</span></h3>
    <div class="pass"><span>passcode:</span><input type="password" id="cpc" placeholder="commish" value="${COMMISH_PC}"><button class="btn" onclick="commishUnlock()">Unlock</button><button class="btn" onclick="runCurrent()">▶ Score current week(s)</button></div>
-   <div id="commBody"><div class="sub">Unlock to edit team #/slot/passcode and record payments.</div></div>`); }
+   <div id="commBody"><div class="sub">Unlock to edit team #/slot/passcode, override a week's score, and record payments. Score/balance shown are for the week selected up top (${VIEW!=null?'Week '+VIEW:'current'}).</div></div>`); }
 function commishUnlock(){ COMMISH_PC=$('cpc').value; renderCommish(); }
 async function apost(url,body){ body.passcode=COMMISH_PC; const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const j=await r.json(); if(!r.ok){alert('⚠ '+(j.error||'error'));return null;} return j; }
-function renderCommish(){ const teams=[...STATE.standings.BLUE,...STATE.standings.RED];
-  const L=STATE.lineups;
+function renderCommish(){ const L=STATE.lineups;
   const lsum = L ? `<div class="lsum"><b>Lineups · Week ${L.week}:</b> <span style="color:var(--good)">${L.in}</span>/${L.total} in`
     + (L.not_in.length ? ` · <span style="color:var(--bad)">${L.not_in.length}</span> not in`
         + `<div class="nchips">${L.not_in.map(t=>`<span class="nchip">${TRI} ${t.name}</span>`).join('')}</div>`
         : ` <span class="sub">— all in ✓</span>`) + `</div>` : '';
   const bal=c=>c<0?`<span style="color:var(--good)">cr $${(Math.abs(c)/100).toFixed(0)}</span>`:`$${(c/100).toFixed(0)}`;
-  $('commBody').innerHTML=lsum+`<table class="feetable"><thead><tr><th>Team</th><th>#</th><th>Slot</th><th>New passcode</th><th></th><th>Balance</th><th>Payment</th></tr></thead><tbody>`
-   +teams.map(t=>{const f=STATE.fees[t.team_id]||{net_cents:0};
-     return `<tr><td>${t.name}</td><td><input id="tn_${t.team_id}" style="width:40px" value="${t.team_number??''}"></td>
-      <td><input id="ds_${t.team_id}" style="width:40px" value="${t.draft_slot??''}"></td>
-      <td><input id="pc_${t.team_id}" style="width:80px" placeholder="—"></td>
+  const scoreMap={}; (STATE.scoreboard||[]).forEach(g=>{scoreMap[g.home.id]=g.home.points;scoreMap[g.away.id]=g.away.points;});
+  const row=t=>{const f=STATE.fees[t.team_id]||{net_cents:0}, sc=scoreMap[t.team_id];
+    return `<tr><td>${t.name}</td><td><input id="tn_${t.team_id}" style="width:34px" value="${t.team_number??''}"></td>
+      <td><input id="ds_${t.team_id}" style="width:34px" value="${t.draft_slot??''}"></td>
+      <td><input id="pc_${t.team_id}" style="width:70px" placeholder="—"></td>
       <td><button class="chip" onclick="saveTeam(${t.team_id})">save</button></td>
+      <td><input id="sc_${t.team_id}" style="width:42px" placeholder="${sc==null?'—':(+sc).toFixed(0)}"><button class="chip" onclick="setScore(${t.team_id})">set</button></td>
       <td>${bal(f.net_cents)}</td>
-      <td><input id="pay_${t.team_id}" style="width:38px" placeholder="$"><button class="chip" onclick="applyPay(${t.team_id})">pay</button></td></tr>`;}).join('')+`</tbody></table>`;
+      <td><input id="pay_${t.team_id}" style="width:36px" placeholder="$"><button class="chip" onclick="applyPay(${t.team_id})">pay</button></td></tr>`;};
+  const table=(teams,label,color)=>`<div style="margin:12px 0 4px;font-weight:800;color:${color}">${label}</div>`
+    +`<div style="overflow-x:auto"><table class="feetable"><thead><tr><th>Team</th><th>#</th><th>Slot</th><th>Passcode</th><th></th><th>Score W${VIEW}</th><th>Balance</th><th>Pay</th></tr></thead><tbody>`
+    +teams.map(row).join('')+`</tbody></table></div>`;
+  $('commBody').innerHTML=lsum
+    +table(STATE.standings.BLUE,'BLUE CONFERENCE','var(--blue)')
+    +table(STATE.standings.RED,'RED CONFERENCE','var(--red)');
 }
 async function saveTeam(id){ const tn=$('tn_'+id).value,ds=$('ds_'+id).value,pc=$('pc_'+id).value;
   const j=await apost(`/api/admin/team/${id}`,{team_number:tn||undefined,draft_slot:ds||undefined});
   if(j&&pc) await apost(`/api/admin/team/${id}/passcode`,{new_passcode:pc}); if(j){alert('Saved');await load(VIEW, SEASON);renderCommish();} }
 async function applyPay(id){ const a=$('pay_'+id).value; if(!a)return; const j=await apost(`/api/team/${id}/payment`,{amount_cents:Math.round(parseFloat(a)*100),note:'commissioner'}); if(j){alert('Payment recorded');await load(VIEW, SEASON);renderCommish();} }
+async function setScore(id){ const v=$('sc_'+id).value; if(v==='')return; const j=await apost(`/api/admin/team/${id}/score`,{week:VIEW,points:parseFloat(v)}); if(j){alert('Score set for Week '+VIEW);await load(VIEW, SEASON);renderCommish();} }
 async function runCurrent(){ const j=await apost('/api/admin/run-current',{}); if(j){alert('Scored weeks: '+(j.scored_weeks.join(', ')||'none ready'));load(VIEW, SEASON);} }
 load();
 </script></body></html>
