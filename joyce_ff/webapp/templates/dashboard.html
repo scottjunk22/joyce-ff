@@ -192,9 +192,9 @@ function teamRow(t){
 function renderStandings(){ $('blue').innerHTML=STATE.standings.BLUE.map(teamRow).join(''); $('red').innerHTML=STATE.standings.RED.map(teamRow).join(''); }
 function renderElim(){
   const p=STATE.pool;
-  $('elimBox').innerHTML=`<div class="etitle">💀 Elimination Pool</div>Each week the lowest scorer among survivors (both conferences) is out.
+  $('elimBox').innerHTML=`<div class="etitle">💀 Elimination Pool</div>Each week the lowest scorer among survivors (both conferences) is out — a tie for lowest eliminates every tied team.
     Alive <b>${p.alive.length}</b> / 22 · Eliminated <b>${p.eliminated.length}</b>.
-    <span class="sub">Wk 15: top score wins $100, other 6 survivors $10 each.</span>
+    <span class="sub">Wk 15: the top score wins $100 (split if tied); every other surviving team gets $10.</span>
     <div class="chips">${p.alive.map(t=>`<span class="echip"><span class="nm">${t.name}</span></span>`).join('')}
       ${p.eliminated.map(t=>`<span class="echip dead"><span class="nm">${t.name}</span><span class="wk">Wk ${t.eliminated_ff_week}</span></span>`).join('')}</div>`;
 }
