@@ -41,6 +41,17 @@ def test_dashboard_and_health(client):
     assert client.get("/healthz").get_json() == {"ok": True}
 
 
+def test_otblitz_private_board_is_gated(client):
+    assert client.get("/otblitz").status_code == 200          # shell page is public
+    assert client.get("/api/otblitz/board").status_code == 403  # data is locked (no passcode set)
+    conn = schema.connect(client.dbpath)
+    auth.set_platform_passcode(conn, "sauce")
+    conn.close()
+    assert client.get("/api/otblitz/board?pc=wrong").status_code == 403
+    # right passcode passes the gate (404 only because no board cache exists in the test)
+    assert client.get("/api/otblitz/board?pc=sauce").status_code in (200, 404)
+
+
 def test_available_endpoint(client):
     r = client.get(f"/api/team/{client.otb}/available?position=RB")
     refs = {p["gsis_id"] for p in r.get_json()["available"]}

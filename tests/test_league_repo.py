@@ -71,6 +71,15 @@ def test_team_and_commissioner_passcodes(db):
     assert not auth.is_commissioner(conn, "otblitz")
 
 
+def test_platform_passcode_is_separate(db):
+    conn, sid, otb = db
+    assert not auth.check_platform_passcode(conn, "anything")   # unset -> locked
+    auth.set_platform_passcode(conn, "secret")
+    assert auth.check_platform_passcode(conn, "secret")
+    assert not auth.check_platform_passcode(conn, "commish")    # not the commish passcode
+    assert not auth.is_commissioner(conn, "secret")             # and it isn't commish
+
+
 # --- availability (conference-scoped, separate pools) -------------------
 
 def test_availability_excludes_owned_but_is_conference_scoped(db):

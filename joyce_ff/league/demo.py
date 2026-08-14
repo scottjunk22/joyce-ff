@@ -99,6 +99,7 @@ def build_demo(db_path: str | Path = schema.DEFAULT_DB_PATH) -> dict:
         auth.set_team_passcode(conn, tid, "demo")
     for admin in ("Steve", "Scott"):
         auth.set_admin_passcode(conn, admin, "commish")
+    auth.set_platform_passcode(conn, "otblitz")     # private OT-Blitz platform
     conn.commit()
 
     pool = st.pool_status(conn, sid)

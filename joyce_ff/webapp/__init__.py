@@ -11,8 +11,10 @@ here — routes stay dumb on purpose.
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
+from pathlib import Path
 
 from flask import Flask, g, jsonify, render_template, request
 
@@ -83,6 +85,24 @@ def create_app(db_path: str | None = None) -> Flask:
     @app.get("/healthz")
     def health():
         return {"ok": True}
+
+    # ---- private OT-Blitz platform (Scott's eyes only) ----
+    board_json = os.environ.get("JOYCE_BOARD_PATH") or str(
+        Path(__file__).resolve().parents[2] / "data" / "boards.json")
+
+    @app.get("/otblitz")
+    def otblitz():
+        return render_template("otblitz.html")
+
+    @app.get("/api/otblitz/board")
+    def otblitz_board():
+        # gated by the private platform passcode — never the team/commish one
+        if not auth.check_platform_passcode(db(), request.values.get("pc", "")):
+            return jsonify(error="locked"), 403
+        try:
+            return jsonify(json.loads(Path(board_json).read_text(encoding="utf-8")))
+        except FileNotFoundError:
+            return jsonify(error="board not built yet — run: python manage.py board-cache"), 404
 
     def _dname(conn, sid, kind, ref, unit=None):
         if kind == "PLAYER":

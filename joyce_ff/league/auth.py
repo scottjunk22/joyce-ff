@@ -64,3 +64,18 @@ def is_commissioner(conn, passcode: str) -> bool:
         if verify_passcode(passcode, row["passcode_hash"]):
             return True
     return False
+
+
+# --- private OT-Blitz platform (draft board etc.) — Scott's eyes only -----
+
+def set_platform_passcode(conn, passcode: str) -> None:
+    """Gate for the private OT-Blitz platform. Stored hashed in settings; kept
+    separate from team/commissioner passcodes so valuations never leak."""
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('otblitz_pc',?)",
+                 (hash_passcode(passcode),))
+    conn.commit()
+
+
+def check_platform_passcode(conn, passcode: str) -> bool:
+    row = conn.execute("SELECT value FROM settings WHERE key='otblitz_pc'").fetchone()
+    return bool(row) and verify_passcode(passcode, row["value"])

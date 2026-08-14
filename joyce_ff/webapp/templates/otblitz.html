@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OT Blitz — Draft Board</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔒</text></svg>">
+<style>
+ :root{--bg:#0f1216;--panel:#161b22;--panel2:#1d242d;--line:#2b333d;--text:#e7eaf0;--bright:#fff;
+   --dim:#9aa4b2;--blue:#4c8dff;--good:#4ade80;--warn:#fbbf24;--bad:#f87171}
+ @media(prefers-color-scheme:light){:root{--bg:#eef1f6;--panel:#fff;--panel2:#f0f3f8;--line:#d9e0ea;
+   --text:#131922;--bright:#000;--dim:#5c6673;--blue:#1663d6}}
+ *{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+ header{background:var(--panel);border-bottom:1px solid var(--line);padding:11px 16px;display:flex;gap:10px 16px;align-items:center;flex-wrap:wrap}
+ h1{margin:0;font-size:17px}.lock{color:var(--good)}
+ .nav{display:flex;gap:6px;flex-wrap:wrap}
+ .nav a{font-size:13px;color:var(--dim);border:1px solid var(--line);border-radius:8px;padding:5px 11px;text-decoration:none;cursor:pointer}
+ .nav a.on{color:var(--bright);border-color:var(--blue)}
+ .nav a.soon{opacity:.5;cursor:default}
+ .nav a .tag{font-size:9px;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:0 4px;margin-left:4px}
+ .wrap{max-width:1080px;margin:0 auto;padding:16px}
+ .gate{max-width:340px;margin:60px auto;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px;text-align:center}
+ .gate h2{margin:0 0 4px;font-size:16px}.gate p{color:var(--dim);font-size:13px;margin:0 0 14px}
+ input{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:7px 10px;font:inherit}
+ .go{background:var(--good);color:#04121d;border:0;border-radius:8px;padding:8px 16px;font-weight:700;cursor:pointer}
+ .err{color:var(--bad);font-size:12px;min-height:16px;margin-top:8px}
+ .meta{color:var(--dim);font-size:12px;margin-bottom:10px;display:flex;gap:6px 16px;flex-wrap:wrap}
+ .meta b{color:var(--text)}
+ .tabs{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
+ .tab{font-size:13px;border:1px solid var(--line);background:transparent;color:var(--dim);border-radius:8px;padding:5px 12px;cursor:pointer}
+ .tab.on{color:var(--bright);border-color:var(--blue)}
+ .search{width:180px;margin-left:auto}
+ .tblwrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+ table{width:100%;border-collapse:collapse}
+ th,td{padding:6px 9px;text-align:right;white-space:nowrap;font-size:13px}
+ th{color:var(--dim);font-size:11px;font-weight:600;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
+ th.l,td.l{text-align:left}
+ tbody tr{border-bottom:1px solid var(--line)}tbody tr:last-child{border-bottom:0}
+ tbody tr:hover{background:var(--panel2)}
+ .vor{font-variant-numeric:tabular-nums;font-weight:800;color:var(--good)}
+ .vor.lo{color:var(--dim);font-weight:600}
+ .tier{color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:0 6px;font-size:11px}
+ .nm{font-weight:600;color:var(--bright)}
+ .tm{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:0 5px;margin-left:4px}
+ .flag{font-size:10px;border-radius:5px;padding:0 5px;margin-left:5px}
+ .flag.rk{color:var(--warn);border:1px solid var(--warn)}
+ .flag.lo{color:var(--dim);border:1px solid var(--line)}
+ .sub{color:var(--dim);font-size:12px}
+</style></head><body>
+<header>
+ <h1>🔒 <span class="lock">OT Blitz</span> <span class="sub">— private</span></h1>
+ <nav class="nav">
+   <a class="on">Valuation Board</a>
+   <a class="soon">Draft Room <span class="tag">soon</span></a>
+   <a class="soon">In-season Advisor <span class="tag">soon</span></a>
+ </nav>
+</header>
+
+<div class="wrap">
+ <div class="gate" id="gate" style="display:none">
+   <h2>🔒 Private</h2>
+   <p>OT Blitz draft board. Enter the platform passcode.</p>
+   <div><input type="password" id="pc" placeholder="passcode" onkeydown="if(event.key==='Enter')unlock()"> <button class="go" onclick="unlock()">Unlock</button></div>
+   <div class="err" id="gerr"></div>
+ </div>
+ <div id="board" style="display:none"></div>
+</div>
+
+<script>
+let BOARD=null, tab='overall', q='';
+const $=id=>document.getElementById(id);
+const SLOT_TABS=[['overall','Overall'],['RB','RB'],['R','R'],['QB','QB'],['K','K'],['DEF/ST','DEF/ST'],['C','Coach']];
+const UNIT_TABS=new Set(['QB','K','DEF/ST','C']);
+
+async function fetchBoard(pc){
+  const r=await fetch('/api/otblitz/board?pc='+encodeURIComponent(pc));
+  if(r.status===403) return 'locked';
+  if(!r.ok){ const j=await r.json().catch(()=>({})); return j.error||'error'; }
+  return await r.json();
+}
+async function unlock(){
+  const pc=$('pc').value;
+  const res=await fetchBoard(pc);
+  if(res==='locked'){ $('gerr').textContent='Wrong passcode.'; return; }
+  if(typeof res==='string'){ $('gerr').textContent=res; return; }
+  sessionStorage.setItem('otbpc',pc); BOARD=res; showBoard();
+}
+async function init(){
+  const saved=sessionStorage.getItem('otbpc');
+  if(saved){ const res=await fetchBoard(saved); if(res&&typeof res!=='string'){ BOARD=res; showBoard(); return; } }
+  $('gate').style.display='block';
+}
+function showBoard(){ $('gate').style.display='none'; $('board').style.display='block'; render(); }
+
+function rows(){
+  if(tab==='overall') return BOARD.overall;
+  if(UNIT_TABS.has(tab)) return (BOARD.units[tab]||[]);
+  return BOARD.players.filter(p=>p.slot===tab);
+}
+function fmt(v){ return v==null?'<span class="sub">—</span>':(+v).toFixed(2); }
+function render(){
+  const L=BOARD.league, W='2025×1.0 · 2024×0.6 · 2023×0.35';
+  const repl=BOARD.replacement||{};
+  const meta=`<div class="meta">
+    <span>Seasons <b>${(BOARD.seasons||[]).join(', ')}</b> weighted <b>${W}</b></span>
+    <span>Scarcity <b>${L.division_teams}-team division</b> (${L.rostered_rb} RB / ${L.rostered_r} R rostered)</span>
+    <span>Replacement: RB <b>${fmt(repl.RB)}</b> · R <b>${fmt(repl.R)}</b></span>
+    <span class="sub">built ${new Date(BOARD.generated_at).toLocaleString([], {month:'short',day:'numeric',year:'numeric'})}</span>
+  </div>`;
+  const tabs=`<div class="tabs">${SLOT_TABS.map(([k,lbl])=>`<span class="tab ${tab===k?'on':''}" onclick="setTab('${k}')">${lbl}</span>`).join('')}
+    <input class="search" id="q" placeholder="search player…" value="${q}" oninput="setQ(this.value)"></div>`;
+  $('board').innerHTML=meta+tabs+`<div class="tblwrap">${UNIT_TABS.has(tab)?unitTable():playerTable()}</div>`;
+}
+function setTab(t){ tab=t; render(); if($('q'))$('q').focus(); }
+function setQ(v){ q=v; const w=document.querySelector('.tblwrap'); if(w)w.innerHTML=UNIT_TABS.has(tab)?unitTable():playerTable(); }
+
+function playerTable(){
+  const isOverall=tab==='overall';
+  let list=rows(); if(q) list=list.filter(r=>r.name.toLowerCase().includes(q.toLowerCase()));
+  const head=`<tr><th>#</th><th>Tier</th><th class="l">Player</th>${isOverall?'<th class="l">Slot</th>':''}<th>VOR</th><th>Proj</th><th>Floor</th><th>Ceil</th><th>Bust</th><th>G25</th></tr>`;
+  const body=list.map((r,i)=>{
+    const vorlo=(r.vor==null||r.vor<0.3);
+    const flags=(r.no_history?'<span class="flag rk">no NFL history</span>':'')+(r.low_sample&&!r.no_history?'<span class="flag lo">small sample</span>':'');
+    return `<tr><td>${r.rank??i+1}</td><td><span class="tier">T${r.tier??'—'}</span></td>
+      <td class="l"><span class="nm">${r.name}</span>${r.team?`<span class="tm">${r.team}</span>`:''}${flags}</td>
+      ${isOverall?`<td class="l"><span class="sub">${r.slot}</span></td>`:''}
+      <td class="vor ${vorlo?'lo':''}">${r.vor==null?'—':(r.vor>0?'+':'')+r.vor.toFixed(2)}</td>
+      <td>${fmt(r.proj)}</td><td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td>
+      <td>${r.bust==null?'<span class="sub">—</span>':r.bust+'%'}</td><td>${r.games25??0}</td></tr>`;
+  }).join('')||'<tr><td class="l sub" colspan="9" style="padding:14px">no matches</td></tr>';
+  return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+function unitTable(){
+  let list=rows(); if(q) list=list.filter(r=>r.team.toLowerCase().includes(q.toLowerCase()));
+  const head=`<tr><th>#</th><th class="l">Team unit</th><th>VOR</th><th>Proj</th><th>Floor</th><th>Ceil</th><th>G25</th></tr>`;
+  const body=list.map(r=>{const vorlo=(r.vor==null||r.vor<0.3);
+    return `<tr><td>${r.rank}</td><td class="l"><span class="nm">${r.team}</span> <span class="sub">${tab}</span></td>
+      <td class="vor ${vorlo?'lo':''}">${r.vor==null?'—':(r.vor>0?'+':'')+r.vor.toFixed(2)}</td>
+      <td>${fmt(r.proj)}</td><td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td><td>${r.games25??0}</td></tr>`;}).join('');
+  return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
+}
+init();
+</script>
+</body></html>

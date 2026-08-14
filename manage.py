@@ -48,6 +48,33 @@ def cmd_board(argv: list[str]) -> int:
     return board_main(argv)
 
 
+def cmd_board_cache(_argv: list[str]) -> int:
+    """(Re)build data/boards.json from cached nflverse history — the payload the
+    private OT-Blitz Valuation Board serves. Run on the host after a data pull."""
+    from joyce_ff.projections.board import build_and_cache
+
+    print("Building draft-board cache (scoring 2023-2025)...")
+    data = build_and_cache()
+    print(f"Wrote data/boards.json — {len(data['players'])} players, "
+          f"generated {data['generated_at']}.")
+    return 0
+
+
+def cmd_set_platform_pass(argv: list[str]) -> int:
+    """Set the private OT-Blitz platform passcode (Scott's eyes only)."""
+    from joyce_ff.league import connect
+    from joyce_ff.league import auth
+
+    if not argv:
+        print("usage: set-platform-pass <passcode>", file=sys.stderr)
+        return 1
+    conn = connect()
+    auth.set_platform_passcode(conn, argv[0])
+    conn.close()
+    print("OT-Blitz platform passcode set.")
+    return 0
+
+
 def cmd_market(argv: list[str]) -> int:
     from scripts.market_report import main as market_main
 
@@ -155,6 +182,8 @@ COMMANDS = {
     "initdb": cmd_initdb,
     "validate": cmd_validate,
     "board": cmd_board,
+    "board-cache": cmd_board_cache,
+    "set-platform-pass": cmd_set_platform_pass,
     "market": cmd_market,
     "schedule": cmd_schedule,
     "league-init": cmd_league_init,
