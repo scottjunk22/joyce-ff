@@ -26,13 +26,14 @@ def nfl_week_for(conn, season_id: int, ff_week: int) -> int:
 
 
 def _upsert_asset(conn, season_id, ff_week, kind, ref, unit, breakdown):
+    # unit_type is part of the key (one NFL team = 4 units); players use ''.
     conn.execute(
         "INSERT INTO asset_week_scores(season_id,ff_week,asset_kind,asset_ref,unit_type,"
         "points,breakdown_json,computed_at) VALUES (?,?,?,?,?,?,?,?) "
-        "ON CONFLICT(season_id,ff_week,asset_kind,asset_ref) DO UPDATE SET "
+        "ON CONFLICT(season_id,ff_week,asset_kind,asset_ref,unit_type) DO UPDATE SET "
         "points=excluded.points, breakdown_json=excluded.breakdown_json, "
         "computed_at=excluded.computed_at",
-        (season_id, ff_week, kind, ref, unit, breakdown.total,
+        (season_id, ff_week, kind, ref, unit or "", breakdown.total,
          json.dumps(breakdown.items), _now()))
 
 
@@ -101,6 +102,7 @@ def score_team_week(conn, season_id: int, ff_week: int) -> None:
             "SELECT COALESCE(SUM(a.points),0) s FROM weekly_lineups l "
             "JOIN asset_week_scores a ON a.season_id=l.season_id AND a.ff_week=l.ff_week "
             "AND a.asset_kind=l.asset_kind AND a.asset_ref=l.asset_ref "
+            "AND (l.asset_kind='PLAYER' OR a.unit_type=l.roster_slot) "
             "WHERE l.season_id=? AND l.ff_week=? AND l.team_id=?",
             (season_id, ff_week, team_id)).fetchone()["s"]
         conn.execute(
@@ -119,6 +121,7 @@ def box_score(conn, season_id: int, ff_week: int, team_id: int) -> list[dict]:
         "FROM weekly_lineups l "
         "LEFT JOIN asset_week_scores a ON a.season_id=l.season_id AND a.ff_week=l.ff_week "
         "AND a.asset_kind=l.asset_kind AND a.asset_ref=l.asset_ref "
+        "AND (l.asset_kind='PLAYER' OR a.unit_type=l.roster_slot) "
         "LEFT JOIN nfl_players p ON p.season_id=l.season_id AND p.gsis_id=l.asset_ref "
         "WHERE l.season_id=? AND l.ff_week=? AND l.team_id=?",
         (season_id, ff_week, team_id))

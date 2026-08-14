@@ -21,7 +21,7 @@ def _seed_week(conn, sid, ff_week, team_points):
                      "asset_kind,asset_ref) VALUES (?,?,?, 'QB','TEAM_UNIT',?)",
                      (sid, tid, ff_week, ref))
         conn.execute("INSERT INTO asset_week_scores(season_id,ff_week,asset_kind,asset_ref,"
-                     "points,computed_at) VALUES (?,?, 'TEAM_UNIT',?,?, 't')",
+                     "unit_type,points,computed_at) VALUES (?,?, 'TEAM_UNIT',?, 'QB',?, 't')",
                      (sid, ff_week, ref, pts))
     conn.commit()
 

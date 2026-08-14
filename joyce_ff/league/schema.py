@@ -182,7 +182,9 @@ CREATE TABLE IF NOT EXISTS asset_week_scores (
     points         REAL NOT NULL,
     breakdown_json TEXT,               -- itemized ScoreBreakdown
     computed_at    TEXT NOT NULL,
-    UNIQUE(season_id, ff_week, asset_kind, asset_ref)
+    -- unit_type MUST be in the key: one NFL team fields 4 distinct units
+    -- (QB, K, DEF/ST, C). Players use '' (never NULL) so the dedup key holds.
+    UNIQUE(season_id, ff_week, asset_kind, asset_ref, unit_type)
 );
 
 -- Per-team weekly total: our computed score + the site's posted score.
@@ -256,6 +258,29 @@ def migrate(conn: sqlite3.Connection) -> None:
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(roster_entries)")}
         if "slot_order" not in cols:
             conn.execute("ALTER TABLE roster_entries ADD COLUMN slot_order INTEGER")
+            conn.commit()
+
+    # asset_week_scores originally keyed without unit_type, so an NFL team's
+    # four units (QB/K/DEF/ST/C) collapsed onto one row. Rebuild if the unique
+    # key is missing unit_type; the table is a cache, so re-ingest repopulates.
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='asset_week_scores'").fetchone():
+        keyed_by_unit = False
+        for idx in conn.execute("PRAGMA index_list(asset_week_scores)"):
+            if idx["origin"] == "u":
+                icols = {r["name"] for r in conn.execute(f"PRAGMA index_info('{idx['name']}')")}
+                if "unit_type" in icols:
+                    keyed_by_unit = True
+        if not keyed_by_unit:
+            conn.executescript(
+                "DROP TABLE asset_week_scores;\n"
+                "CREATE TABLE asset_week_scores (\n"
+                "  id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+                "  season_id INTEGER NOT NULL REFERENCES seasons(id),\n"
+                "  ff_week INTEGER NOT NULL, asset_kind TEXT NOT NULL,\n"
+                "  asset_ref TEXT NOT NULL, unit_type TEXT, points REAL NOT NULL,\n"
+                "  breakdown_json TEXT, computed_at TEXT NOT NULL,\n"
+                "  UNIQUE(season_id, ff_week, asset_kind, asset_ref, unit_type));")
             conn.commit()
 
 
