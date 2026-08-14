@@ -114,28 +114,39 @@ def tiered_score_desc(value: float, tiers: list[tuple[int, int]]) -> int:
 # Per-slot scorers -> ScoreBreakdown (auditable).
 # ---------------------------------------------------------------------------
 
+def _n(x):
+    """Whole floats (1.0, 82.0 from nflverse) print as ints in breakdown labels."""
+    return int(x) if float(x) == int(x) else x
+
+
+def _pl(n, singular: str, plural: str | None = None) -> str:
+    """'1 sack' / '3 sacks' — breakdown labels carry the raw stat that scored."""
+    return f"{_n(n)} {singular if n == 1 else (plural or singular + 's')}"
+
+
 def score_player_game(g: PlayerGame, assumptions: dict | None = None) -> ScoreBreakdown:
     """Score an individual player (RB or R slot) for one game."""
     a = assumptions if assumptions is not None else rules.ASSUMPTIONS
     b = ScoreBreakdown()
 
-    b.add("rushing yards", rushing_yard_points(g.rushing_yards))
-    b.add("receiving yards", receiving_yard_points(g.receiving_yards))
-    b.add("receptions", reception_points(g.receptions))
+    b.add(f"{_n(g.rushing_yards)} rush yds", rushing_yard_points(g.rushing_yards))
+    b.add(f"{_n(g.receiving_yards)} rec yds", receiving_yard_points(g.receiving_yards))
+    b.add(_pl(g.receptions, "reception"), reception_points(g.receptions))
 
     # Any TD the player scores is 6.
     td_count = g.rushing_tds + g.receiving_tds
     if a.get("RETURN_TD_COUNTS_FOR_INDIVIDUAL", True):
         td_count += g.return_tds
-    b.add("touchdowns", td_count * rules.TD_ANY)
+    b.add(_pl(td_count, "TD"), td_count * rules.TD_ANY)
 
-    b.add("2-pt conversions", g.two_point_conversions * rules.TWO_POINT_CONVERSION)
+    b.add(_pl(g.two_point_conversions, "2-pt conversion"),
+          g.two_point_conversions * rules.TWO_POINT_CONVERSION)
 
     # A player who threw a TD (trick play) earns the passer credit too.
     if g.passing_tds:
-        b.add("TD passes thrown", g.passing_tds * rules.TD_PASS_TO_PASSER)
+        b.add(_pl(g.passing_tds, "TD pass", "TD passes"), g.passing_tds * rules.TD_PASS_TO_PASSER)
     if g.passing_yards:
-        b.add("passing yards", passing_yard_points(g.passing_yards))
+        b.add(f"{_n(g.passing_yards)} pass yds", passing_yard_points(g.passing_yards))
 
     return b
 
@@ -145,11 +156,11 @@ def score_qb_unit_game(g: QBUnitGame, assumptions: dict | None = None) -> ScoreB
     a = assumptions if assumptions is not None else rules.ASSUMPTIONS
     b = ScoreBreakdown()
 
-    b.add("passing yards", passing_yard_points(g.passing_yards))
-    b.add("TD passes", g.passing_tds * rules.TD_PASS_TO_PASSER)
+    b.add(f"{_n(g.passing_yards)} pass yds", passing_yard_points(g.passing_yards))
+    b.add(_pl(g.passing_tds, "pass TD"), g.passing_tds * rules.TD_PASS_TO_PASSER)
 
     if a.get("QB_UNIT_GETS_RUSH_TD", False):
-        b.add("QB rushing TDs", g.qb_rushing_tds * rules.TD_ANY)
+        b.add(_pl(g.qb_rushing_tds, "QB rush TD"), g.qb_rushing_tds * rules.TD_ANY)
 
     return b
 
@@ -158,8 +169,8 @@ def score_kicker_unit_game(g: KickerUnitGame, assumptions: dict | None = None) -
     """Score a team's kicking unit for one game."""
     b = ScoreBreakdown()
     for dist in g.field_goal_distances:
-        b.add(f"FG {dist}yd", field_goal_points(dist))
-    b.add("extra points", g.extra_points_made * rules.EXTRA_POINT)
+        b.add(f"FG {_n(dist)}yd", field_goal_points(dist))
+    b.add(_pl(g.extra_points_made, "extra point"), g.extra_points_made * rules.EXTRA_POINT)
     return b
 
 
@@ -179,19 +190,20 @@ def score_defense_unit_game(g: DefenseUnitGame, assumptions: dict | None = None)
     a = assumptions if assumptions is not None else rules.ASSUMPTIONS
     b = ScoreBreakdown()
 
-    b.add("defensive TDs", g.defensive_tds * rules.DEF_TD)
-    b.add("special-teams TDs", g.special_teams_tds * rules.DEF_TD)
-    b.add("safeties", g.safeties * rules.DEF_SAFETY)
-    b.add("interceptions", g.interceptions * rules.DEF_INTERCEPTION)
-    b.add("fumble recoveries", g.fumble_recoveries * rules.DEF_FUMBLE_RECOVERY)
-    b.add("sacks", g.sacks * rules.DEF_SACK)
+    b.add(_pl(g.defensive_tds, "defensive TD"), g.defensive_tds * rules.DEF_TD)
+    b.add(_pl(g.special_teams_tds, "special-teams TD"), g.special_teams_tds * rules.DEF_TD)
+    b.add(_pl(g.safeties, "safety", "safeties"), g.safeties * rules.DEF_SAFETY)
+    b.add(_pl(g.interceptions, "INT"), g.interceptions * rules.DEF_INTERCEPTION)
+    b.add(_pl(g.fumble_recoveries, "fumble recovery", "fumble recoveries"),
+          g.fumble_recoveries * rules.DEF_FUMBLE_RECOVERY)
+    b.add(_pl(g.sacks, "sack"), g.sacks * rules.DEF_SACK)
 
     pa = points_allowed_points(g.points_allowed)
     ya = yards_allowed_points(g.yards_allowed)
     if a.get("DEF_POINTS_AND_YARDS_ARE_ADDITIVE", True):
-        b.add("points allowed", pa)
-        b.add("yards allowed", ya)
+        b.add(f"{_n(g.points_allowed)} pts allowed", pa)
+        b.add(f"{_n(g.yards_allowed)} yds allowed", ya)
     else:
-        b.add("points/yards allowed (max)", max(pa, ya))
+        b.add(f"{_n(g.points_allowed)} pts / {_n(g.yards_allowed)} yds allowed", max(pa, ya))
 
     return b

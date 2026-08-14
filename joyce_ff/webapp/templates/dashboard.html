@@ -82,6 +82,11 @@
  .boxcol.won .bh{background:color-mix(in srgb,var(--good) 22%,transparent)}
  .boxcol .bh .tot{font-variant-numeric:tabular-nums}
  .boxcol .srow{padding:5px 10px}
+ .bdrow{cursor:pointer}.bdrow .ci{color:var(--dim);font-size:9px;display:inline-block;margin-right:5px;transition:transform .1s}.bdrow.open .ci{transform:rotate(90deg)}
+ .bd{background:var(--panel2)}.bdline{display:flex;justify-content:space-between;padding:3px 10px 3px 28px;font-size:12px;color:var(--dim)}.bdline .p{color:var(--good);font-variant-numeric:tabular-nums;font-weight:700}
+ .byestrip{font-size:12px;color:var(--dim);margin:0 0 10px}.byestrip .bt{border:1px solid var(--warn);color:var(--warn);border-radius:5px;padding:0 5px;margin:0 1px;font-size:11px;font-weight:600}
+ .tag-bye{font-size:10px;color:var(--warn);border:1px solid var(--warn);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
+ .tag-open{font-size:10px;color:var(--blue);border:1px solid var(--blue);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
  /* trade/open */
  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:8px 0}.seg button{background:var(--panel2);border:0;color:var(--text);padding:6px 14px;cursor:pointer}.seg button.on{background:var(--blue);color:#04121d;font-weight:700}
  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}.col h4{margin:0 0 6px;font-size:12px;color:var(--dim)}
@@ -110,6 +115,7 @@
 </header>
 <div class="wrap">
  <h2>Scoreboard <span class="sub" style="text-transform:none;letter-spacing:0" id="upd"></span></h2>
+ <div class="byestrip" id="byes"></div>
  <div class="scores" id="scores"></div>
 
  <h2>Standings</h2>
@@ -142,7 +148,7 @@ async function load(week, seasonId){
   STATE = await (await fetch('/api/state'+(q?'?'+q:''))).json();
   SEASON = STATE.season.id; VIEW = STATE.season.week; CUR = STATE.season.current; TEAMS={};
   for(const c of ['BLUE','RED']) STATE.standings[c].forEach(t=>TEAMS[t.team_id]=t);
-  buildSeasonPicker(); buildWeekPicker(); renderScores(); renderStandings(); renderElim(); renderTx();
+  buildSeasonPicker(); buildWeekPicker(); renderScores(); renderByes(); renderStandings(); renderElim(); renderTx();
   $('seasonlbl').textContent = STATE.season.label;
   const lu = STATE.season.last_updated;
   $('upd').innerHTML = '— updates as games finish' + (lu ? ' · last updated '+new Date(lu).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '');
@@ -169,6 +175,12 @@ function renderScores(){
       <div class="meta"><span class="${done?'final':''}">${done?'Final':g.kind.toLowerCase()} · Week ${VIEW}</span><span class="boxlink">box score ›</span></div></div>`;
   }).join('') || '<span class="sub">No games this week.</span>';
 }
+function renderByes(){
+  const bs=STATE.byes||[];
+  $('byes').innerHTML = bs.length
+    ? `On bye this week: ${bs.map(t=>`<span class="bt">${t}</span>`).join(' ')}`
+    : `<span class="sub">No NFL teams on bye this week.</span>`;
+}
 function teamRow(t){
   return `<tr class="${t.playoffs?'playoff':''}"><td>${t.seed}</td>
     <td><span class="tname" onclick="roster(${t.team_id})">${t.name}</span>
@@ -192,6 +204,8 @@ function renderTx(){ const row=t=>`<div class="tx"><span class="wk">W${t.week}</
   $('txBlue').innerHTML=STATE.transactions.BLUE.map(row).join('')||'<div class="tx sub">none</div>';
   $('txRed').innerHTML=STATE.transactions.RED.map(row).join('')||'<div class="tx sub">none</div>'; }
 
+function toggleBd(row){ const bd=row.nextElementSibling;
+  if(bd&&bd.classList.contains('bd')){ const show=bd.style.display==='none'; bd.style.display=show?'block':'none'; row.classList.toggle('open',show); } }
 function openM(h){ $('mbody').innerHTML=h; $('mb').classList.add('show'); }
 function closeM(){ $('mb').classList.remove('show'); }
 $('mb').addEventListener('click',e=>{if(e.target===$('mb'))closeM();});
@@ -202,12 +216,19 @@ async function boxScore(homeId,awayId){
   const th=tot(h), ta=tot(a);
   const hw=th>ta, aw=ta>th;                       // strict: a tie highlights neither
   const tie=th===ta && (th>0||ta>0);
+  const bdLines=x=>(x.breakdown||[]).map(it=>`<div class="bdline"><span>${it[0]}</span><span class="p">+${+it[1]}</span></div>`).join('');
+  const entry=x=>{const has=(x.breakdown||[]).length;
+    return `<div class="srow ${has?'bdrow':''}" ${has?'onclick="toggleBd(this)"':''}><span class="slot">${x.roster_slot}</span>`
+      +`<span class="nm">${has?'<span class="ci">▸</span>':''}${x.display}${x.is_rental?' <span class="tag-open">OPEN</span>':''}</span>`
+      +`<span class="pts">${(x.points||0).toFixed(0)}</span></div>`
+      +(has?`<div class="bd" style="display:none">${bdLines(x)}</div>`:'');};
   const col=(t,cls,won)=>`<div class="boxcol ${cls} ${won?'won':''}"><div class="bh"><span>${t.name}</span><span class="tot">${tot(t).toFixed(0)}</span></div>`
-    +t.box.map(x=>`<div class="srow"><span class="slot">${x.roster_slot}</span><span class="nm">${x.display}${x.is_rental?' <span class="sub">(open)</span>':''}</span><span class="pts">${(x.points||0).toFixed(0)}</span></div>`).join('')+`</div>`;
+    +t.box.map(entry).join('')+`</div>`;
   openM(`<h3>Box Score <span class="sub">· Week ${VIEW}</span>${tie?` <span class="sub">·</span> <span class="tielbl">Tie</span>`:''}</h3><div class="box" style="margin-top:8px">${col(h,'home',hw)}${col(a,'away',aw)}</div>`);
 }
 async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?week=${VIEW}&season=${SEASON}`)).json();
-  const rows=d.roster.map(r=>`<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}</span></div>`).join('');
+  const rows=d.roster.map(r=>`<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}${r.bye?` <span class="tag-bye">BYE</span>`:''}</span></div>`).join('');
+  const openRows=(d.opens||[]).map(o=>`<div class="srow"><span class="slot">${o.position}</span><span class="nm">${o.name} <span class="tag-open">OPEN</span></span></div>`).join('');
   const b=c=>`$${(Math.abs(c)/100).toFixed(0)}`;
   const f=d.fees, bal=f.balance_cents;
   const balTxt = bal>0 ? `<span class="fbal">balance ${b(bal)}</span>`
@@ -218,7 +239,7 @@ async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?we
     +d.history.map(h=>`<div class="frow"><span>W${h.week} ${h.type==='TRADE'?'⇄':'＋'} ${txSwap(h)}</span><span>${h.fee?b(h.fee):'<span class="sub">free</span>'}</span></div>`).join('')
     +(d.payments||[]).map(p=>`<div class="frow"><span>✓ payment${p.note?` <span class="sub">(${p.note})</span>`:''}</span><span class="paid">−${b(p.amount_cents)}</span></div>`).join('')
     +`</div>`;
-  openM(`<h3>${d.name} — Roster</h3><div class="sub">${d.managers||''}</div><div style="margin-top:10px">${rows}</div>${fees}`);
+  openM(`<h3>${d.name} — Roster</h3><div class="sub">${d.managers||''}</div><div style="margin-top:10px">${rows}</div>${openRows?`<div class="sub" style="margin-top:10px">Open this week (1-week rentals)</div>${openRows}`:''}${fees}`);
 }
 let LU={team:null,sel:new Set(),items:[]};
 async function lineupModal(id){

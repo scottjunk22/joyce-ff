@@ -186,6 +186,9 @@ def create_app(db_path: str | None = None) -> Flask:
                 pool["eliminated"].append({"name": r["name"], "eliminated_ff_week": r["e"]})
             else:
                 pool["alive"].append({"name": r["name"]})
+        byes = [r["abbr"] for r in conn.execute(
+            "SELECT abbr FROM nfl_teams WHERE season_id=? AND bye_ff_week=? ORDER BY abbr",
+            (sid, wk))]
         weeks = [r["w"] for r in conn.execute(
             "SELECT DISTINCT ff_week w FROM team_week_scores WHERE season_id=? ORDER BY ff_week", (sid,))] or [wk]
         last = conn.execute("SELECT MAX(computed_at) c FROM team_week_scores WHERE season_id=?", (sid,)).fetchone()["c"]
@@ -215,7 +218,7 @@ def create_app(db_path: str | None = None) -> Flask:
                                "seasons": [{"id": r["id"], "year": r["year"], "label": r["label"]}
                                            for r in all_seasons]},
                        standings=stand, scoreboard=board, fees=fees, pool=pool,
-                       transactions=tx, lineups=lineups)
+                       transactions=tx, lineups=lineups, byes=byes)
 
     @app.get("/api/team/<int:team_id>/detail")
     def team_detail(team_id):
@@ -224,10 +227,15 @@ def create_app(db_path: str | None = None) -> Flask:
         sid = s["id"]
         wk = int(request.args.get("week") or s["current_ff_week"])
         row = conn.execute("SELECT name, manager_names FROM teams WHERE id=?", (team_id,)).fetchone()
-        roster = [{"slot": e["roster_slot"], "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"], e["unit_type"]),
-                   "asset_ref": e["asset_ref"], "kind": e["asset_kind"],
-                   "team": _asset_team(conn, sid, e["asset_kind"], e["asset_ref"])}
-                  for e in repo.current_roster(conn, team_id)]
+        byes = {r["abbr"] for r in conn.execute(
+            "SELECT abbr FROM nfl_teams WHERE season_id=? AND bye_ff_week=?", (sid, wk))}
+        roster = []
+        for e in repo.current_roster(conn, team_id):
+            team = _asset_team(conn, sid, e["asset_kind"], e["asset_ref"])
+            roster.append({"slot": e["roster_slot"],
+                           "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"], e["unit_type"]),
+                           "asset_ref": e["asset_ref"], "kind": e["asset_kind"],
+                           "team": team, "bye": team in byes})
         fees = repo.fee_balance_cents(conn, team_id)
         hist = [{"week": t["ff_week"], "type": t["type"], "fee": t["fee_cents"],
                  **_tx_parts(conn, sid, t["position"], t["out_asset_kind"], t["out_asset_ref"],

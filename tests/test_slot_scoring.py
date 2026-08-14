@@ -35,8 +35,8 @@ def test_player_rushing_game_with_td():
     g = PlayerGame(player="Walker", team="SEA", rushing_yards=110, rushing_tds=1)
     b = score_player_game(g)
     assert b.total == 9
-    assert ("rushing yards", 3) in b.items
-    assert ("touchdowns", 6) in b.items
+    assert ("110 rush yds", 3) in b.items
+    assert ("1 TD", 6) in b.items
 
 
 def test_player_receiving_game_full_line():
