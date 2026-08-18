@@ -166,6 +166,56 @@ def do_open(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
                    out_ref, in_ref, _kind_for(position))
 
 
+DRAFT_SLOT_MAX = {"C": 1, "K": 1, "DEF/ST": 1, "QB": 1, "RB": 3, "R": 4}
+
+
+def draft_player(conn, season_id, team_id, kind, ref, slot) -> None:
+    """Assign a drafted asset to a team's roster, fee-free (acquired_via=DRAFT).
+    Enforces the roster template (max per slot) and the division's separate pool
+    (can't draft an asset already taken in that conference)."""
+    if slot not in DRAFT_SLOT_MAX:
+        raise RuleError(f"invalid slot {slot!r}")
+    n = conn.execute("SELECT COUNT(*) c FROM roster_entries WHERE season_id=? AND team_id=? "
+                     "AND roster_slot=? AND released_ff_week IS NULL",
+                     (season_id, team_id, slot)).fetchone()["c"]
+    if n >= DRAFT_SLOT_MAX[slot]:
+        raise RuleError(f"that team's {slot} slot is already full")
+    conf = _team_conf(conn, team_id)
+    unit = slot if kind == "TEAM_UNIT" else None
+    taken = (_owned_refs(conn, season_id, conf, "TEAM_UNIT", unit) if kind == "TEAM_UNIT"
+             else _owned_refs(conn, season_id, conf, "PLAYER"))
+    if ref in taken:
+        raise RuleError("already drafted in this division")
+    conn.execute("INSERT INTO roster_entries(season_id,team_id,asset_kind,asset_ref,unit_type,"
+                 "roster_slot,acquired_ff_week,acquired_via,created_at) "
+                 "VALUES (?,?,?,?,?,?,0,'DRAFT',?)",
+                 (season_id, team_id, kind, ref, unit, slot, _now()))
+    conn.commit()
+
+
+def undo_last_draft(conn, season_id, conf_id) -> str | None:
+    """Remove the most recent DRAFT pick in a conference. Returns the ref removed."""
+    row = conn.execute(
+        "SELECT re.id, re.asset_ref FROM roster_entries re JOIN teams t ON t.id=re.team_id "
+        "WHERE re.season_id=? AND t.conference_id=? AND re.acquired_via='DRAFT' "
+        "ORDER BY re.id DESC LIMIT 1", (season_id, conf_id)).fetchone()
+    if not row:
+        return None
+    conn.execute("DELETE FROM roster_entries WHERE id=?", (row["id"],))
+    conn.commit()
+    return row["asset_ref"]
+
+
+def reset_draft(conn, season_id, conf_id) -> int:
+    """Clear every DRAFT pick in a conference (start a draft fresh). Returns count."""
+    cur = conn.execute(
+        "DELETE FROM roster_entries WHERE id IN (SELECT re.id FROM roster_entries re "
+        "JOIN teams t ON t.id=re.team_id WHERE re.season_id=? AND t.conference_id=? "
+        "AND re.acquired_via='DRAFT')", (season_id, conf_id))
+    conn.commit()
+    return cur.rowcount
+
+
 def reverse_transaction(conn, tx_id) -> None:
     """Undo a transaction (commissioner). A TRADE restores the roster (bring the
     dropped player back, remove the added one); an OPEN drops its rental from

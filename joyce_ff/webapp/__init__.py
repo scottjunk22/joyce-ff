@@ -104,6 +104,82 @@ def create_app(db_path: str | None = None) -> Flask:
         except FileNotFoundError:
             return jsonify(error="board not built yet — run: python manage.py board-cache"), 404
 
+    def _platform(pc):
+        return auth.check_platform_passcode(db(), pc)
+
+    @app.get("/api/otblitz/draft")
+    def otblitz_draft():
+        if not _platform(request.values.get("pc", "")):
+            return jsonify(error="locked"), 403
+        conn, s = db(), season()
+        sid = s["id"]
+        code = (request.args.get("conf") or "BLUE").upper()
+        conf = conn.execute("SELECT id FROM conferences WHERE code=?", (code,)).fetchone()
+        if not conf:
+            return jsonify(error="unknown conference"), 400
+        team_rows = conn.execute(
+            "SELECT id, name, draft_slot FROM teams WHERE season_id=? AND conference_id=? "
+            "ORDER BY COALESCE(draft_slot, 99), name", (sid, conf["id"])).fetchall()
+        teams, drafted_players, drafted_units = [], [], []
+        for t in team_rows:
+            roster = {sl: [] for sl in ("C", "K", "DEF/ST", "QB", "RB", "R")}
+            for e in conn.execute(
+                "SELECT asset_kind, asset_ref, unit_type, roster_slot FROM roster_entries "
+                "WHERE team_id=? AND acquired_via='DRAFT' AND released_ff_week IS NULL ORDER BY id",
+                    (t["id"],)):
+                roster[e["roster_slot"]].append({
+                    "ref": e["asset_ref"], "kind": e["asset_kind"],
+                    "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"], e["unit_type"])})
+                if e["asset_kind"] == "PLAYER":
+                    drafted_players.append(e["asset_ref"])
+                else:
+                    drafted_units.append(f"{e['asset_ref']}|{e['roster_slot']}")
+            teams.append({"id": t["id"], "name": t["name"],
+                          "draft_slot": t["draft_slot"], "roster": roster})
+        from ..draft import order as do
+        seq = do.build_sequence()
+        pick = len(drafted_players) + len(drafted_units) + 1
+        slot_by = {t["draft_slot"]: t["id"] for t in team_rows if t["draft_slot"]}
+        on_clock = slot_by.get(seq[pick - 1]["slot"]) if 1 <= pick <= len(seq) else None
+        otb = next((t for t in team_rows if t["name"] == "OT Blitz"), None)
+        otb_next = None
+        if otb and otb["draft_slot"]:
+            otb_next = next((o for o in range(pick, len(seq) + 1)
+                             if seq[o - 1]["slot"] == otb["draft_slot"]), None)
+        return jsonify(conf=code, teams=teams, drafted_players=drafted_players,
+                       drafted_units=drafted_units, pick=pick, round=(pick - 1) // do.SLOTS + 1,
+                       total_picks=len(seq), on_clock_team=on_clock,
+                       otb_team=(otb["id"] if otb else None), otb_next=otb_next)
+
+    def _conf_id(code):
+        r = db().execute("SELECT id FROM conferences WHERE code=?", ((code or "BLUE").upper(),)).fetchone()
+        return r["id"] if r else None
+
+    @app.post("/api/otblitz/draft/pick")
+    def otblitz_pick():
+        if not _platform(_passcode()):
+            return jsonify(error="locked"), 403
+        b = request.get_json(force=True)
+        try:
+            repo.draft_player(db(), season()["id"], int(b["team_id"]), b["kind"], b["ref"], b["slot"])
+        except repo.RuleError as e:
+            return jsonify(error=str(e)), 400
+        return jsonify(ok=True)
+
+    @app.post("/api/otblitz/draft/undo")
+    def otblitz_undo():
+        if not _platform(_passcode()):
+            return jsonify(error="locked"), 403
+        ref = repo.undo_last_draft(db(), season()["id"], _conf_id(request.get_json(force=True).get("conf")))
+        return jsonify(ok=True, undone=ref)
+
+    @app.post("/api/otblitz/draft/reset")
+    def otblitz_reset():
+        if not _platform(_passcode()):
+            return jsonify(error="locked"), 403
+        n = repo.reset_draft(db(), season()["id"], _conf_id(request.get_json(force=True).get("conf")))
+        return jsonify(ok=True, cleared=n)
+
     def _dname(conn, sid, kind, ref, unit=None):
         if kind == "PLAYER":
             r = conn.execute("SELECT name FROM nfl_players WHERE season_id=? AND gsis_id=?",

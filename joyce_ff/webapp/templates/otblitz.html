@@ -57,12 +57,31 @@
  .flag.rk{color:var(--warn);border:1px solid var(--warn)}
  .flag.lo{color:var(--dim);border:1px solid var(--line)}
  .sub{color:var(--dim);font-size:12px}
+ .dbar{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:8px 11px;margin-bottom:10px;display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;font-size:13px}
+ .dbar .pk{font-weight:800}.dbar .oc{color:var(--blue);font-weight:700}.dbar .nx{color:var(--good)}
+ .dctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+ .dctl select,.dctl button{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:7px;padding:5px 9px;font:inherit;cursor:pointer}
+ .dconf{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+ .dconf button{background:transparent;border:0;color:var(--dim);padding:5px 11px;cursor:pointer;font:inherit}
+ .dconf button.on{background:var(--blue);color:#04121d;font-weight:700}
+ .dgrid{display:grid;grid-template-columns:1.3fr 1fr;gap:12px}@media(max-width:760px){.dgrid{grid-template-columns:1fr}}
+ .dlist{border:1px solid var(--line);border-radius:9px;overflow:hidden;max-height:70vh;overflow-y:auto}
+ .drow{display:flex;align-items:center;gap:8px;padding:6px 9px;border-bottom:1px solid var(--line);font-size:13px}.drow:last-child{border-bottom:0}
+ .draftbtn{font-size:11px;border:1px solid var(--good);color:var(--good);background:transparent;border-radius:6px;padding:2px 9px;cursor:pointer;white-space:nowrap}
+ .draftbtn:hover{background:color-mix(in srgb,var(--good) 14%,transparent)}
+ .dros{border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-bottom:10px}
+ .dros .cap{background:var(--panel2);padding:6px 10px;font-weight:800;font-size:13px}
+ .drr{display:flex;justify-content:space-between;padding:4px 10px;border-top:1px solid var(--line);font-size:12px}
+ .drr .slot{color:var(--dim);font-weight:700;font-size:10px;min-width:48px}.drr .empty{color:#5f6b7a}
+ .dmini{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:5px}
+ .dmt{border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer}
+ .dmt.me{border-color:var(--good)}.dmt.oc{border-color:var(--blue)}.dmt .f{color:var(--dim);font-variant-numeric:tabular-nums}
 </style></head><body>
 <header>
  <h1>🔒 <span class="lock">OT Blitz</span> <span class="sub">— private</span></h1>
  <nav class="nav">
-   <a class="on">Valuation Board</a>
-   <a class="soon">Draft Room <span class="tag">soon</span></a>
+   <a id="navBoard" class="on" onclick="setSection('board')">Valuation Board</a>
+   <a id="navDraft" onclick="setSection('draft')">Draft Room</a>
    <a class="soon">In-season Advisor <span class="tag">soon</span></a>
  </nav>
 </header>
@@ -79,7 +98,9 @@
 
 <script>
 let BOARD=null, tab='overall', q='', sortCol='vor', sortDir=-1, showHelp=false;
+let SECTION='board', DRAFT=null, DCONF='BLUE', DASSIGN=null, dtab='overall', dq='';
 const $=id=>document.getElementById(id);
+const getPC=()=>sessionStorage.getItem('otbpc')||'';
 const SLOT_TABS=[['overall','★ Overall'],['RB','RB'],['R','R (WR/TE)'],['QB','QB units'],['K','Kickers'],['DEF/ST','DEF/ST'],['C','Coaches']];
 const UNIT_TABS=new Set(['QB','K','DEF/ST','C']);
 const TIP={rank:'Strict rank by the current sort (no ties)',tier:'Value groups between cliffs — same tier ≈ interchangeable',
@@ -106,7 +127,10 @@ async function init(){
   if(saved){ const res=await fetchBoard(saved); if(res&&typeof res!=='string'){ BOARD=res; showBoard(); return; } }
   $('gate').style.display='block';
 }
-function showBoard(){ $('gate').style.display='none'; $('board').style.display='block'; render(); }
+function showBoard(){ $('gate').style.display='none'; $('board').style.display='block'; paint(); }
+function updateNav(){ $('navBoard').className=SECTION==='board'?'on':''; $('navDraft').className=SECTION==='draft'?'on':''; }
+function paint(){ updateNav(); if(SECTION==='draft'){ if(!DRAFT){ loadDraft(); return; } renderDraft(); } else render(); }
+function setSection(s){ if(SECTION===s) return; SECTION=s; if(s==='draft'&&!DRAFT){ updateNav(); loadDraft(); } else paint(); }
 
 function rows(){
   if(tab==='overall') return BOARD.overall;
@@ -188,6 +212,111 @@ function unitTable(){
       ${bustCell(r.bust)}<td>${r.games25??0}</td></tr>`;}).join('');
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
+
+/* ---------- Draft Room ---------- */
+const DSLOT_MAX={C:1,K:1,'DEF/ST':1,QB:1,RB:3,R:4};
+const ROSTER_ROWS=[['C','C'],['K','K'],['DEF/ST','DEF/ST'],['QB','QB'],['RB','RB'],['RB','RB'],['RB','RB'],['R','R'],['R','R'],['R','R'],['R','R']];
+
+async function draftFetch(path,body){
+  const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({passcode:getPC(),...body})});
+  const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||('HTTP '+r.status)); return j;
+}
+async function loadDraft(){
+  const r=await fetch(`/api/otblitz/draft?pc=${encodeURIComponent(getPC())}&conf=${DCONF}`);
+  if(!r.ok){ $('board').innerHTML=`<div class="explain">Could not load draft (${r.status}).</div>`; return; }
+  DRAFT=await r.json(); renderDraft();
+}
+function setDConf(c){ if(DCONF===c)return; DCONF=c; DASSIGN=null; DRAFT=null; loadDraft(); }
+function setAssign(v){ DASSIGN=(v==='clock'||v==null)?null:+v; renderDraft(); }
+function setDTab(k){ dtab=k; renderDraft(); if($('dq'))$('dq').focus(); }
+function setDQ(v){ dq=v; const el=document.querySelector('.dlist'); if(el)el.innerHTML=draftList(); }
+
+function rowAssetFor(r){
+  if(UNIT_TABS.has(dtab)) return {kind:'TEAM_UNIT',ref:r.team,slot:dtab};
+  if(dtab==='overall'&&r.id==null) return {kind:'TEAM_UNIT',ref:r.team,slot:r.position};
+  return {kind:'PLAYER',ref:r.id,slot:r.slot};
+}
+function draftList(){
+  const D=DRAFT, dp=new Set(D.drafted_players), du=new Set(D.drafted_units);
+  let rws;
+  if(dtab==='overall') rws=BOARD.overall.filter(r=> r.id? !dp.has(r.id) : !du.has(`${r.team}|${r.position}`));
+  else if(UNIT_TABS.has(dtab)) rws=(BOARD.units[dtab]||[]).filter(r=>!du.has(`${r.team}|${dtab}`))
+        .map(r=>({...r,slot:dtab,position:dtab,name:`${r.team} ${dtab}`,id:null}));
+  else rws=BOARD.players.filter(r=>r.slot===dtab && !dp.has(r.id));
+  if(dq){ const s=dq.toLowerCase(); rws=rws.filter(r=>(r.name||'').toLowerCase().includes(s)||(r.team||'').toLowerCase().includes(s)); }
+  rws=rws.slice(0,80);
+  if(!rws.length) return '<div class="drow"><span class="sub">none available</span></div>';
+  return rws.map(r=>{
+    const a=rowAssetFor(r), v=r.vor;
+    return `<div class="drow"><span class="tier">T${r.tier??'—'}</span>`
+      +`<span class="postag ${ptClass(a.slot)}">${a.slot}</span>`
+      +`<span style="flex:1;min-width:0"><span class="nm">${r.name}</span>`
+      +(a.kind==='PLAYER'&&r.team?` <span class="tm">${r.team}</span>`:'')+`</span>`
+      +`<span class="vor ${v==null||v<0.3?'lo':''}">${v==null?'—':(v>0?'+':'')+(+v).toFixed(2)}</span>`
+      +`<button class="draftbtn" onclick="draftPick('${a.kind}','${a.ref}','${a.slot}')">draft →</button></div>`;
+  }).join('');
+}
+function rosterPanel(t){
+  const used={C:0,K:0,'DEF/ST':0,QB:0,RB:0,R:0};
+  const n=Object.values(t.roster).reduce((a,x)=>a+x.length,0);
+  const rows=ROSTER_ROWS.map(([slot,lbl])=>{
+    const arr=t.roster[slot]||[], v=arr[used[slot]++];
+    return `<div class="drr"><span class="slot">${lbl}</span><span class="${v?'':'empty'}">${v?v.name:'—'}</span></div>`;
+  }).join('');
+  return `<div class="dros"><div class="cap">${t.name} · ${n}/11</div>${rows}</div>`;
+}
+async function draftPick(kind,ref,slot){
+  const team=DASSIGN||(DRAFT&&DRAFT.on_clock_team);
+  if(!team){ alert('No team on the clock (draft slots may be unset). Pick a team to assign to first.'); return; }
+  try{ await draftFetch('/api/otblitz/draft/pick',{team_id:team,kind,ref,slot}); }
+  catch(e){ alert('⚠ '+e.message); return; }
+  await loadDraft();
+}
+async function undoPick(){
+  if(!confirm('Undo the last pick in the '+DCONF+' draft?')) return;
+  try{ const j=await draftFetch('/api/otblitz/draft/undo',{conf:DCONF}); if(!j.undone) alert('Nothing to undo.'); }
+  catch(e){ alert('⚠ '+e.message); return; }
+  await loadDraft();
+}
+async function resetDraft(){
+  if(!confirm('RESET the entire '+DCONF+' draft? This deletes every drafted pick in this conference.')) return;
+  if(!confirm('Are you sure? This cannot be undone.')) return;
+  try{ await draftFetch('/api/otblitz/draft/reset',{conf:DCONF}); }
+  catch(e){ alert('⚠ '+e.message); return; }
+  DASSIGN=null; await loadDraft();
+}
+function renderDraft(){
+  const D=DRAFT; if(!D){ $('board').innerHTML='<div class="explain">Loading draft…</div>'; return; }
+  const done=D.pick>D.total_picks;
+  const oc=D.teams.find(t=>t.id===D.on_clock_team);
+  const assign=DASSIGN||D.on_clock_team;
+  const at=D.teams.find(t=>t.id===assign);
+  const bar=`<div class="dbar">`
+    +(done?`<span class="pk">✔ Draft complete — ${D.total_picks} picks</span>`
+          :`<span class="pk">Pick ${D.pick} · Round ${D.round}/${Math.ceil(D.total_picks/D.teams.length)}</span>`
+           +` · <span class="oc">${oc?oc.name:'— (no slot set)'} on the clock</span>`)
+    +(D.otb_next?` · <span class="nx">OT Blitz next: pick ${D.otb_next}${D.otb_next>D.pick?` (in ${D.otb_next-D.pick})`:' — now!'}</span>`:'')
+    +`</div>`;
+  const conf=`<div class="dconf"><button class="${DCONF==='BLUE'?'on':''}" onclick="setDConf('BLUE')">Blue</button>`
+    +`<button class="${DCONF==='RED'?'on':''}" onclick="setDConf('RED')">Red</button></div>`;
+  const opts=`<option value="clock" ${DASSIGN==null?'selected':''}>▶ On the clock${oc?' ('+oc.name+')':''}</option>`
+    +D.teams.map(t=>`<option value="${t.id}" ${DASSIGN===t.id?'selected':''}>${t.name}</option>`).join('');
+  const ctl=`<div class="dctl">${conf}<span class="sub">assign pick to:</span>`
+    +`<select onchange="setAssign(this.value)">${opts}</select>`
+    +`<button onclick="undoPick()">↶ Undo</button>`
+    +`<button onclick="resetDraft()" style="border-color:#c0433f;color:#e0736f">Reset</button></div>`;
+  const tabs=`<div class="toolbar" style="margin-bottom:8px">`
+    +SLOT_TABS.map(([k,lbl])=>`<span class="tab ${dtab===k?'on':''}" onclick="setDTab('${k}')">${lbl}</span>`).join('')
+    +`<input class="search" id="dq" placeholder="search…" value="${dq}" oninput="setDQ(this.value)"></div>`;
+  const mini=`<div class="dmini">`+D.teams.map(t=>{
+    const n=Object.values(t.roster).reduce((a,x)=>a+x.length,0);
+    return `<div class="dmt ${t.id===D.otb_team?'me':''} ${t.id===D.on_clock_team?'oc':''}" onclick="setAssign('${t.id}')"><b>${t.name}</b> <span class="f">${n}/11</span></div>`;
+  }).join('')+`</div>`;
+  $('board').innerHTML=bar+ctl+`<div class="dgrid"><div>${tabs}<div class="dlist">${draftList()}</div></div>`
+    +`<div>${at?rosterPanel(at):''}${mini}</div></div>`;
+}
+
 init();
 </script>
 </body></html>

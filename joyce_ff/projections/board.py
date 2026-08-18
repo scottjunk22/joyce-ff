@@ -38,6 +38,7 @@ def _player_records(board) -> list[dict]:
         for i, r in sub.iterrows():
             recs.append({
                 "rank": int(i) + 1,
+                "id": str(r["player_id"]),
                 "slot": slot,
                 "tier": None if _num(r.get("tier")) is None else int(r["tier"]),
                 "name": str(r["name"]),
@@ -85,14 +86,14 @@ def _overall_records(player_recs: list[dict], unit_recs: dict,
         if p["vor"] is None:
             continue
         rows.append({k: p[k] for k in
-                     ("slot", "name", "team", "position", "proj", "vor",
+                     ("id", "slot", "name", "team", "position", "proj", "vor",
                       "floor", "ceil", "bust", "games25", "low_sample",
                       "no_history")})
     for unit, lst in unit_recs.items():
         for u in lst:
             if u["vor"] is None:
                 continue
-            rows.append({"slot": unit, "name": f"{u['team']} {unit}",
+            rows.append({"id": None, "slot": unit, "name": f"{u['team']} {unit}",
                          "team": u["team"], "position": unit,
                          "proj": u["proj"], "vor": u["vor"],
                          "floor": u["floor"], "ceil": u["ceil"],
