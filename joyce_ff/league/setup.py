@@ -81,12 +81,20 @@ def create_season(conn, year: int, label: str | None = None,
         raise ValueError(f"a {year} season already exists")
     label = label or f"{year}-{str(year + 1)[2:]}"
 
-    # Verify the NFL universe is available BEFORE mutating anything.
+    # Verify the NFL universe is available BEFORE mutating anything. These
+    # calls auto-download from nflverse and cache; a missing source is a visible
+    # error, never a guess.
     from ..data_sources import nflverse as nv
-    if nv.load_games().query("season == @year").empty:
-        raise RuntimeError(f"NFL {year} schedule not cached yet — run `manage.py sync` first")
-    if len(nv.load_roster(year)) == 0:
-        raise RuntimeError(f"NFL {year} rosters not cached yet — run `manage.py sync` first")
+    try:
+        games = nv.load_games()
+        roster = nv.load_roster(year)
+    except Exception as e:  # network / 404 for an unpublished season
+        raise RuntimeError(f"couldn't fetch NFL {year} data from nflverse: {e}")
+    if games.query("season == @year").empty:
+        raise RuntimeError(f"nflverse has no {year} schedule yet "
+                           f"(the {year} NFL season may not be published)")
+    if len(roster) == 0:
+        raise RuntimeError(f"nflverse has no {year} rosters yet")
 
     for code, cname in (("BLUE", "Blue Conference"), ("RED", "Red Conference")):
         conn.execute("INSERT OR IGNORE INTO conferences(code, name) VALUES (?, ?)", (code, cname))
