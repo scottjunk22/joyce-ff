@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.request
+import warnings
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -32,30 +35,70 @@ ROSTER_URL = ("https://github.com/nflverse/nflverse-data/releases/download/"
               "rosters/roster_{season}.parquet")
 _UA = {"User-Agent": "joyce-ff local tool (polite cache; contact league owner)"}
 
+# A finished season's files never change, so they're cached forever. The season
+# in progress does change — every week adds games — so its files go stale and
+# must re-download, or scores would freeze at whatever was first cached.
+# Kept below the hourly scoring cadence so a scheduled run always sees fresh data.
+LIVE_MAX_AGE = int(os.environ.get("NFLVERSE_MAX_AGE", "1800"))
+
+
+def current_nfl_season(today: date | None = None) -> int:
+    """The NFL season year in progress. Season Y spans Sep Y - Feb Y+1, so
+    Jan/Feb still belong to the previous year's season."""
+    d = today or date.today()
+    return d.year if d.month >= 3 else d.year - 1
+
+
+def _is_live(season: int) -> bool:
+    return season >= current_nfl_season()
+
 
 # ---------------------------------------------------------------------------
 # Download / cache
 # ---------------------------------------------------------------------------
 
-def _download(url: str, dest: Path) -> Path:
+def _fetch(url: str, dest: Path) -> Path:
+    req = urllib.request.Request(url, headers=_UA)
+    with urllib.request.urlopen(req, timeout=300) as r:
+        data = r.read()
+    # Write via a temp file: an interrupted download must not leave a truncated
+    # cache file behind, which would then be reused as if it were complete.
+    tmp = dest.with_name(dest.name + ".part")
+    tmp.write_bytes(data)
+    tmp.replace(dest)
+    return dest
+
+
+def _download(url: str, dest: Path, max_age: float | None = None) -> Path:
+    """Cached download. max_age=None means 'cache forever' (immutable data);
+    a number means re-download once the cached copy is older than that many
+    seconds. A failed refresh falls back to the cached copy with a warning —
+    never to silence, and never to invented data."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists():
-        return dest
-    req = urllib.request.Request(url, headers=_UA)
-    with urllib.request.urlopen(req, timeout=300) as r, open(dest, "wb") as f:
-        f.write(r.read())
-    return dest
+        if max_age is None or (time.time() - dest.stat().st_mtime) < max_age:
+            return dest
+        try:
+            return _fetch(url, dest)
+        except Exception as e:
+            warnings.warn(f"nflverse refresh failed for {dest.name} ({e}); "
+                          f"using the cached copy, which may be stale")
+            return dest
+    return _fetch(url, dest)
 
 
 def load_pbp(season: int) -> pd.DataFrame:
     dest = CACHE_DIR / f"play_by_play_{season}.parquet"
-    _download(PBP_URL.format(season=season), dest)
+    _download(PBP_URL.format(season=season), dest,
+              max_age=LIVE_MAX_AGE if _is_live(season) else None)
     return pd.read_parquet(dest)
 
 
 def load_games() -> pd.DataFrame:
+    # Always refreshable: this file carries the final scores that decide whether
+    # a week is complete, for every season including the live one.
     dest = CACHE_DIR / "games.csv"
-    _download(GAMES_URL, dest)
+    _download(GAMES_URL, dest, max_age=LIVE_MAX_AGE)
     return pd.read_csv(dest)
 
 
@@ -63,7 +106,8 @@ def load_roster(season: int) -> pd.DataFrame:
     """Season roster: gsis_id (joins to PBP player ids), position, team, name,
     status. Used to define the draftable pool and classify RB vs R (WR/TE)."""
     dest = CACHE_DIR / f"roster_{season}.parquet"
-    _download(ROSTER_URL.format(season=season), dest)
+    _download(ROSTER_URL.format(season=season), dest,
+              max_age=LIVE_MAX_AGE if _is_live(season) else None)
     return pd.read_parquet(dest)
 
 

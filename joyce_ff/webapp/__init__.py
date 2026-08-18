@@ -600,7 +600,8 @@ def create_app(db_path: str | None = None) -> Flask:
         if (bad := _commish()):
             return bad
         from ..league.runner import run_current
-        return jsonify(ok=True, scored_weeks=run_current(db(), season()["id"]))
+        r = run_current(db(), season()["id"])
+        return jsonify(ok=True, scored_weeks=r["scored"], live_weeks=r["live"])
 
     @app.post("/api/admin/reverse/<int:tx_id>")
     def admin_reverse(tx_id):

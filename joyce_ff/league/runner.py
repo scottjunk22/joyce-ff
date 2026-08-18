@@ -47,11 +47,12 @@ def carry_forward_lineups(conn, season_id: int, ff_week: int) -> int:
 
 
 def run_week(conn, season_id: int, ff_week: int, *, do_ingest: bool = True,
-             eliminate: bool = True) -> dict:
+             eliminate: bool = True, carry: bool = True) -> dict:
     summary: dict = {"ff_week": ff_week}
     if do_ingest:
         summary["assets_scored"] = scoring.ingest_asset_scores_from_nflverse(conn, season_id, ff_week)
-    summary["lineups_carried"] = carry_forward_lineups(conn, season_id, ff_week)
+    if carry:
+        summary["lineups_carried"] = carry_forward_lineups(conn, season_id, ff_week)
     scoring.score_team_week(conn, season_id, ff_week)
     if eliminate:
         summary["eliminated_team_ids"] = st.run_elimination(conn, season_id, ff_week)
@@ -64,28 +65,61 @@ def run_week(conn, season_id: int, ff_week: int, *, do_ingest: bool = True,
     return summary
 
 
-def run_current(conn, season_id: int) -> list[int]:
-    """Score every FF week that (a) has lineups submitted and (b) whose NFL week
-    now has final scores. Idempotent — the host runs this on a daily schedule
-    and it picks up each week automatically once the games finish. Skips the
-    stat pull for weeks already ingested."""
+def _final_key(season_id: int, ff_week: int) -> str:
+    return f"week_final:{season_id}:{ff_week}"
+
+
+def _is_finalized(conn, season_id: int, ff_week: int) -> bool:
+    row = conn.execute("SELECT value FROM settings WHERE key=?",
+                       (_final_key(season_id, ff_week),)).fetchone()
+    return bool(row) and row["value"] == "1"
+
+
+def run_current(conn, season_id: int) -> dict:
+    """Bring every FF week up to date with the NFL games played so far.
+
+    Designed for an hourly schedule on the host:
+      * NFL week fully final  -> score, carry forward missing lineups, run the
+                                 elimination, and mark the week finalized so
+                                 later runs skip it.
+      * NFL week in progress  -> re-score from the games already final, so
+                                 totals climb through the weekend. No lineup
+                                 carry-forward (managers may still be setting
+                                 theirs) and NO elimination — the lowest score
+                                 isn't knowable until every game is done.
+      * NFL week not started  -> skipped.
+
+    Idempotent: an unfinalized week is always re-ingested (so a week first
+    scored live gets a complete re-score once it finishes), and a finalized
+    week is left alone.
+    """
     from ..data_sources import nflverse as nv
 
     year = conn.execute("SELECT year FROM seasons WHERE id=?", (season_id,)).fetchone()["year"]
     g = nv.load_games()
     g = g[g["season"] == year]
-    done = {int(w) for w, grp in g.groupby("week") if grp["home_score"].notna().all()}
+    played = {}
+    for w, grp in g.groupby("week"):
+        played[int(w)] = (int(grp["home_score"].notna().sum()), int(len(grp)))
+
     weeks = [r["ff_week"] for r in conn.execute(
         "SELECT DISTINCT ff_week FROM weekly_lineups WHERE season_id=? ORDER BY ff_week",
         (season_id,))]
-    ran = []
+    scored, live = [], []
     for ff in weeks:
-        if scoring.nfl_week_for(conn, season_id, ff) in done:
-            have = conn.execute("SELECT 1 FROM asset_week_scores WHERE season_id=? AND ff_week=? LIMIT 1",
-                                (season_id, ff)).fetchone()
-            run_week(conn, season_id, ff, do_ingest=not have)
-            ran.append(ff)
-    return ran
+        if _is_finalized(conn, season_id, ff):
+            continue
+        n_final, n_games = played.get(scoring.nfl_week_for(conn, season_id, ff), (0, 0))
+        if n_games and n_final == n_games:
+            run_week(conn, season_id, ff, do_ingest=True, eliminate=True, carry=True)
+            conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,'1')",
+                         (_final_key(season_id, ff),))
+            conn.commit()
+            scored.append(ff)
+        elif n_final:
+            run_week(conn, season_id, ff, do_ingest=True, eliminate=False, carry=False)
+            live.append(ff)
+    return {"scored": scored, "live": live}
 
 
 def reconcile_week(conn, season_id: int, ff_week: int, tol: float = 0.5) -> dict:

@@ -170,10 +170,18 @@ def cmd_run_current(_argv: list[str]) -> int:
     from joyce_ff.league import connect
     from joyce_ff.league.runner import run_current
 
+    from datetime import datetime, timezone
+
     conn = connect()
     sid = conn.execute("SELECT id FROM seasons ORDER BY year DESC LIMIT 1").fetchone()["id"]
-    ran = run_current(conn, sid)
-    print(f"Auto-scored FF weeks: {ran or 'none ready yet'}")
+    r = run_current(conn, sid)
+    stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    parts = []
+    if r["scored"]:
+        parts.append(f"finalized {r['scored']}")
+    if r["live"]:
+        parts.append(f"live-updated {r['live']}")
+    print(f"[{stamp}] run-current: {'; '.join(parts) or 'nothing to score yet'}")
     conn.close()
     return 0
 

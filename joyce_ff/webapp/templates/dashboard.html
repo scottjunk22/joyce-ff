@@ -424,6 +424,9 @@ async function newSeason(){ const yr=prompt('Start a new season — enter the st
   if(j){ alert(`Created ${j.label} — ${j.teams} teams. The site will reload on the new season.`); location.reload(); } }
 async function applyPay(id){ const a=$('pay_'+id).value; if(!a)return; const j=await apost(`/api/team/${id}/payment`,{amount_cents:Math.round(parseFloat(a)*100),note:'commissioner'}); if(j){alert('Payment recorded');await load(VIEW, SEASON);renderCommish();} }
 async function setScore(id){ const v=$('sc_'+id).value; if(v==='')return; const j=await apost(`/api/admin/team/${id}/score`,{week:VIEW,points:parseFloat(v)}); if(j){alert('Score set for Week '+VIEW);await load(VIEW, SEASON);renderCommish();} }
-async function runCurrent(){ const j=await apost('/api/admin/run-current',{}); if(j){alert('Scored weeks: '+(j.scored_weeks.join(', ')||'none ready'));load(VIEW, SEASON);} }
+async function runCurrent(){ const j=await apost('/api/admin/run-current',{}); if(!j)return;
+  const p=[]; if(j.scored_weeks&&j.scored_weeks.length)p.push('finalized: '+j.scored_weeks.join(', '));
+  if(j.live_weeks&&j.live_weeks.length)p.push('live (still playing): '+j.live_weeks.join(', '));
+  alert(p.join('\n')||'Nothing to score yet — no NFL games final for a week with lineups.'); load(VIEW, SEASON); }
 load();
 </script></body></html>
