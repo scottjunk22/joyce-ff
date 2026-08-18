@@ -90,6 +90,17 @@
  .dordrow .tnm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .dordrow select{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:3px 5px;font:inherit}
  .dordrow select.unset{border-color:var(--warn);color:var(--warn)}
+ .nwrap{padding:3px 0}
+ .nrow{display:flex;align-items:center;gap:7px;padding:3px 10px;font-size:12px}
+ .nrow.need{background:color-mix(in srgb,var(--good) 8%,transparent)}
+ .nbar{flex:1;min-width:34px;height:7px;background:var(--panel2);border-radius:4px;overflow:hidden}
+ .nbar span{display:block;height:100%;background:var(--blue);border-radius:4px}
+ .nnum{min-width:18px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+ .nteams{min-width:38px;color:var(--dim);font-variant-numeric:tabular-nums}
+ .nme{min-width:38px;color:var(--good);font-size:11px}
+ .ntag{min-width:30px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--dim)}
+ .ntag.hot{color:var(--warn);font-weight:700}.ntag.cold{color:var(--dim)}
+ .nread{border-top:1px solid var(--line);padding:6px 10px;font-size:12px;line-height:1.5}
 </style></head><body>
 <header>
  <h1>🔒 <span class="lock">OT Blitz</span> <span class="sub">— private</span></h1>
@@ -295,6 +306,52 @@ async function removePick(entryId){
   catch(e){ alert('⚠ '+e.message); return; }
   await loadDraft();
 }
+/* League Needs — remaining DEMAND per slot across the conference. The pools of
+   players/units are deep; what actually moves a draft is how many rosters still
+   have a hole at each slot. Counts only, no behavioural prediction. */
+function needsRows(){
+  const D=DRAFT, me=D.teams.find(t=>t.id===D.otb_team);
+  return ['C','K','DEF/ST','QB','RB','R'].map(slot=>{
+    const max=DSLOT_MAX[slot];
+    let teams=0, open=0;
+    for(const t of D.teams){
+      const gap=Math.max(0,max-((t.roster[slot]||[]).length));
+      if(gap>0) teams++;
+      open+=gap;
+    }
+    return {slot, teams, open, mine: me?Math.max(0,max-((me.roster[slot]||[]).length)):null};
+  });
+}
+function needsPanel(){
+  const rows=needsRows().sort((a,b)=>b.open-a.open||b.teams-a.teams);
+  const mx=Math.max(1,...rows.map(r=>r.open));
+  const nTeams=DRAFT.teams.length;
+  const body=rows.map(r=>{
+    const done=r.open===0, hot=!done&&r.teams>=nTeams*0.6, cold=!done&&r.teams<=nTeams*0.28;
+    const cls=r.mine>0?'need':'';
+    return `<div class="nrow ${cls}"><span class="postag ${ptClass(r.slot)}">${r.slot}</span>`
+      +`<span class="nbar"><span style="width:${(r.open/mx)*100}%"></span></span>`
+      +`<span class="nnum" title="roster holes left league-wide">${r.open}</span>`
+      +`<span class="nteams" title="teams still needing one">${r.teams} tm</span>`
+      +`<span class="nme">${r.mine==null?'':r.mine>0?'you '+r.mine:'✓'}</span>`
+      +`<span class="ntag ${hot?'hot':'cold'}">${done?'done':hot?'high':cold?'thin':'—'}</span></div>`;
+  }).join('');
+  return `<div class="dros"><div class="cap">League needs <span class="sub">— openings left in ${DCONF==='BLUE'?'Blue':'Red'}</span></div>`
+    +`<div class="nwrap">${body}</div>${needsRead()}</div>`;
+}
+function needsRead(){
+  const rows=needsRows(), mine=rows.filter(r=>r.mine>0);
+  if(!DRAFT.otb_team) return `<div class="nread sub">OT Blitz doesn't draft in this conference — showing league demand only.</div>`;
+  if(!mine.length) return `<div class="nread">✓ Your roster is full.</div>`;
+  const by=[...mine].sort((a,b)=>b.teams-a.teams);
+  const top=by[0], low=by[by.length-1];
+  const need=mine.map(r=>r.mine>1?`${r.slot}×${r.mine}`:r.slot).join(', ');
+  let msg=`You still need <b>${need}</b>.`;
+  if(by.length>1 && top.teams>low.teams)
+    msg+=` <b>${top.slot}</b> is the contested one (${top.teams} of ${DRAFT.teams.length} teams still need one) — take it earlier;`
+       +` only ${low.teams} team${low.teams===1?'':'s'} still need${low.teams===1?'s':''} a <b>${low.slot}</b>, so that one can wait.`;
+  return `<div class="nread">${msg}</div>`;
+}
 function orderPanel(){
   const D=DRAFT, n=D.teams.length;
   const anyUnset=D.teams.some(t=>t.draft_slot==null);
@@ -378,7 +435,7 @@ function renderDraft(){
     return `<div class="dmt ${t.id===D.otb_team?'me':''} ${t.id===D.on_clock_team?'oc':''}" onclick="setAssign('${t.id}')"><b>${t.name}</b> <span class="f">${n}/11</span></div>`;
   }).join('')+`</div>`;
   $('board').innerHTML=bar+ctl+orderPanel()+hint+`<div class="dgrid"><div>${tabs}<div class="dlist">${draftList()}</div></div>`
-    +`<div>${at?rosterPanel(at):''}${mini}</div></div>`;
+    +`<div>${needsPanel()}${at?rosterPanel(at):''}${mini}</div></div>`;
 }
 
 init();
