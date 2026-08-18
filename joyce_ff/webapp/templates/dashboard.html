@@ -363,7 +363,7 @@ async function submitTx(){
 
 let COMMISH_PC='';
 function commishModal(){ openM(`<h3>🛠 Commissioner <span class="sub">Steve &amp; Scott</span></h3>
-   <div class="pass"><span>passcode:</span><input type="password" id="cpc" placeholder="commish" value="${COMMISH_PC}"><button class="btn" onclick="commishUnlock()">Unlock</button><button class="btn" onclick="runCurrent()">▶ Score current week(s)</button></div>
+   <div class="pass"><span>passcode:</span><input type="password" id="cpc" placeholder="commish" value="${COMMISH_PC}"><button class="btn" onclick="commishUnlock()">Unlock</button><button class="btn" onclick="runCurrent()">▶ Score current week(s)</button><button class="btn" onclick="newSeason()">🆕 Start new season</button></div>
    <div id="commBody"><div class="sub">Unlock to edit team #/slot/passcode, override a week's score, and record payments. Score/balance shown are for the week selected up top (${VIEW!=null?'Week '+VIEW:'current'}).</div></div>`); }
 function commishUnlock(){ COMMISH_PC=$('cpc').value; renderCommish(); }
 async function apost(url,body){ body.passcode=COMMISH_PC; const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const j=await r.json(); if(!r.ok){alert('⚠ '+(j.error||'error'));return null;} return j; }
@@ -375,7 +375,7 @@ function renderCommish(){ const L=STATE.lineups;
   const bal=c=>c<0?`<span style="color:var(--good)">cr $${(Math.abs(c)/100).toFixed(0)}</span>`:`$${(c/100).toFixed(0)}`;
   const scoreMap={}; (STATE.scoreboard||[]).forEach(g=>{scoreMap[g.home.id]=g.home.points;scoreMap[g.away.id]=g.away.points;});
   const row=t=>{const f=STATE.fees[t.team_id]||{net_cents:0}, sc=scoreMap[t.team_id];
-    return `<tr><td>${t.name}</td><td><input id="tn_${t.team_id}" style="width:34px" value="${t.team_number??''}"></td>
+    return `<tr><td><input id="nm_${t.team_id}" style="width:108px" value="${t.name}"></td><td><input id="tn_${t.team_id}" style="width:34px" value="${t.team_number??''}"></td>
       <td><input id="ds_${t.team_id}" style="width:34px" value="${t.draft_slot??''}"></td>
       <td><input id="pc_${t.team_id}" style="width:70px" placeholder="—"></td>
       <td><button class="chip" onclick="saveTeam(${t.team_id})">save</button></td>
@@ -399,9 +399,14 @@ async function convertTx(id,type){ if(!confirm(`Convert this ${type} to ${type==
   const j=await apost(`/api/admin/convert/${id}`,{}); if(j){alert('Converted.');await load(VIEW, SEASON);renderCommish();} }
 async function reverseTx(id){ if(!confirm('Reverse (undo) this move? For a trade this restores the roster.'))return;
   const j=await apost(`/api/admin/reverse/${id}`,{}); if(j){alert('Reversed.');await load(VIEW, SEASON);renderCommish();} }
-async function saveTeam(id){ const tn=$('tn_'+id).value,ds=$('ds_'+id).value,pc=$('pc_'+id).value;
-  const j=await apost(`/api/admin/team/${id}`,{team_number:tn||undefined,draft_slot:ds||undefined});
+async function saveTeam(id){ const nm=$('nm_'+id).value,tn=$('tn_'+id).value,ds=$('ds_'+id).value,pc=$('pc_'+id).value;
+  const j=await apost(`/api/admin/team/${id}`,{name:nm||undefined,team_number:tn||undefined,draft_slot:ds||undefined});
   if(j&&pc) await apost(`/api/admin/team/${id}/passcode`,{new_passcode:pc}); if(j){alert('Saved');await load(VIEW, SEASON);renderCommish();} }
+async function newSeason(){ const yr=prompt('Start a new season — enter the starting year (2026 = the 2026-27 season):','2026');
+  if(!yr) return; const label=yr+'-'+String(+yr+1).slice(2);
+  if(!confirm(`Create the ${label} season?\n\n• 22 teams (Blue 1–11, Red 1–11), empty rosters\n• Schedule generated from team numbers\n• Becomes the current season on the site (the existing season stays in the dropdown)\n\nYou'll rename teams below, then draft in the OT-Blitz Draft Room.`)) return;
+  const j=await apost('/api/admin/new-season',{year:+yr});
+  if(j){ alert(`Created ${j.label} — ${j.teams} teams. The site will reload on the new season.`); location.reload(); } }
 async function applyPay(id){ const a=$('pay_'+id).value; if(!a)return; const j=await apost(`/api/team/${id}/payment`,{amount_cents:Math.round(parseFloat(a)*100),note:'commissioner'}); if(j){alert('Payment recorded');await load(VIEW, SEASON);renderCommish();} }
 async function setScore(id){ const v=$('sc_'+id).value; if(v==='')return; const j=await apost(`/api/admin/team/${id}/score`,{week:VIEW,points:parseFloat(v)}); if(j){alert('Score set for Week '+VIEW);await load(VIEW, SEASON);renderCommish();} }
 async function runCurrent(){ const j=await apost('/api/admin/run-current',{}); if(j){alert('Scored weeks: '+(j.scored_weeks.join(', ')||'none ready'));load(VIEW, SEASON);} }

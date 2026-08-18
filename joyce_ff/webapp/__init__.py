@@ -494,15 +494,40 @@ def create_app(db_path: str | None = None) -> Flask:
         if (bad := _commish()):
             return bad
         b = request.get_json(force=True)
-        for col in ("team_number", "draft_slot", "manager_names"):
+        num_changed = False
+        for col in ("name", "team_number", "draft_slot", "manager_names"):
             if col in b and b[col] not in (None, ""):
-                val = int(b[col]) if col != "manager_names" else b[col]
+                val = int(b[col]) if col in ("team_number", "draft_slot") else b[col]
                 try:
                     db().execute(f"UPDATE teams SET {col}=? WHERE id=?", (val, team_id))
-                except Exception as e:  # e.g. UNIQUE team_number collision
+                except Exception as e:  # e.g. UNIQUE team_number / name collision
                     return jsonify(error=f"{col}: {e}"), 400
+                if col == "team_number":
+                    num_changed = True
+        # The schedule is derived from team numbers — rebuild it if one changed.
+        if num_changed:
+            from ..league import standings as st
+            sid = db().execute("SELECT season_id FROM teams WHERE id=?", (team_id,)).fetchone()["season_id"]
+            if not db().execute("SELECT 1 FROM teams WHERE season_id=? AND team_number IS NULL",
+                                (sid,)).fetchone():
+                st.generate_matchups(db(), sid)
         db().commit()
         return jsonify(ok=True)
+
+    @app.post("/api/admin/new-season")
+    def admin_new_season():
+        if (bad := _commish()):
+            return bad
+        b = request.get_json(force=True)
+        year = int(b.get("year") or 2026)
+        from ..league import setup
+        try:
+            sid = setup.create_season(db(), year, b.get("label"))
+        except (ValueError, RuntimeError) as e:
+            return jsonify(error=str(e)), 400
+        row = db().execute("SELECT label FROM seasons WHERE id=?", (sid,)).fetchone()
+        teams = db().execute("SELECT COUNT(*) c FROM teams WHERE season_id=?", (sid,)).fetchone()["c"]
+        return jsonify(ok=True, season_id=sid, label=row["label"], teams=teams)
 
     @app.post("/api/admin/team/<int:team_id>/passcode")
     def admin_set_passcode(team_id):

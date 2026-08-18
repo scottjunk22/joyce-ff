@@ -101,6 +101,26 @@ def cmd_league_init(_argv: list[str]) -> int:
     return 0
 
 
+def cmd_new_season(argv: list[str]) -> int:
+    from joyce_ff.league import connect, setup
+
+    year = int(argv[0]) if argv else 2026
+    conn = connect()
+    try:
+        sid = setup.create_season(conn, year)
+    except (ValueError, RuntimeError) as e:
+        print(f"Cannot create season: {e}")
+        conn.close()
+        return 1
+    row = conn.execute("SELECT label FROM seasons WHERE id=?", (sid,)).fetchone()
+    teams = conn.execute("SELECT COUNT(*) c FROM teams WHERE season_id=?", (sid,)).fetchone()["c"]
+    conn.close()
+    print(f"Created season {sid} ({row['label']}) — {teams} teams, schedule generated. "
+          f"The site now shows this season at Week 1; set team names/numbers in the "
+          f"commissioner tab, then draft in the OT-Blitz Draft Room.")
+    return 0
+
+
 def cmd_demo_seed(_argv: list[str]) -> int:
     from joyce_ff.league.demo import build_demo
 
@@ -187,6 +207,7 @@ COMMANDS = {
     "market": cmd_market,
     "schedule": cmd_schedule,
     "league-init": cmd_league_init,
+    "new-season": cmd_new_season,
     "demo-seed": cmd_demo_seed,
     "run-week": cmd_run_week,
     "run-current": cmd_run_current,

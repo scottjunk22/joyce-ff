@@ -65,3 +65,40 @@ def prepare_season(conn, season_id: int, year: int) -> None:
     load_nfl_universe(conn, season_id, year)
     assign_numbers_and_slots(conn, season_id)
     st.generate_matchups(conn, season_id)
+
+
+def create_season(conn, year: int, label: str | None = None,
+                  current_ff_week: int = 1, status: str = "drafting") -> int:
+    """Stand up a brand-new season ready for the draft: 22 generic-named teams
+    (Blue 1..11, Red 1..11), the NFL universe for `year`, deterministic
+    team_number/draft_slot (1-11 per conference), and the full matchup schedule.
+
+    The public site shows the newest `year`, so creating this flips the site to
+    the new season at Week 1 with the schedule on the scoreboard and empty
+    rosters. Fails loudly (before creating anything) if the NFL data for `year`
+    isn't cached yet — a missing source is a visible error, never a guess."""
+    if conn.execute("SELECT 1 FROM seasons WHERE year=?", (year,)).fetchone():
+        raise ValueError(f"a {year} season already exists")
+    label = label or f"{year}-{str(year + 1)[2:]}"
+
+    # Verify the NFL universe is available BEFORE mutating anything.
+    from ..data_sources import nflverse as nv
+    if nv.load_games().query("season == @year").empty:
+        raise RuntimeError(f"NFL {year} schedule not cached yet — run `manage.py sync` first")
+    if len(nv.load_roster(year)) == 0:
+        raise RuntimeError(f"NFL {year} rosters not cached yet — run `manage.py sync` first")
+
+    for code, cname in (("BLUE", "Blue Conference"), ("RED", "Red Conference")):
+        conn.execute("INSERT OR IGNORE INTO conferences(code, name) VALUES (?, ?)", (code, cname))
+    conn.execute("INSERT INTO seasons(year, label, current_ff_week, status) VALUES (?,?,?,?)",
+                 (year, label, current_ff_week, status))
+    sid = conn.execute("SELECT id FROM seasons WHERE year=?", (year,)).fetchone()["id"]
+    conf_ids = {r["code"]: r["id"] for r in conn.execute("SELECT id, code FROM conferences")}
+    for code in ("BLUE", "RED"):
+        for i in range(1, 12):
+            conn.execute("INSERT INTO teams(season_id, name, conference_id) VALUES (?,?,?)",
+                         (sid, f"{code.title()} {i}", conf_ids[code]))
+    conn.commit()
+    prepare_season(conn, sid, year)
+    conn.commit()
+    return sid
