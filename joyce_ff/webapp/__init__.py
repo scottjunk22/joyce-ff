@@ -124,11 +124,11 @@ def create_app(db_path: str | None = None) -> Flask:
         for t in team_rows:
             roster = {sl: [] for sl in ("C", "K", "DEF/ST", "QB", "RB", "R")}
             for e in conn.execute(
-                "SELECT asset_kind, asset_ref, unit_type, roster_slot FROM roster_entries "
+                "SELECT id, asset_kind, asset_ref, unit_type, roster_slot FROM roster_entries "
                 "WHERE team_id=? AND acquired_via='DRAFT' AND released_ff_week IS NULL ORDER BY id",
                     (t["id"],)):
                 roster[e["roster_slot"]].append({
-                    "ref": e["asset_ref"], "kind": e["asset_kind"],
+                    "id": e["id"], "ref": e["asset_ref"], "kind": e["asset_kind"],
                     "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"], e["unit_type"])})
                 if e["asset_kind"] == "PLAYER":
                     drafted_players.append(e["asset_ref"])
@@ -138,7 +138,13 @@ def create_app(db_path: str | None = None) -> Flask:
                           "draft_slot": t["draft_slot"], "roster": roster})
         from ..draft import order as do
         seq = do.build_sequence()
-        pick = len(drafted_players) + len(drafted_units) + 1
+        # The clock is a persisted cursor, decoupled from roster edits. Lazily
+        # initialize it from the picks already made (continuity for a draft that
+        # began under the old count-based model).
+        pick = repo.get_draft_cursor(conn, sid, conf["id"])
+        if pick is None:
+            pick = len(drafted_players) + len(drafted_units) + 1
+            repo.set_draft_cursor(conn, sid, conf["id"], pick)
         slot_by = {t["draft_slot"]: t["id"] for t in team_rows if t["draft_slot"]}
         on_clock = slot_by.get(seq[pick - 1]["slot"]) if 1 <= pick <= len(seq) else None
         otb = next((t for t in team_rows if t["name"] == "OT Blitz"), None)
@@ -160,10 +166,20 @@ def create_app(db_path: str | None = None) -> Flask:
         if not _platform(_passcode()):
             return jsonify(error="locked"), 403
         b = request.get_json(force=True)
+        conn, sid, team_id = db(), season()["id"], int(b["team_id"])
+        conf_id = repo._team_conf(conn, team_id)
+        # Capture the clock BEFORE inserting so advance = old clock + 1.
+        prev = repo.get_draft_cursor(conn, sid, conf_id)
+        if prev is None:
+            prev = repo.draft_pick_count(conn, sid, conf_id) + 1
         try:
-            repo.draft_player(db(), season()["id"], int(b["team_id"]), b["kind"], b["ref"], b["slot"])
+            repo.draft_player(conn, sid, team_id, b["kind"], b["ref"], b["slot"])
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
+        if b.get("advance"):
+            repo.set_draft_cursor(conn, sid, conf_id, prev + 1)
+        elif repo.get_draft_cursor(conn, sid, conf_id) is None:
+            repo.set_draft_cursor(conn, sid, conf_id, prev)  # persist lazy init
         return jsonify(ok=True)
 
     @app.post("/api/otblitz/draft/undo")
@@ -172,6 +188,22 @@ def create_app(db_path: str | None = None) -> Flask:
             return jsonify(error="locked"), 403
         ref = repo.undo_last_draft(db(), season()["id"], _conf_id(request.get_json(force=True).get("conf")))
         return jsonify(ok=True, undone=ref)
+
+    @app.post("/api/otblitz/draft/remove")
+    def otblitz_remove_pick():
+        if not _platform(_passcode()):
+            return jsonify(error="locked"), 403
+        b = request.get_json(force=True)
+        ref = repo.remove_draft_entry(db(), season()["id"], _conf_id(b.get("conf")), int(b["entry_id"]))
+        return jsonify(ok=True, removed=ref)
+
+    @app.post("/api/otblitz/draft/clock")
+    def otblitz_clock():
+        if not _platform(_passcode()):
+            return jsonify(error="locked"), 403
+        b = request.get_json(force=True)
+        pick = repo.set_draft_cursor(db(), season()["id"], _conf_id(b.get("conf")), int(b["pick"]))
+        return jsonify(ok=True, pick=pick)
 
     @app.post("/api/otblitz/draft/reset")
     def otblitz_reset():

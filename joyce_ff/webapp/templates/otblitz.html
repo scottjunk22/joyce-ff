@@ -76,6 +76,13 @@
  .dmini{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:5px}
  .dmt{border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:12px;cursor:pointer}
  .dmt.me{border-color:var(--good)}.dmt.oc{border-color:var(--blue)}.dmt .f{color:var(--dim);font-variant-numeric:tabular-nums}
+ .clk{display:inline-flex;gap:4px;margin-right:6px}
+ .clk button{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:1px 8px;cursor:pointer;font:inherit;line-height:1.3}
+ .clk button:hover{border-color:var(--blue)}
+ .drr .rv{display:flex;align-items:center;gap:6px}
+ .rmbtn{border:0;background:transparent;color:#8a97a6;cursor:pointer;font-size:12px;line-height:1;padding:0 2px}
+ .rmbtn:hover{color:#e0736f}
+ .dhint{background:color-mix(in srgb,var(--blue) 12%,var(--panel));border:1px solid var(--line);border-radius:8px;padding:6px 11px;margin-bottom:10px;font-size:12.5px}
 </style></head><body>
 <header>
  <h1>🔒 <span class="lock">OT Blitz</span> <span class="sub">— private</span></h1>
@@ -254,7 +261,7 @@ function draftList(){
       +`<span style="flex:1;min-width:0"><span class="nm">${r.name}</span>`
       +(a.kind==='PLAYER'&&r.team?` <span class="tm">${r.team}</span>`:'')+`</span>`
       +`<span class="vor ${v==null||v<0.3?'lo':''}">${v==null?'—':(v>0?'+':'')+(+v).toFixed(2)}</span>`
-      +`<button class="draftbtn" onclick="draftPick('${a.kind}','${a.ref}','${a.slot}')">draft →</button></div>`;
+      +`<button class="draftbtn" onclick="draftPick('${a.kind}','${a.ref}','${a.slot}')">${DASSIGN==null?'draft →':'add →'}</button></div>`;
   }).join('');
 }
 function rosterPanel(t){
@@ -262,14 +269,30 @@ function rosterPanel(t){
   const n=Object.values(t.roster).reduce((a,x)=>a+x.length,0);
   const rows=ROSTER_ROWS.map(([slot,lbl])=>{
     const arr=t.roster[slot]||[], v=arr[used[slot]++];
-    return `<div class="drr"><span class="slot">${lbl}</span><span class="${v?'':'empty'}">${v?v.name:'—'}</span></div>`;
+    const val=v?`<span class="nm">${v.name}</span><button class="rmbtn" title="remove (does not move the clock)" onclick="removePick(${v.id})">✕</button>`
+              :'<span class="empty">—</span>';
+    return `<div class="drr"><span class="slot">${lbl}</span><span class="rv">${val}</span></div>`;
   }).join('');
   return `<div class="dros"><div class="cap">${t.name} · ${n}/11</div>${rows}</div>`;
 }
 async function draftPick(kind,ref,slot){
+  const follow=(DASSIGN==null);                 // ▶ on-the-clock mode advances the clock
   const team=DASSIGN||(DRAFT&&DRAFT.on_clock_team);
   if(!team){ alert('No team on the clock (draft slots may be unset). Pick a team to assign to first.'); return; }
-  try{ await draftFetch('/api/otblitz/draft/pick',{team_id:team,kind,ref,slot}); }
+  try{ await draftFetch('/api/otblitz/draft/pick',{team_id:team,kind,ref,slot,advance:follow,conf:DCONF}); }
+  catch(e){ alert('⚠ '+e.message); return; }
+  await loadDraft();
+}
+async function removePick(entryId){
+  try{ await draftFetch('/api/otblitz/draft/remove',{conf:DCONF,entry_id:entryId}); }
+  catch(e){ alert('⚠ '+e.message); return; }
+  await loadDraft();
+}
+async function nudgeClock(delta){
+  if(!DRAFT) return;
+  const pick=Math.max(1,Math.min(DRAFT.total_picks+1,DRAFT.pick+delta));
+  if(pick===DRAFT.pick) return;
+  try{ await draftFetch('/api/otblitz/draft/clock',{conf:DCONF,pick}); }
   catch(e){ alert('⚠ '+e.message); return; }
   await loadDraft();
 }
@@ -292,7 +315,9 @@ function renderDraft(){
   const oc=D.teams.find(t=>t.id===D.on_clock_team);
   const assign=DASSIGN||D.on_clock_team;
   const at=D.teams.find(t=>t.id===assign);
-  const bar=`<div class="dbar">`
+  const arrows=`<span class="clk"><button onclick="nudgeClock(-1)" title="move the clock back one pick">◀</button>`
+    +`<button onclick="nudgeClock(1)" title="move the clock forward one pick">▶</button></span>`;
+  const bar=`<div class="dbar">${arrows}`
     +(done?`<span class="pk">✔ Draft complete — ${D.total_picks} picks</span>`
           :`<span class="pk">Pick ${D.pick} · Round ${D.round}/${Math.ceil(D.total_picks/D.teams.length)}</span>`
            +` · <span class="oc">${oc?oc.name:'— (no slot set)'} on the clock</span>`)
@@ -306,6 +331,9 @@ function renderDraft(){
     +`<select onchange="setAssign(this.value)">${opts}</select>`
     +`<button onclick="undoPick()">↶ Undo</button>`
     +`<button onclick="resetDraft()" style="border-color:#c0433f;color:#e0736f">Reset</button></div>`;
+  const hint=DASSIGN!=null
+    ? `<div class="dhint">✋ <b>Manual add</b> — the next “add →” goes to <b>${at?at.name:'—'}</b> and <b>won’t move the clock</b> (stays on ${oc?oc.name:'—'}). Pick “▶ On the clock” to resume normal drafting.</div>`
+    : '';
   const tabs=`<div class="toolbar" style="margin-bottom:8px">`
     +SLOT_TABS.map(([k,lbl])=>`<span class="tab ${dtab===k?'on':''}" onclick="setDTab('${k}')">${lbl}</span>`).join('')
     +`<input class="search" id="dq" placeholder="search…" value="${dq}" oninput="setDQ(this.value)"></div>`;
@@ -313,7 +341,7 @@ function renderDraft(){
     const n=Object.values(t.roster).reduce((a,x)=>a+x.length,0);
     return `<div class="dmt ${t.id===D.otb_team?'me':''} ${t.id===D.on_clock_team?'oc':''}" onclick="setAssign('${t.id}')"><b>${t.name}</b> <span class="f">${n}/11</span></div>`;
   }).join('')+`</div>`;
-  $('board').innerHTML=bar+ctl+`<div class="dgrid"><div>${tabs}<div class="dlist">${draftList()}</div></div>`
+  $('board').innerHTML=bar+ctl+hint+`<div class="dgrid"><div>${tabs}<div class="dlist">${draftList()}</div></div>`
     +`<div>${at?rosterPanel(at):''}${mini}</div></div>`;
 }
 

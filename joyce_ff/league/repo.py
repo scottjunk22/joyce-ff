@@ -193,12 +193,67 @@ def draft_player(conn, season_id, team_id, kind, ref, slot) -> None:
     conn.commit()
 
 
+# ---- draft clock ---------------------------------------------------------
+# "Who is on the clock" is a cursor into the draft sequence, persisted per
+# season+conference in `settings`. It is deliberately DECOUPLED from roster
+# contents: editing a roster or assigning an out-of-turn pick to a specific
+# team never moves the clock; only an on-the-clock pick (or the manual clock
+# controls) advances it.
+def _cursor_key(season_id, conf_id) -> str:
+    return f"draft_cursor:{season_id}:{conf_id}"
+
+
+def get_draft_cursor(conn, season_id, conf_id):
+    row = conn.execute("SELECT value FROM settings WHERE key=?",
+                       (_cursor_key(season_id, conf_id),)).fetchone()
+    if row is None:
+        return None
+    try:
+        return int(row["value"])
+    except (TypeError, ValueError):
+        return None
+
+
+def set_draft_cursor(conn, season_id, conf_id, pick: int) -> int:
+    pick = max(1, int(pick))
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)",
+                 (_cursor_key(season_id, conf_id), str(pick)))
+    conn.commit()
+    return pick
+
+
+def draft_pick_count(conn, season_id, conf_id) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) c FROM roster_entries re JOIN teams t ON t.id=re.team_id "
+        "WHERE re.season_id=? AND t.conference_id=? AND re.acquired_via='DRAFT'",
+        (season_id, conf_id)).fetchone()["c"]
+
+
 def undo_last_draft(conn, season_id, conf_id) -> str | None:
-    """Remove the most recent DRAFT pick in a conference. Returns the ref removed."""
+    """Take back the most recent on-the-clock pick: remove the newest DRAFT
+    entry AND step the clock back one. (For surgical roster fixes that must not
+    move the clock, use remove_draft_entry instead.) Returns the ref removed."""
     row = conn.execute(
         "SELECT re.id, re.asset_ref FROM roster_entries re JOIN teams t ON t.id=re.team_id "
         "WHERE re.season_id=? AND t.conference_id=? AND re.acquired_via='DRAFT' "
         "ORDER BY re.id DESC LIMIT 1", (season_id, conf_id)).fetchone()
+    if not row:
+        return None
+    conn.execute("DELETE FROM roster_entries WHERE id=?", (row["id"],))
+    cur = get_draft_cursor(conn, season_id, conf_id)
+    if cur is not None and cur > 1:
+        conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)",
+                     (_cursor_key(season_id, conf_id), str(cur - 1)))
+    conn.commit()
+    return row["asset_ref"]
+
+
+def remove_draft_entry(conn, season_id, conf_id, entry_id) -> str | None:
+    """Remove one DRAFT pick by id (a roster edit). Does NOT touch the clock."""
+    row = conn.execute(
+        "SELECT re.id, re.asset_ref FROM roster_entries re JOIN teams t ON t.id=re.team_id "
+        "WHERE re.id=? AND re.season_id=? AND t.conference_id=? AND re.acquired_via='DRAFT'",
+        (entry_id, season_id, conf_id)).fetchone()
     if not row:
         return None
     conn.execute("DELETE FROM roster_entries WHERE id=?", (row["id"],))
@@ -207,11 +262,12 @@ def undo_last_draft(conn, season_id, conf_id) -> str | None:
 
 
 def reset_draft(conn, season_id, conf_id) -> int:
-    """Clear every DRAFT pick in a conference (start a draft fresh). Returns count."""
+    """Clear every DRAFT pick in a conference and reset the clock. Returns count."""
     cur = conn.execute(
         "DELETE FROM roster_entries WHERE id IN (SELECT re.id FROM roster_entries re "
         "JOIN teams t ON t.id=re.team_id WHERE re.season_id=? AND t.conference_id=? "
         "AND re.acquired_via='DRAFT')", (season_id, conf_id))
+    conn.execute("DELETE FROM settings WHERE key=?", (_cursor_key(season_id, conf_id),))
     conn.commit()
     return cur.rowcount
 
