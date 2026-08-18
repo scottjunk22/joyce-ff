@@ -645,14 +645,19 @@ def create_app(db_path: str | None = None) -> Flask:
             return bad
         b = request.get_json(force=True)
         year = int(b.get("year") or 2026)
+        # The practice universe exists to rehearse scoring, so its FF week 1 is
+        # pinned to NFL week 1 — otherwise nothing would score until NFL week 3
+        # and there'd be nothing to watch. The real league keeps its wk3 start.
+        offset = 1 if _is_dark() else 3
         from ..league import setup
         try:
-            sid = setup.create_season(db(), year, b.get("label"))
+            sid = setup.create_season(db(), year, b.get("label"), ff_start_nfl_week=offset)
         except (ValueError, RuntimeError) as e:
             return jsonify(error=str(e)), 400
         row = db().execute("SELECT label FROM seasons WHERE id=?", (sid,)).fetchone()
         teams = db().execute("SELECT COUNT(*) c FROM teams WHERE season_id=?", (sid,)).fetchone()["c"]
-        return jsonify(ok=True, season_id=sid, label=row["label"], teams=teams)
+        return jsonify(ok=True, season_id=sid, label=row["label"], teams=teams,
+                       ff_start_nfl_week=offset)
 
     @app.post("/api/admin/team/<int:team_id>/passcode")
     def admin_set_passcode(team_id):

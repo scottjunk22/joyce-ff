@@ -68,7 +68,8 @@ def prepare_season(conn, season_id: int, year: int) -> None:
 
 
 def create_season(conn, year: int, label: str | None = None,
-                  current_ff_week: int = 1, status: str = "drafting") -> int:
+                  current_ff_week: int = 1, status: str = "drafting",
+                  ff_start_nfl_week: int = 3) -> int:
     """Stand up a brand-new season ready for the draft: 22 generic-named teams
     (Blue 1..11, Red 1..11), the NFL universe for `year`, deterministic
     team_number/draft_slot (1-11 per conference), and the full matchup schedule.
@@ -98,8 +99,11 @@ def create_season(conn, year: int, label: str | None = None,
 
     for code, cname in (("BLUE", "Blue Conference"), ("RED", "Red Conference")):
         conn.execute("INSERT OR IGNORE INTO conferences(code, name) VALUES (?, ?)", (code, cname))
-    conn.execute("INSERT INTO seasons(year, label, current_ff_week, status) VALUES (?,?,?,?)",
-                 (year, label, current_ff_week, status))
+    # ff_start_nfl_week is set BEFORE prepare_season, which derives every team's
+    # bye FF week from it.
+    conn.execute("INSERT INTO seasons(year, label, current_ff_week, status, ff_start_nfl_week) "
+                 "VALUES (?,?,?,?,?)",
+                 (year, label, current_ff_week, status, ff_start_nfl_week))
     sid = conn.execute("SELECT id FROM seasons WHERE year=?", (year,)).fetchone()["id"]
     conf_ids = {r["code"]: r["id"] for r in conn.execute("SELECT id, code FROM conferences")}
     for code in ("BLUE", "RED"):

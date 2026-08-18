@@ -452,7 +452,9 @@ async function newSeason(){ const yr=prompt('Start a new season — enter the st
   if(!yr) return; const label=yr+'-'+String(+yr+1).slice(2);
   if(!confirm(`Create the ${label} season?\n\n• 22 teams (Blue 1–11, Red 1–11), empty rosters\n• Schedule generated from team numbers\n• Becomes the current season on the site (the existing season stays in the dropdown)\n\nYou'll rename teams below, then draft in the OT-Blitz Draft Room.`)) return;
   const j=await apost('/api/admin/new-season',{year:+yr});
-  if(j){ alert(`Created ${j.label} — ${j.teams} teams. The site will reload on the new season.`); location.reload(); } }
+  if(j){ alert(`Created ${j.label} — ${j.teams} teams.`
+    +(j.ff_start_nfl_week===1?`\n\n🧪 Practice season: FF Week 1 = NFL Week 1, so scoring can be rehearsed from the season opener. (The real league starts at NFL Week 3.)`:'')
+    +`\n\nThe site will reload on the new season.`); location.reload(); } }
 async function applyPay(id){ const a=$('pay_'+id).value; if(!a)return; const j=await apost(`/api/team/${id}/payment`,{amount_cents:Math.round(parseFloat(a)*100),note:'commissioner'}); if(j){alert('Payment recorded');await load(VIEW, SEASON);renderCommish();} }
 async function setScore(id){ const v=$('sc_'+id).value; if(v==='')return; const j=await apost(`/api/admin/team/${id}/score`,{week:VIEW,points:parseFloat(v)}); if(j){alert('Score set for Week '+VIEW);await load(VIEW, SEASON);renderCommish();} }
 async function runCurrent(){ const j=await apost('/api/admin/run-current',{}); if(!j)return;
