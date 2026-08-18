@@ -27,11 +27,17 @@ produced by the auth layer.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "league.sqlite"
+# JOYCE_DB_PATH lets the host point at a persistent DB outside the repo. The web
+# app honours it, so the CLI must too — otherwise a scheduled `run-current` on
+# the host would silently score a DIFFERENT database than the one the site
+# serves, and nobody would see the scores appear.
+DEFAULT_DB_PATH = Path(os.environ.get("JOYCE_DB_PATH")
+                       or Path(__file__).resolve().parents[2] / "data" / "league.sqlite")
 
 TRANSACTION_FEE_CENTS = 200
 ROSTER_SLOTS = ("C", "K", "DEF/ST", "QB", "RB", "R")
