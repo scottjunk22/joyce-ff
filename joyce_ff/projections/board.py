@@ -31,14 +31,49 @@ def _num(x):
     return None if math.isnan(f) or math.isinf(f) else round(f, 2)
 
 
-def _player_records(board) -> list[dict]:
+def current_form(season: int) -> tuple[dict, dict, int]:
+    """Per-asset points/game for the season IN PROGRESS — display only, never
+    folded into the projection. Two weeks is far too small a sample to move a
+    three-season average honestly, but it's exactly what shows a changed role,
+    so it earns its own column rather than a thumb on the scale.
+
+    Returns ({player_id: (ppg, games)}, {(unit, team): (ppg, games)}, weeks).
+    Empty when the season hasn't started or nflverse hasn't published it yet —
+    a missing source leaves blank cells, never invented numbers.
+    """
+    players, units, weeks = {}, {}, 0
+    try:
+        sp = history.scored_player_games([season])
+    except Exception:
+        return players, units, weeks           # not published yet
+    if sp is not None and not sp.empty:
+        weeks = int(sp["week"].max())
+        for pid, grp in sp.groupby("player_id"):
+            players[str(pid)] = (float(grp["points"].mean()), int(len(grp)))
+    try:
+        ub = history.scored_team_unit_games([season])
+    except Exception:
+        return players, units, weeks
+    for unit, df in (ub or {}).items():
+        if df is None or df.empty:
+            continue
+        for team, grp in df.groupby("team"):
+            units[(unit, str(team))] = (float(grp["points"].mean()), int(len(grp)))
+    return players, units, weeks
+
+
+def _player_records(board, form=None) -> list[dict]:
+    form = form or {}
     recs = []
     for slot in ("RB", "R"):
         sub = board[board["slot"] == slot].reset_index(drop=True)
         for i, r in sub.iterrows():
+            cur = form.get(str(r["player_id"]))
             recs.append({
                 "rank": int(i) + 1,
                 "id": str(r["player_id"]),
+                "cur_ppg": None if not cur else round(cur[0], 2),
+                "cur_g": None if not cur else cur[1],
                 "slot": slot,
                 "tier": None if _num(r.get("tier")) is None else int(r["tier"]),
                 "name": str(r["name"]),
@@ -57,14 +92,18 @@ def _player_records(board) -> list[dict]:
     return recs
 
 
-def _unit_records(unit_boards) -> dict:
+def _unit_records(unit_boards, form=None) -> dict:
+    form = form or {}
     out = {}
     for unit, df in unit_boards.items():
         rows = []
         for i, r in df.reset_index(drop=True).iterrows():
+            cur = form.get((unit, str(r["team"])))
             rows.append({
                 "rank": int(i) + 1,
                 "team": str(r["team"]),
+                "cur_ppg": None if not cur else round(cur[0], 2),
+                "cur_g": None if not cur else cur[1],
                 "proj": _num(r.get("proj")),
                 "vor": _num(r.get("vor")),
                 "floor": _num(r.get("p25")),
@@ -88,7 +127,7 @@ def _overall_records(player_recs: list[dict], unit_recs: dict,
         rows.append({k: p[k] for k in
                      ("id", "slot", "name", "team", "position", "proj", "vor",
                       "floor", "ceil", "bust", "games25", "low_sample",
-                      "no_history")})
+                      "no_history", "cur_ppg", "cur_g")})
     for unit, lst in unit_recs.items():
         for u in lst:
             if u["vor"] is None:
@@ -98,6 +137,7 @@ def _overall_records(player_recs: list[dict], unit_recs: dict,
                          "proj": u["proj"], "vor": u["vor"],
                          "floor": u["floor"], "ceil": u["ceil"],
                          "bust": u.get("bust"),
+                         "cur_ppg": u.get("cur_ppg"), "cur_g": u.get("cur_g"),
                          "games25": u["games25"], "low_sample": False,
                          "no_history": False})
 
@@ -127,10 +167,18 @@ def build_all(seasons=history.SEASONS_DEFAULT, draft_season=DRAFT_SEASON) -> dic
     for unit, df in uboard.items():
         replacement[unit] = _num(df["repl_level"].iloc[0]) if not df.empty else None
 
+    # Form in the season being drafted (2026 wks 1-2 by draft day). Shown as its
+    # own columns; the projection deliberately stays a 2023-25 measure.
+    pform, uform, cur_weeks = current_form(draft_season)
+    precs = _player_records(pboard, pform)
+    urecs = _unit_records(uboard, uform)
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "seasons": list(seasons),
         "draft_season": draft_season,
+        "current_season": {"year": draft_season, "weeks": cur_weeks,
+                           "available": bool(pform or uform)},
         "league": {
             "teams": rules.NUM_TEAMS,
             "division_teams": rules.DIVISION_TEAMS,
@@ -140,9 +188,9 @@ def build_all(seasons=history.SEASONS_DEFAULT, draft_season=DRAFT_SEASON) -> dic
             "started_r": rules.STARTED_R_DIVISION,
         },
         "replacement": replacement,
-        "players": _player_records(pboard),
-        "units": _unit_records(uboard),
-        "overall": _overall_records(_player_records(pboard), _unit_records(uboard)),
+        "players": precs,
+        "units": urecs,
+        "overall": _overall_records(precs, urecs),
         "draft": {
             "slots": draft_order.SLOTS,
             "rounds": draft_order.ROUNDS,

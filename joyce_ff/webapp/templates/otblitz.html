@@ -101,6 +101,8 @@
  .ntag{min-width:30px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--dim)}
  .ntag.hot{color:var(--warn);font-weight:700}.ntag.cold{color:var(--dim)}
  .nread{border-top:1px solid var(--line);padding:6px 10px;font-size:12px;line-height:1.5}
+ td.cur{color:var(--warn)}
+ th[title^="This season"],th[title^="Games played this"]{color:var(--warn)}
  #chatDock{position:fixed;right:14px;bottom:14px;z-index:50}
  #chatToggle{background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:20px;
    padding:8px 14px;font:inherit;font-size:13px;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.35)}
@@ -186,7 +188,10 @@ const TIP={rank:'Strict rank by the current sort (no ties)',tier:'Value groups b
   slot:'Roster slot / asset type',name:'Asset name; flags mark thin or missing history',team:'NFL team',
   proj:"Projected points per game in this league's threshold scoring",vor:'Value Over Replacement — pts/game above a freely-available player',
   floor:'A typical bad week (25th percentile)',ceil:'A typical good week (75th percentile)',
-  bust:'Share of games that scored a flat zero',games25:'Games played in 2025 (sample size / recency)'};
+  bust:'Share of games that scored a flat zero',games25:'Games played in 2025 (sample size / recency)',
+  cur_ppg:'This season so far: points per game. NOT in the projection — too few games to average honestly, but it shows a changed role',
+  cur_g:'Games played this season so far'};
+const CUR=()=>(BOARD&&BOARD.current_season)||{available:false,year:'',weeks:0};
 
 async function fetchBoard(pc){
   const r=await fetch('/api/otblitz/board?pc='+encodeURIComponent(pc));
@@ -253,6 +258,7 @@ function render(){
       <span>Seasons weighted <b>${W}</b></span>
       <span>Scarcity <b>${L.division_teams}-team division</b> (${L.rostered_rb} RB / ${L.rostered_r} R rostered)</span>
       <span>Replacement: RB <b>${fmt(repl.RB)}</b> · R <b>${fmt(repl.R)}</b></span>
+      ${CUR().available?`<span style="color:var(--warn)">'${String(CUR().year).slice(2)} form (wk 1–${CUR().weeks}) shown separately — <b>not</b> in Proj/VOR</span>`:''}
     </div>`;
   const toolbar=`<div class="toolbar">${SLOT_TABS.map(([k,lbl])=>`<span class="tab ${tab===k?'on':''}" onclick="setTab('${k}')">${lbl}</span>`).join('')}
     <button class="help" onclick="toggleHelp()">❔ ${showHelp?'hide':'how to read'}</button>
@@ -268,27 +274,33 @@ function playerTable(){
   const isOverall=tab==='overall';
   let list=sortRows(rows()); if(q) list=list.filter(r=>r.name.toLowerCase().includes(q.toLowerCase()));
   const mx=maxVor(list), tierGroup=(sortCol==='vor'); let prev=null;
-  const head=`<tr><th title="${TIP.rank}">#</th>${th('tier','Tier')}${isOverall?th('slot','Pos','l'):''}${th('name','Asset','l')}<th class="l">Tm</th>${th('proj','Proj/g')}${th('vor','VOR')}${th('floor','Flr')}${th('ceil','Ceil')}${th('bust','Bust%')}${th('games25','G25')}</tr>`;
+  const C=CUR(), yy=String(C.year).slice(2);
+  const curHead=C.available?`${th('cur_ppg',`'${yy} P/G`)}${th('cur_g',`'${yy} G`)}`:'';
+  const head=`<tr><th title="${TIP.rank}">#</th>${th('tier','Tier')}${isOverall?th('slot','Pos','l'):''}${th('name','Asset','l')}<th class="l">Tm</th>${th('proj','Proj/g')}${th('vor','VOR')}${th('floor','Flr')}${th('ceil','Ceil')}${th('bust','Bust%')}${th('games25','G25')}${curHead}</tr>`;
   const body=list.map((r,i)=>{
     const brk=(tierGroup&&prev!=null&&r.tier!=null&&r.tier!==prev)?' tierbreak':''; prev=r.tier;
     const flags=(r.no_history?'<span class="flag rk">no NFL history</span>':'')+(r.low_sample&&!r.no_history?'<span class="flag lo">small sample</span>':'');
+    const curCells=C.available?`<td class="cur">${fmt(r.cur_ppg)}</td><td class="cur">${r.cur_g??'<span class="sub">—</span>'}</td>`:'';
     return `<tr class="${brk}"><td>${i+1}</td><td><span class="tier">T${r.tier??'—'}</span></td>
       ${isOverall?`<td class="l"><span class="postag ${ptClass(r.slot)}">${r.slot}</span></td>`:''}
       <td class="l"><span class="nm">${r.name}</span>${flags}</td>
       <td class="l">${r.team?`<span class="tm">${r.team}</span>`:'<span class="sub">—</span>'}</td>
       <td>${fmt(r.proj)}</td>${vorCell(r.vor,mx)}<td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td>
-      ${bustCell(r.bust)}<td>${r.games25??0}</td></tr>`;
-  }).join('')||'<tr><td class="l sub" colspan="10" style="padding:14px">no matches</td></tr>';
+      ${bustCell(r.bust)}<td>${r.games25??0}</td>${curCells}</tr>`;
+  }).join('')||'<tr><td class="l sub" colspan="12" style="padding:14px">no matches</td></tr>';
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
 function unitTable(){
   let list=sortRows(rows()); if(q) list=list.filter(r=>r.team.toLowerCase().includes(q.toLowerCase()));
   const mx=maxVor(list);
-  const head=`<tr><th title="${TIP.rank}">#</th>${th('team','Team unit','l')}${th('proj','Proj/g')}${th('vor','VOR')}${th('floor','Flr')}${th('ceil','Ceil')}${th('bust','Bust%')}${th('games25','G25')}</tr>`;
+  const C=CUR(), yy=String(C.year).slice(2);
+  const curHead=C.available?`${th('cur_ppg',`'${yy} P/G`)}${th('cur_g',`'${yy} G`)}`:'';
+  const head=`<tr><th title="${TIP.rank}">#</th>${th('team','Team unit','l')}${th('proj','Proj/g')}${th('vor','VOR')}${th('floor','Flr')}${th('ceil','Ceil')}${th('bust','Bust%')}${th('games25','G25')}${curHead}</tr>`;
   const body=list.map((r,i)=>{
+    const curCells=C.available?`<td class="cur">${fmt(r.cur_ppg)}</td><td class="cur">${r.cur_g??'<span class="sub">—</span>'}</td>`:'';
     return `<tr><td>${i+1}</td><td class="l"><span class="postag ${ptClass(tab)}">${r.team}</span></td>
       <td>${fmt(r.proj)}</td>${vorCell(r.vor,mx)}<td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td>
-      ${bustCell(r.bust)}<td>${r.games25??0}</td></tr>`;}).join('');
+      ${bustCell(r.bust)}<td>${r.games25??0}</td>${curCells}</tr>`;}).join('');
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
 
