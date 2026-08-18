@@ -16,10 +16,14 @@ import os
 import secrets
 from pathlib import Path
 
-from flask import Flask, g, jsonify, render_template, request
+from flask import Flask, g, jsonify, redirect, render_template, request
 
 from ..league import auth, repo, schema, scoring
 from ..league import standings as st
+
+# Everything the app serves is mirrored under this prefix against a separate
+# database — the practice universe. See create_app().
+DARK_PREFIX = "/dark"
 
 
 def create_app(db_path: str | None = None) -> Flask:
@@ -29,6 +33,10 @@ def create_app(db_path: str | None = None) -> Flask:
     app.config["DB_PATH"] = str(db_path or os.environ.get("JOYCE_DB_PATH")
                                 or schema.DEFAULT_DB_PATH)
     app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(16)
+    # The practice ("dark") universe: the same site served under /dark, backed by
+    # a SEPARATE database file. Full isolation is the point — a dry run can be
+    # drafted, scored and wiped without the real league ever seeing it.
+    app.config["DARK_DB_PATH"] = str(Path(app.config["DB_PATH"]).with_name("league_dark.sqlite"))
 
     # Bring an existing DB up to the current schema (e.g. adds roster slot_order
     # on the live host, which was created before that column existed).
@@ -38,16 +46,55 @@ def create_app(db_path: str | None = None) -> Flask:
     finally:
         _mig.close()
 
+    def _is_dark() -> bool:
+        return (request.path or "").startswith(DARK_PREFIX)
+
+    def _ensure_dark_db(path: str) -> None:
+        """Create the practice DB on first use: same schema, same passcodes as
+        the real site (copied, never re-typed), but no seasons or teams — the
+        commissioner's 'Start new season' builds those."""
+        fresh = not Path(path).exists()
+        conn = schema.connect(path)
+        try:
+            schema.init_db(conn)
+            schema.migrate(conn)
+            if fresh:
+                for code, name in (("BLUE", "Blue Conference"), ("RED", "Red Conference")):
+                    conn.execute("INSERT OR IGNORE INTO conferences(code, name) VALUES (?,?)",
+                                 (code, name))
+                src = schema.connect(app.config["DB_PATH"])
+                try:
+                    for r in src.execute("SELECT name, passcode_hash, created_at FROM admins"):
+                        conn.execute("INSERT OR IGNORE INTO admins(name,passcode_hash,created_at) "
+                                     "VALUES (?,?,?)", (r["name"], r["passcode_hash"], r["created_at"]))
+                    for r in src.execute("SELECT key, value FROM settings WHERE key='otblitz_pc'"):
+                        conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
+                                     (r["key"], r["value"]))
+                finally:
+                    src.close()
+                conn.commit()
+        finally:
+            conn.close()
+
     def db():
-        if "db" not in g:
-            g.db = schema.connect(app.config["DB_PATH"])
-        return g.db
+        dark = _is_dark()
+        key = "db_dark" if dark else "db"
+        if key not in g:
+            if dark:
+                if not app.config.get("_dark_ready"):
+                    _ensure_dark_db(app.config["DARK_DB_PATH"])
+                    app.config["_dark_ready"] = True
+                setattr(g, key, schema.connect(app.config["DARK_DB_PATH"]))
+            else:
+                setattr(g, key, schema.connect(app.config["DB_PATH"]))
+        return getattr(g, key)
 
     @app.teardown_appcontext
     def _close(_exc):
-        conn = g.pop("db", None)
-        if conn is not None:
-            conn.close()
+        for key in ("db", "db_dark"):
+            conn = g.pop(key, None)
+            if conn is not None:
+                conn.close()
 
     def season():
         return db().execute(
@@ -58,6 +105,8 @@ def create_app(db_path: str | None = None) -> Flask:
         from ?season=<id>; defaults to the newest season."""
         rows = list(db().execute(
             "SELECT id, year, label, current_ff_week FROM seasons ORDER BY year DESC"))
+        if not rows:
+            return None, []          # fresh league: no season created yet
         want = request.values.get("season")
         if want:
             for r in rows:
@@ -310,6 +359,14 @@ def create_app(db_path: str | None = None) -> Flask:
     def state():
         conn = db()
         s, all_seasons = _season_sel()
+        if s is None:
+            # No season yet — a fresh league (and the practice universe before
+            # its first "Start new season"). Return an empty-but-valid payload
+            # so the page renders its setup state instead of erroring.
+            return jsonify(season=None, standings={"BLUE": [], "RED": []}, scoreboard=[],
+                           fees={}, pool={"alive": [], "eliminated": []},
+                           transactions={"BLUE": [], "RED": []}, lineups=None,
+                           byes=[], payout=None)
         sid = s["id"]
         wk = int(request.args.get("week") or s["current_ff_week"])
         stand = st.compute_standings(conn, sid, wk)
@@ -645,5 +702,28 @@ def create_app(db_path: str | None = None) -> Flask:
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
         return jsonify(ok=True, transaction_id=new_id)
+
+    # ---- practice universe -------------------------------------------------
+    # Mirror every route under /dark. Same view functions, same templates; only
+    # db() differs, keyed off the request path. Registered last so it picks up
+    # everything defined above.
+    for rule in list(app.url_map.iter_rules()):
+        if rule.endpoint == "static" or rule.rule.startswith(DARK_PREFIX):
+            continue
+        app.add_url_rule(DARK_PREFIX + rule.rule,
+                         endpoint="dark__" + rule.endpoint,
+                         view_func=app.view_functions[rule.endpoint],
+                         methods=sorted(rule.methods - {"HEAD", "OPTIONS"}))
+
+    # Convenience aliases so the practice board is reachable by the name Scott
+    # uses for it. Redirects (not handlers) so the /dark prefix still selects
+    # the practice DB.
+    @app.get("/otblitzdark")
+    def otblitz_dark_alias():
+        return redirect(DARK_PREFIX + "/otblitz")
+
+    @app.get("/darkotblitz")
+    def otblitz_dark_alias2():
+        return redirect(DARK_PREFIX + "/otblitz")
 
     return app

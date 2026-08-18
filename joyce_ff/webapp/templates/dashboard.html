@@ -152,6 +152,21 @@
 
 <script>
 let STATE=null, TEAMS={}, VIEW=null, CUR=null, SEASON=null;
+/* Practice universe: served at /dark against a separate database. Rewriting
+   /api/* here (rather than at every call site) keeps the two universes in sync
+   automatically as endpoints are added. */
+const API = location.pathname.startsWith('/dark') ? '/dark' : '';
+if(API){
+  const _f=window.fetch;
+  window.fetch=(u,o)=>_f(typeof u==='string'&&u.startsWith('/api/')?API+u:u,o);
+  addEventListener('DOMContentLoaded',()=>{
+    const b=document.createElement('div');
+    b.textContent='🧪 PRACTICE SITE — separate database, not the real league';
+    b.style.cssText='background:#7c3aed;color:#fff;font-weight:800;font-size:12px;'
+      +'letter-spacing:.4px;text-align:center;padding:5px 10px';
+    document.body.prepend(b);
+  });
+}
 const $=id=>document.getElementById(id);
 const TRI='<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.24 3.96 1.82 18.02A2 2 0 0 0 3.5 21h17a2 2 0 0 0 1.7-2.98L13.66 3.96a2 2 0 0 0-3.42 0z"/></svg>';
 const CHK='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M5 12l5 5L20 7"/></svg>';
@@ -161,12 +176,28 @@ async function load(week, seasonId){
   if(week!=null) p.set('week', week);
   const q=p.toString();
   STATE = await (await fetch('/api/state'+(q?'?'+q:''))).json();
+  if(!STATE.season){ renderNoSeason(); return; }
   SEASON = STATE.season.id; VIEW = STATE.season.week; CUR = STATE.season.current; TEAMS={};
   for(const c of ['BLUE','RED']) STATE.standings[c].forEach(t=>TEAMS[t.team_id]=t);
   buildSeasonPicker(); buildWeekPicker(); renderScores(); renderByes(); renderStandings(); renderElim(); renderTx();
   $('seasonlbl').textContent = STATE.season.label;
   const lu = STATE.season.last_updated;
   $('upd').innerHTML = '— updates as games finish' + (lu ? ' · last updated '+new Date(lu).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '');
+}
+function renderNoSeason(){
+  // Fresh league (and the practice site before its first season). Give the
+  // commissioner the one action that matters instead of an empty page.
+  const main=document.querySelector('.wrap');
+  if(!main) return;
+  main.innerHTML=`<div style="max-width:520px;margin:48px auto;text-align:center;background:var(--panel);
+      border:1px solid var(--line);border-radius:14px;padding:26px">
+    <h2 style="margin:0 0 6px">No season yet</h2>
+    <p class="sub" style="margin:0 0 16px">Create one to set up teams, generate the schedule, and open the draft.</p>
+    <button class="btn commish" onclick="commishModal()">🛠 Commissioner</button>
+    <div class="sub" style="margin-top:12px">Unlock, then choose <b>🆕 Start new season</b>.</div>
+  </div>`;
+  const sl=$('seasonlbl'); if(sl) sl.textContent='—';
+  const up=$('upd'); if(up) up.textContent='';
 }
 function buildSeasonPicker(){
   $('yr').innerHTML = (STATE.season.seasons||[]).map(s=>`<option value="${s.id}" ${s.id===SEASON?'selected':''}>${s.label}</option>`).join('');

@@ -162,6 +162,20 @@
 </div>
 
 <script>
+/* Practice universe — see dashboard.html. /dark/otblitz talks to the practice
+   database; the real board is untouched. */
+const API = location.pathname.startsWith('/dark') ? '/dark' : '';
+if(API){
+  const _f=window.fetch;
+  window.fetch=(u,o)=>_f(typeof u==='string'&&u.startsWith('/api/')?API+u:u,o);
+  addEventListener('DOMContentLoaded',()=>{
+    const b=document.createElement('div');
+    b.textContent='🧪 PRACTICE DRAFT ROOM — separate database, not the real league';
+    b.style.cssText='background:#7c3aed;color:#fff;font-weight:800;font-size:12px;'
+      +'letter-spacing:.4px;text-align:center;padding:5px 10px';
+    document.body.prepend(b);
+  });
+}
 let BOARD=null, tab='overall', q='', sortCol='vor', sortDir=-1, showHelp=false;
 let SECTION='board', DRAFT=null, DCONF='BLUE', DASSIGN=null, dtab='overall', dq='', DORDER=false;
 const $=id=>document.getElementById(id);
