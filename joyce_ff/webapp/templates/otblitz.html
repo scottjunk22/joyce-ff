@@ -101,6 +101,30 @@
  .ntag{min-width:30px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--dim)}
  .ntag.hot{color:var(--warn);font-weight:700}.ntag.cold{color:var(--dim)}
  .nread{border-top:1px solid var(--line);padding:6px 10px;font-size:12px;line-height:1.5}
+ #chatDock{position:fixed;right:14px;bottom:14px;z-index:50}
+ #chatToggle{background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:20px;
+   padding:8px 14px;font:inherit;font-size:13px;cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.35)}
+ #chatToggle:hover{border-color:var(--blue)}
+ #chatBadge{display:none;background:var(--bad);color:#fff;border-radius:9px;font-size:10px;
+   font-weight:800;padding:1px 6px;margin-left:6px}
+ #chatBadge.on{display:inline-block}
+ #chatPanel{width:min(340px,calc(100vw - 28px));height:min(430px,60vh);background:var(--panel);
+   border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;
+   box-shadow:0 6px 26px rgba(0,0,0,.42);overflow:hidden}
+ .chead{display:flex;align-items:center;gap:8px;padding:8px 11px;border-bottom:1px solid var(--line);font-size:13px}
+ .chead .sub{margin-left:auto}
+ .cx{background:transparent;border:0;color:var(--dim);cursor:pointer;font-size:14px;padding:0 2px}
+ #chatLog{flex:1;overflow-y:auto;padding:9px 11px;display:flex;flex-direction:column;gap:7px}
+ .cmsg{max-width:88%;font-size:13px;line-height:1.4}
+ .cmsg .who{font-size:10px;color:var(--dim);margin-bottom:1px}
+ .cmsg .bub{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:5px 9px;
+   word-wrap:break-word;overflow-wrap:anywhere;white-space:pre-wrap}
+ .cmsg.me{align-self:flex-end}
+ .cmsg.me .bub{background:color-mix(in srgb,var(--blue) 22%,var(--panel2));border-color:var(--blue)}
+ .cmsg.me .who{text-align:right}
+ .cin{display:flex;gap:6px;padding:8px;border-top:1px solid var(--line)}
+ .cin input{flex:1;min-width:0}
+ .cin button{background:var(--good);color:#04121d;border:0;border-radius:8px;padding:6px 12px;font:inherit;font-weight:700;cursor:pointer}
 </style></head><body>
 <header>
  <h1>🔒 <span class="lock">OT Blitz</span> <span class="sub">— private</span></h1>
@@ -119,6 +143,22 @@
    <div class="err" id="gerr"></div>
  </div>
  <div id="board" style="display:none"></div>
+</div>
+
+<!-- Private back-channel for Scott + Drew. Lives outside #board so redraws of
+     the board/draft room never wipe an in-progress message. -->
+<div id="chatDock" style="display:none">
+  <button id="chatToggle" onclick="toggleChat()">💬 Chat<span id="chatBadge"></span></button>
+  <div id="chatPanel" style="display:none">
+    <div class="chead"><b>Draft chat</b><span class="sub" id="chatWho"></span>
+      <button class="cx" onclick="toggleChat()">✕</button></div>
+    <div id="chatLog"></div>
+    <div class="cin">
+      <input id="chatMsg" placeholder="message…" maxlength="2000"
+             onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}">
+      <button onclick="sendChat()">Send</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -152,7 +192,7 @@ async function init(){
   if(saved){ const res=await fetchBoard(saved); if(res&&typeof res!=='string'){ BOARD=res; showBoard(); return; } }
   $('gate').style.display='block';
 }
-function showBoard(){ $('gate').style.display='none'; $('board').style.display='block'; paint(); }
+function showBoard(){ $('gate').style.display='none'; $('board').style.display='block'; paint(); startChat(); }
 function updateNav(){ $('navBoard').className=SECTION==='board'?'on':''; $('navDraft').className=SECTION==='draft'?'on':''; }
 function paint(){ updateNav(); if(SECTION==='draft'){ if(!DRAFT){ loadDraft(); return; } renderDraft(); } else render(); }
 function setSection(s){ if(SECTION===s) return; SECTION=s; if(s==='draft'&&!DRAFT){ updateNav(); loadDraft(); } else paint(); }
@@ -436,6 +476,81 @@ function renderDraft(){
   }).join('')+`</div>`;
   $('board').innerHTML=bar+ctl+orderPanel()+hint+`<div class="dgrid"><div>${tabs}<div class="dlist">${draftList()}</div></div>`
     +`<div>${needsPanel()}${at?rosterPanel(at):''}${mini}</div></div>`;
+}
+
+/* ---------- Draft chat (Scott + Drew) ---------- */
+let CHAT={open:false,last:0,unread:0,msgs:[],timer:null,who:localStorage.getItem('otbwho')||''};
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hhmm=iso=>{const d=new Date(iso); return isNaN(d)?'':d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});};
+
+function startChat(){
+  $('chatDock').style.display='block';
+  if(!CHAT.who) CHAT.who=localStorage.getItem('otbwho')||'';
+  $('chatWho').textContent=CHAT.who?('as '+CHAT.who):'';
+  pollChat();
+  if(CHAT.timer) clearInterval(CHAT.timer);
+  CHAT.timer=setInterval(pollChat, 5000);
+}
+function askWho(){
+  let w=(prompt('Who are you? (this labels your messages)', CHAT.who||'Scott')||'').trim().slice(0,24);
+  if(!w) return '';
+  CHAT.who=w; localStorage.setItem('otbwho',w); $('chatWho').textContent='as '+w;
+  return w;
+}
+function toggleChat(){
+  CHAT.open=!CHAT.open;
+  $('chatPanel').style.display=CHAT.open?'flex':'none';
+  $('chatToggle').style.display=CHAT.open?'none':'inline-block';
+  if(CHAT.open){
+    CHAT.unread=0; paintBadge();
+    if(!CHAT.who) askWho();
+    pollChat().then(()=>{ const l=$('chatLog'); if(l) l.scrollTop=l.scrollHeight; });
+    setTimeout(()=>$('chatMsg')&&$('chatMsg').focus(),50);
+  }
+}
+function paintBadge(){
+  const b=$('chatBadge'); if(!b) return;
+  b.textContent=CHAT.unread||''; b.className=CHAT.unread?'on':'';
+}
+async function pollChat(){
+  // Guard against overlapping polls: two in flight would both read the same
+  // `since` and count the same message twice, inflating the unread badge.
+  if(CHAT.busy) return;
+  CHAT.busy=true;
+  try{
+    const r=await fetch(`/api/otblitz/chat?pc=${encodeURIComponent(getPC())}&since=${CHAT.last}`);
+    if(!r.ok) return;
+    const j=await r.json();
+    if(j.messages&&j.messages.length){
+      CHAT.msgs=CHAT.msgs.concat(j.messages).slice(-300);
+      CHAT.last=j.last_id;
+      const fresh=j.messages.filter(m=>m.author!==CHAT.who).length;
+      if(!CHAT.open&&fresh){ CHAT.unread+=fresh; paintBadge(); }
+      drawChat();
+    }
+  }catch(e){/* offline: keep the last view rather than blanking it */}
+  finally{ CHAT.busy=false; }
+}
+function drawChat(){
+  const l=$('chatLog'); if(!l) return;
+  const atBottom=l.scrollHeight-l.scrollTop-l.clientHeight<40;
+  l.innerHTML=CHAT.msgs.map(m=>{
+    const me=m.author===CHAT.who;
+    return `<div class="cmsg ${me?'me':''}"><div class="who">${esc(m.author)} · ${hhmm(m.created_at)}</div>`
+      +`<div class="bub">${esc(m.body)}</div></div>`;
+  }).join('')||'<div class="sub">No messages yet.</div>';
+  if(atBottom) l.scrollTop=l.scrollHeight;
+}
+async function sendChat(){
+  const el=$('chatMsg'); const body=(el.value||'').trim();
+  if(!body) return;
+  const who=CHAT.who||askWho(); if(!who) return;
+  el.value='';
+  try{
+    await draftFetch('/api/otblitz/chat',{author:who,body});
+  }catch(e){ alert('⚠ '+e.message); el.value=body; return; }
+  await pollChat();
+  const l=$('chatLog'); if(l) l.scrollTop=l.scrollHeight;
 }
 
 init();

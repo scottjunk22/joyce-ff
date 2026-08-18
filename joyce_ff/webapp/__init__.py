@@ -197,6 +197,32 @@ def create_app(db_path: str | None = None) -> Flask:
         ref = repo.remove_draft_entry(db(), season()["id"], _conf_id(b.get("conf")), int(b["entry_id"]))
         return jsonify(ok=True, removed=ref)
 
+    @app.get("/api/otblitz/chat")
+    def otblitz_chat_read():
+        if not _platform(request.values.get("pc", "")):
+            return jsonify(error="locked"), 403
+        since = int(request.values.get("since") or 0)
+        rows = db().execute(
+            "SELECT id, author, body, created_at FROM chat_messages WHERE id>? "
+            "ORDER BY id DESC LIMIT 200", (since,)).fetchall()
+        msgs = [dict(r) for r in reversed(rows)]
+        return jsonify(messages=msgs, last_id=(msgs[-1]["id"] if msgs else since))
+
+    @app.post("/api/otblitz/chat")
+    def otblitz_chat_send():
+        if not _platform(_passcode()):
+            return jsonify(error="locked"), 403
+        b = request.get_json(force=True)
+        author = (b.get("author") or "").strip()[:24]
+        body = (b.get("body") or "").strip()[:2000]
+        if not author or not body:
+            return jsonify(error="author and body required"), 400
+        cur = db().execute(
+            "INSERT INTO chat_messages(author, body, created_at) VALUES (?,?,?)",
+            (author, body, repo._now()))
+        db().commit()
+        return jsonify(ok=True, id=cur.lastrowid)
+
     @app.post("/api/otblitz/draft/slots")
     def otblitz_slots():
         if not _platform(_passcode()):

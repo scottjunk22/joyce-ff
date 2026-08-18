@@ -232,6 +232,15 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT
 );
+
+-- ---- private OT-Blitz chat (Scott + Drew, draft-day back-channel) --------
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    author     TEXT NOT NULL,
+    body       TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_chat_id ON chat_messages(id);
 """
 
 
@@ -259,6 +268,13 @@ def migrate(conn: sqlite3.Connection) -> None:
     """Bring an already-created DB up to the current schema. Idempotent and
     safe to call on every startup (adds columns SQLite can't add via
     CREATE TABLE IF NOT EXISTS on a pre-existing table)."""
+    # Tables added after the live DB was created (CREATE TABLE IF NOT EXISTS is
+    # a no-op where they already exist).
+    conn.execute("CREATE TABLE IF NOT EXISTS chat_messages ("
+                 "id INTEGER PRIMARY KEY AUTOINCREMENT, author TEXT NOT NULL, "
+                 "body TEXT NOT NULL, created_at TEXT NOT NULL)")
+    conn.commit()
+
     has_roster = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='roster_entries'").fetchone()
     if has_roster:
