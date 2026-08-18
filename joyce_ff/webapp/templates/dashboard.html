@@ -374,23 +374,29 @@ function renderCommish(){ const L=STATE.lineups;
         : ` <span class="sub">— all in ✓</span>`) + `</div>` : '';
   const bal=c=>c<0?`<span style="color:var(--good)">cr $${(Math.abs(c)/100).toFixed(0)}</span>`:`$${(c/100).toFixed(0)}`;
   const scoreMap={}; (STATE.scoreboard||[]).forEach(g=>{scoreMap[g.home.id]=g.home.points;scoreMap[g.away.id]=g.away.points;});
+  const LK=!!(STATE.season&&STATE.season.setup_locked), dis=LK?' disabled':'';
   const row=t=>{const f=STATE.fees[t.team_id]||{net_cents:0}, sc=scoreMap[t.team_id];
-    return `<tr><td><input id="nm_${t.team_id}" style="width:108px" value="${t.name}"></td><td><input id="tn_${t.team_id}" style="width:34px" value="${t.team_number??''}"></td>
-      <td><input id="ds_${t.team_id}" style="width:34px" value="${t.draft_slot??''}"></td>
+    return `<tr><td><input id="nm_${t.team_id}" style="width:108px" value="${t.name}"${dis}></td><td><input id="tn_${t.team_id}" style="width:34px" value="${t.team_number??''}"${dis}></td>
       <td><input id="pc_${t.team_id}" style="width:70px" placeholder="—"></td>
       <td><button class="chip" onclick="saveTeam(${t.team_id})">save</button></td>
       <td><input id="sc_${t.team_id}" style="width:42px" placeholder="${sc==null?'—':(+sc).toFixed(0)}"><button class="chip" onclick="setScore(${t.team_id})">set</button></td>
       <td>${bal(f.net_cents)}</td>
       <td><input id="pay_${t.team_id}" style="width:36px" placeholder="$"><button class="chip" onclick="applyPay(${t.team_id})">pay</button></td></tr>`;};
   const table=(teams,label,color)=>`<div style="margin:12px 0 4px;font-weight:800;color:${color}">${label}</div>`
-    +`<div style="overflow-x:auto"><table class="feetable"><thead><tr><th>Team</th><th>#</th><th>Slot</th><th>Passcode</th><th></th><th>Score W${VIEW}</th><th>Balance</th><th>Pay</th></tr></thead><tbody>`
+    +`<div style="overflow-x:auto"><table class="feetable"><thead><tr><th>Team</th><th>#</th><th>Passcode</th><th></th><th>Score W${VIEW}</th><th>Balance</th><th>Pay</th></tr></thead><tbody>`
     +teams.map(row).join('')+`</tbody></table></div>`;
   const txs=[...STATE.transactions.BLUE,...STATE.transactions.RED].sort((a,b)=>b.id-a.id);
   const txSection = txs.length ? `<div style="margin:14px 0 4px;font-weight:800">Recent moves <span class="sub">— convert a mis-toggled Trade/Open, or reverse it</span></div>`
     +txs.map(t=>`<div class="frow"><span><span class="wk">W${t.week}</span> ${t.type==='TRADE'?'⇄':'＋'} <b>${t.team}</b> — ${txSwap(t)}</span>
       <span style="display:flex;gap:5px;white-space:nowrap"><button class="chip" onclick="convertTx(${t.id},'${t.type}')">→ ${t.type==='TRADE'?'Open':'Trade'}</button><button class="chip" style="border-color:var(--bad);color:var(--bad)" onclick="reverseTx(${t.id})">reverse</button></span></div>`).join('')
     +`<div class="sub" style="margin-top:6px">To fix the wrong player: reverse the move, then redo it correctly from the team's ⇄＋.</div>` : '';
-  $('commBody').innerHTML=lsum
+  const lockBar=`<div class="lsum" style="border-color:${LK?'var(--good)':'var(--warn)'}">`
+    +(LK?`🔒 <b>Season setup is locked.</b> Team names and numbers are fixed for the season. `
+        +`<button class="chip" onclick="toggleLock(false)">🔓 Unlock…</button>`
+      :`🔓 <b>Season setup is unlocked.</b> Enter every team's name and Team # (the draw that sets their schedule), then lock it. `
+        +`<button class="chip" onclick="toggleLock(true)">🔒 Lock season setup</button>`)
+    +`<div class="sub" style="margin-top:4px">Draft order (slot draw) is set in the Draft Room, not here.</div></div>`;
+  $('commBody').innerHTML=lsum+lockBar
     +table(STATE.standings.BLUE,'BLUE CONFERENCE','var(--blue)')
     +table(STATE.standings.RED,'RED CONFERENCE','var(--red)')
     +txSection;
@@ -399,9 +405,18 @@ async function convertTx(id,type){ if(!confirm(`Convert this ${type} to ${type==
   const j=await apost(`/api/admin/convert/${id}`,{}); if(j){alert('Converted.');await load(VIEW, SEASON);renderCommish();} }
 async function reverseTx(id){ if(!confirm('Reverse (undo) this move? For a trade this restores the roster.'))return;
   const j=await apost(`/api/admin/reverse/${id}`,{}); if(j){alert('Reversed.');await load(VIEW, SEASON);renderCommish();} }
-async function saveTeam(id){ const nm=$('nm_'+id).value,tn=$('tn_'+id).value,ds=$('ds_'+id).value,pc=$('pc_'+id).value;
-  const j=await apost(`/api/admin/team/${id}`,{name:nm||undefined,team_number:tn||undefined,draft_slot:ds||undefined});
-  if(j&&pc) await apost(`/api/admin/team/${id}/passcode`,{new_passcode:pc}); if(j){alert('Saved');await load(VIEW, SEASON);renderCommish();} }
+async function saveTeam(id){ const LK=!!(STATE.season&&STATE.season.setup_locked);
+  const nm=$('nm_'+id).value,tn=$('tn_'+id).value,pc=$('pc_'+id).value;
+  const body=LK?{}:{name:nm||undefined,team_number:tn||undefined};
+  const j=Object.keys(body).length?await apost(`/api/admin/team/${id}`,body):{ok:true};
+  if(j&&pc) await apost(`/api/admin/team/${id}/passcode`,{new_passcode:pc});
+  if(j){alert(LK&&!pc?'Season setup is locked — nothing to save.':'Saved');await load(VIEW, SEASON);renderCommish();} }
+async function toggleLock(lock){
+  if(lock){ if(!confirm('🔒 Lock season setup?\n\nTeam names and Team #s will be fixed for the season. You can unlock later, but it takes a deliberate confirmation.')) return; }
+  else { if(!confirm('🔓 Unlock season setup?\n\n⚠ Team names and Team #s set a team\'s identity and its schedule.\n\nChanging a Team # REGENERATES the entire season schedule — matchups already played would no longer match the printed schedule.\n\nOnly unlock if a name or number was entered wrong.')) return;
+         if(!confirm('Are you sure? This is the second and final confirmation.')) return; }
+  const j=await apost('/api/admin/season/lock',{locked:lock});
+  if(j){ await load(VIEW, SEASON); renderCommish(); } }
 async function newSeason(){ const yr=prompt('Start a new season — enter the starting year (2026 = the 2026-27 season):','2026');
   if(!yr) return; const label=yr+'-'+String(+yr+1).slice(2);
   if(!confirm(`Create the ${label} season?\n\n• 22 teams (Blue 1–11, Red 1–11), empty rosters\n• Schedule generated from team numbers\n• Becomes the current season on the site (the existing season stays in the dropdown)\n\nYou'll rename teams below, then draft in the OT-Blitz Draft Room.`)) return;

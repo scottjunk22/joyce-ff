@@ -193,6 +193,59 @@ def draft_player(conn, season_id, team_id, kind, ref, slot) -> None:
     conn.commit()
 
 
+# ---- season setup lock ---------------------------------------------------
+# Team name + team_number fix a team's identity and its 15-week schedule, so
+# once the commissioner has entered them on draft day they get locked. Unlocking
+# is a deliberate, confirmed step (the UI warns that changing a team_number
+# regenerates the schedule).
+def _lock_key(season_id) -> str:
+    return f"setup_locked:{season_id}"
+
+
+def is_setup_locked(conn, season_id) -> bool:
+    row = conn.execute("SELECT value FROM settings WHERE key=?",
+                       (_lock_key(season_id),)).fetchone()
+    return bool(row) and row["value"] == "1"
+
+
+def set_setup_locked(conn, season_id, locked: bool) -> None:
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)",
+                 (_lock_key(season_id), "1" if locked else "0"))
+    conn.commit()
+
+
+# ---- draft order ---------------------------------------------------------
+
+def set_draft_slots(conn, season_id, conf_id, mapping) -> int:
+    """Assign draft slots to a conference's teams. mapping = {team_id: slot}.
+    Slots are the card draw (1..N, unique within the conference). Applied in two
+    phases because of UNIQUE(season_id, conference_id, draft_slot) — clearing
+    first lets teams swap slots without a transient collision."""
+    rows = conn.execute("SELECT id FROM teams WHERE season_id=? AND conference_id=?",
+                        (season_id, conf_id)).fetchall()
+    valid = {r["id"] for r in rows}
+    n = len(valid)
+    clean = {}
+    for tid, slot in mapping.items():
+        tid = int(tid)
+        if tid not in valid:
+            raise RuleError("that team isn't in this conference")
+        if slot in (None, ""):
+            continue
+        slot = int(slot)
+        if not 1 <= slot <= n:
+            raise RuleError(f"slot {slot} is out of range (1-{n})")
+        clean[tid] = slot
+    if len(set(clean.values())) != len(clean):
+        raise RuleError("two teams can't share the same draft slot")
+    conn.execute("UPDATE teams SET draft_slot=NULL WHERE season_id=? AND conference_id=?",
+                 (season_id, conf_id))
+    for tid, slot in clean.items():
+        conn.execute("UPDATE teams SET draft_slot=? WHERE id=?", (slot, tid))
+    conn.commit()
+    return len(clean)
+
+
 # ---- draft clock ---------------------------------------------------------
 # "Who is on the clock" is a cursor into the draft sequence, persisted per
 # season+conference in `settings`. It is deliberately DECOUPLED from roster

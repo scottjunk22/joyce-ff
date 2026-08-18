@@ -83,6 +83,13 @@
  .rmbtn{border:0;background:transparent;color:#8a97a6;cursor:pointer;font-size:12px;line-height:1;padding:0 2px}
  .rmbtn:hover{color:#e0736f}
  .dhint{background:color-mix(in srgb,var(--blue) 12%,var(--panel));border:1px solid var(--line);border-radius:8px;padding:6px 11px;margin-bottom:10px;font-size:12.5px}
+ .dord{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:10px}
+ .dord h4{margin:0 0 2px;font-size:13px}
+ .dordgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px;margin:9px 0}
+ .dordrow{display:flex;align-items:center;gap:7px;font-size:12.5px}
+ .dordrow .tnm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .dordrow select{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:3px 5px;font:inherit}
+ .dordrow select.unset{border-color:var(--warn);color:var(--warn)}
 </style></head><body>
 <header>
  <h1>🔒 <span class="lock">OT Blitz</span> <span class="sub">— private</span></h1>
@@ -105,7 +112,7 @@
 
 <script>
 let BOARD=null, tab='overall', q='', sortCol='vor', sortDir=-1, showHelp=false;
-let SECTION='board', DRAFT=null, DCONF='BLUE', DASSIGN=null, dtab='overall', dq='';
+let SECTION='board', DRAFT=null, DCONF='BLUE', DASSIGN=null, dtab='overall', dq='', DORDER=false;
 const $=id=>document.getElementById(id);
 const getPC=()=>sessionStorage.getItem('otbpc')||'';
 const SLOT_TABS=[['overall','★ Overall'],['RB','RB'],['R','R (WR/TE)'],['QB','QB units'],['K','Kickers'],['DEF/ST','DEF/ST'],['C','Coaches']];
@@ -234,7 +241,7 @@ async function loadDraft(){
   if(!r.ok){ $('board').innerHTML=`<div class="explain">Could not load draft (${r.status}).</div>`; return; }
   DRAFT=await r.json(); renderDraft();
 }
-function setDConf(c){ if(DCONF===c)return; DCONF=c; DASSIGN=null; DRAFT=null; loadDraft(); }
+function setDConf(c){ if(DCONF===c)return; DCONF=c; DASSIGN=null; DRAFT=null; DORDER=false; loadDraft(); }
 function setAssign(v){ DASSIGN=(v==='clock'||v==null)?null:+v; renderDraft(); }
 function setDTab(k){ dtab=k; renderDraft(); if($('dq'))$('dq').focus(); }
 function setDQ(v){ dq=v; const el=document.querySelector('.dlist'); if(el)el.innerHTML=draftList(); }
@@ -287,6 +294,35 @@ async function removePick(entryId){
   try{ await draftFetch('/api/otblitz/draft/remove',{conf:DCONF,entry_id:entryId}); }
   catch(e){ alert('⚠ '+e.message); return; }
   await loadDraft();
+}
+function orderPanel(){
+  const D=DRAFT, n=D.teams.length;
+  const anyUnset=D.teams.some(t=>t.draft_slot==null);
+  if(!DORDER && !anyUnset) return `<div class="dord"><h4>Draft order <span class="sub">— set</span> `
+    +`<button class="draftbtn" style="border-color:var(--line);color:var(--dim)" onclick="toggleOrder()">edit</button></h4>`
+    +`<div class="sub">${[...D.teams].sort((a,b)=>(a.draft_slot??99)-(b.draft_slot??99)).map(t=>`${t.draft_slot}. ${t.name}`).join(' · ')}</div></div>`;
+  const rows=[...D.teams].sort((a,b)=>(a.draft_slot??99)-(b.draft_slot??99)).map(t=>
+    `<div class="dordrow"><span class="tnm">${t.name}</span>`
+    +`<select class="${t.draft_slot==null?'unset':''}" id="slot_${t.id}">`
+    +`<option value="">—</option>`
+    +Array.from({length:n},(_,i)=>i+1).map(s=>`<option value="${s}" ${t.draft_slot===s?'selected':''}>${s}</option>`).join('')
+    +`</select></div>`).join('');
+  return `<div class="dord"><h4>Draft order — ${DCONF==='BLUE'?'Blue':'Red'} conference</h4>`
+    +`<div class="sub">Enter each manager's slot draw (1–${n}). Team names come from the commissioner tab.</div>`
+    +`<div class="dordgrid">${rows}</div>`
+    +`<button class="draftbtn" onclick="saveOrder()">Save draft order</button> `
+    +`<button class="draftbtn" style="border-color:var(--line);color:var(--dim)" onclick="toggleOrder()">cancel</button></div>`;
+}
+function toggleOrder(){ DORDER=!DORDER; renderDraft(); }
+async function saveOrder(){
+  const slots={};
+  for(const t of DRAFT.teams){ const v=$('slot_'+t.id).value; if(v) slots[t.id]=+v; }
+  const seen=new Set(); for(const v of Object.values(slots)){ if(seen.has(v)){ alert('⚠ Two teams have slot '+v+'. Each slot 1–'+DRAFT.teams.length+' can only be used once.'); return; } seen.add(v); }
+  const picks=DRAFT.pick-1;
+  if(picks>0 && !confirm(`${picks} pick(s) have already been made in this conference.\n\nChanging the draft order now re-derives who is on the clock. Continue?`)) return;
+  try{ await draftFetch('/api/otblitz/draft/slots',{conf:DCONF,slots}); }
+  catch(e){ alert('⚠ '+e.message); return; }
+  DORDER=false; await loadDraft();
 }
 async function nudgeClock(delta){
   if(!DRAFT) return;
@@ -341,7 +377,7 @@ function renderDraft(){
     const n=Object.values(t.roster).reduce((a,x)=>a+x.length,0);
     return `<div class="dmt ${t.id===D.otb_team?'me':''} ${t.id===D.on_clock_team?'oc':''}" onclick="setAssign('${t.id}')"><b>${t.name}</b> <span class="f">${n}/11</span></div>`;
   }).join('')+`</div>`;
-  $('board').innerHTML=bar+ctl+hint+`<div class="dgrid"><div>${tabs}<div class="dlist">${draftList()}</div></div>`
+  $('board').innerHTML=bar+ctl+orderPanel()+hint+`<div class="dgrid"><div>${tabs}<div class="dlist">${draftList()}</div></div>`
     +`<div>${at?rosterPanel(at):''}${mini}</div></div>`;
 }
 

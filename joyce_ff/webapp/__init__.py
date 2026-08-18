@@ -197,6 +197,22 @@ def create_app(db_path: str | None = None) -> Flask:
         ref = repo.remove_draft_entry(db(), season()["id"], _conf_id(b.get("conf")), int(b["entry_id"]))
         return jsonify(ok=True, removed=ref)
 
+    @app.post("/api/otblitz/draft/slots")
+    def otblitz_slots():
+        if not _platform(_passcode()):
+            return jsonify(error="locked"), 403
+        b = request.get_json(force=True)
+        conn, sid, conf_id = db(), season()["id"], _conf_id(b.get("conf"))
+        if conf_id is None:
+            return jsonify(error="unknown conference"), 400
+        try:
+            n = repo.set_draft_slots(conn, sid, conf_id, b.get("slots") or {})
+        except repo.RuleError as e:
+            return jsonify(error=str(e)), 400
+        # Slots define the pick sequence, so a changed draw invalidates the clock.
+        repo.set_draft_cursor(conn, sid, conf_id, repo.draft_pick_count(conn, sid, conf_id) + 1)
+        return jsonify(ok=True, assigned=n)
+
     @app.post("/api/otblitz/draft/clock")
     def otblitz_clock():
         if not _platform(_passcode()):
@@ -361,6 +377,7 @@ def create_app(db_path: str | None = None) -> Flask:
 
         return jsonify(season={"id": sid, "year": s["year"], "label": s["label"], "week": wk,
                                "current": s["current_ff_week"], "weeks": weeks, "last_updated": last,
+                               "setup_locked": repo.is_setup_locked(conn, sid),
                                "seasons": [{"id": r["id"], "year": r["year"], "label": r["label"]}
                                            for r in all_seasons]},
                        standings=stand, scoreboard=board, fees=fees, pool=pool,
@@ -494,6 +511,14 @@ def create_app(db_path: str | None = None) -> Flask:
         if (bad := _commish()):
             return bad
         b = request.get_json(force=True)
+        sid_row = db().execute("SELECT season_id FROM teams WHERE id=?", (team_id,)).fetchone()
+        if not sid_row:
+            return jsonify(error="unknown team"), 404
+        # Name + team_number are season-constant once locked.
+        if repo.is_setup_locked(db(), sid_row["season_id"]) and \
+                any(c in b and b[c] not in (None, "") for c in ("name", "team_number")):
+            return jsonify(error="season setup is locked — unlock it first to change "
+                                 "team names or numbers"), 400
         num_changed = False
         for col in ("name", "team_number", "draft_slot", "manager_names"):
             if col in b and b[col] not in (None, ""):
@@ -513,6 +538,23 @@ def create_app(db_path: str | None = None) -> Flask:
                 st.generate_matchups(db(), sid)
         db().commit()
         return jsonify(ok=True)
+
+    @app.post("/api/admin/season/lock")
+    def admin_season_lock():
+        if (bad := _commish()):
+            return bad
+        b = request.get_json(force=True)
+        locked = bool(b.get("locked"))
+        conn, sid = db(), season()["id"]
+        if locked:
+            missing = conn.execute(
+                "SELECT COUNT(*) c FROM teams WHERE season_id=? AND team_number IS NULL",
+                (sid,)).fetchone()["c"]
+            if missing:
+                return jsonify(error=f"{missing} team(s) still have no Team # — "
+                                     f"fill those in before locking"), 400
+        repo.set_setup_locked(conn, sid, locked)
+        return jsonify(ok=True, locked=locked)
 
     @app.post("/api/admin/new-season")
     def admin_new_season():
