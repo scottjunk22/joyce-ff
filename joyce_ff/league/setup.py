@@ -67,6 +67,33 @@ def prepare_season(conn, season_id: int, year: int) -> None:
     st.generate_matchups(conn, season_id)
 
 
+# Every table that hangs off a season, children first so foreign keys hold.
+SEASON_TABLES = ("roster_entries", "weekly_lineups", "transactions", "payments",
+                 "asset_week_scores", "team_week_scores", "matchups",
+                 "teams", "nfl_teams", "nfl_players")
+
+
+def delete_season(conn, season_id: int) -> dict:
+    """Delete a season and everything under it. Used to redo a botched setup
+    and to wipe a practice run. Irreversible — the caller is responsible for
+    confirming intent."""
+    row = conn.execute("SELECT label FROM seasons WHERE id=?", (season_id,)).fetchone()
+    if not row:
+        raise ValueError("no such season")
+    counts = {}
+    for t in SEASON_TABLES:
+        cur = conn.execute(f"DELETE FROM {t} WHERE season_id=?", (season_id,))
+        if cur.rowcount:
+            counts[t] = cur.rowcount
+    # Season-scoped settings: draft clock, setup lock, finalized weeks, PIN window.
+    conn.execute("DELETE FROM settings WHERE key LIKE ? OR key LIKE ? OR key=? OR key=?",
+                 (f"draft_cursor:{season_id}:%", f"week_final:{season_id}:%",
+                  f"setup_locked:{season_id}", f"pin_setup_open:{season_id}"))
+    conn.execute("DELETE FROM seasons WHERE id=?", (season_id,))
+    conn.commit()
+    return {"label": row["label"], "deleted": counts}
+
+
 def create_season(conn, year: int, label: str | None = None,
                   current_ff_week: int = 1, status: str = "drafting",
                   ff_start_nfl_week: int = 3) -> int:

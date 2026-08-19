@@ -373,8 +373,8 @@ def create_app(db_path: str | None = None) -> Flask:
         # compute_standings returns records only; merge in per-team metadata the
         # UI needs (alive dimming, commissioner # / slot fields).
         meta = {r["id"]: r for r in conn.execute(
-            "SELECT id, alive, eliminated_ff_week, team_number, draft_slot "
-            "FROM teams WHERE season_id=?", (sid,))}
+            "SELECT id, alive, eliminated_ff_week, team_number, draft_slot, manager_names, "
+            "(passcode_hash IS NOT NULL) has_pin FROM teams WHERE season_id=?", (sid,))}
         for cc in ("BLUE", "RED"):
             for t in stand[cc]:
                 m = meta.get(t["team_id"])
@@ -383,6 +383,8 @@ def create_app(db_path: str | None = None) -> Flask:
                     t["eliminated_ff_week"] = m["eliminated_ff_week"]
                     t["team_number"] = m["team_number"]
                     t["draft_slot"] = m["draft_slot"]
+                    t["manager_names"] = m["manager_names"]
+                    t["has_pin"] = bool(m["has_pin"])
         scores, adjusted = {}, set()
         for r in conn.execute("SELECT team_id, computed_points, adjusted FROM team_week_scores "
                               "WHERE season_id=? AND ff_week=?", (sid, wk)):
@@ -461,6 +463,7 @@ def create_app(db_path: str | None = None) -> Flask:
         return jsonify(season={"id": sid, "year": s["year"], "label": s["label"], "week": wk,
                                "current": s["current_ff_week"], "weeks": weeks, "last_updated": last,
                                "setup_locked": repo.is_setup_locked(conn, sid),
+                               "pin_setup_open": auth.pin_setup_open(conn, sid),
                                "seasons": [{"id": r["id"], "year": r["year"], "label": r["label"]}
                                            for r in all_seasons]},
                        standings=stand, scoreboard=board, fees=fees, pool=pool,
@@ -584,6 +587,26 @@ def create_app(db_path: str | None = None) -> Flask:
                             note=b.get("note"), actor="commissioner")
         return jsonify(ok=True, balance=repo.fee_balance_cents(db(), team_id))
 
+    # ---- manager PINs ----
+    @app.post("/api/team/<int:team_id>/claim-pin")
+    def claim_pin(team_id):
+        b = request.get_json(force=True)
+        try:
+            auth.claim_team_pin(db(), season()["id"], team_id, b.get("pin", ""),
+                                b.get("manager_names"))
+        except auth.PinError as e:
+            return jsonify(error=str(e)), 400
+        return jsonify(ok=True)
+
+    @app.post("/api/team/<int:team_id>/change-pin")
+    def change_pin(team_id):
+        b = request.get_json(force=True)
+        try:
+            auth.change_team_pin(db(), team_id, b.get("current_pin", ""), b.get("new_pin", ""))
+        except auth.PinError as e:
+            return jsonify(error=str(e)), 400
+        return jsonify(ok=True)
+
     # ---- commissioner admin (commissioner passcode only) ----
     def _commish():
         return None if auth.is_commissioner(db(), _passcode()) else \
@@ -638,6 +661,34 @@ def create_app(db_path: str | None = None) -> Flask:
                                      f"fill those in before locking"), 400
         repo.set_setup_locked(conn, sid, locked)
         return jsonify(ok=True, locked=locked)
+
+    @app.post("/api/admin/pin-setup")
+    def admin_pin_setup():
+        if (bad := _commish()):
+            return bad
+        is_open = bool(request.get_json(force=True).get("open"))
+        auth.set_pin_setup_open(db(), season()["id"], is_open)
+        return jsonify(ok=True, open=is_open)
+
+    @app.post("/api/admin/season/delete")
+    def admin_delete_season():
+        if (bad := _commish()):
+            return bad
+        b = request.get_json(force=True)
+        conn = db()
+        sid = int(b.get("season_id") or 0)
+        row = conn.execute("SELECT label FROM seasons WHERE id=?", (sid,)).fetchone()
+        if not row:
+            return jsonify(error="no such season"), 404
+        # Typing the label is the guard against a mis-click wiping a season.
+        if (b.get("confirm_label") or "").strip() != row["label"]:
+            return jsonify(error=f'type the season label exactly ("{row["label"]}") to confirm'), 400
+        from ..league import setup
+        try:
+            res = setup.delete_season(conn, sid)
+        except ValueError as e:
+            return jsonify(error=str(e)), 400
+        return jsonify(ok=True, **res)
 
     @app.post("/api/admin/new-season")
     def admin_new_season():

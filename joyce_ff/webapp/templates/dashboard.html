@@ -138,7 +138,7 @@
   <div class="lg blue"><div class="cap">BLUE CONFERENCE</div><div class="tblwrap"><table><thead><tr><th>#</th><th>Team</th><th>W-L-T</th><th>Conf</th><th>PF</th><th>PA</th></tr></thead><tbody id="blue"></tbody></table></div></div>
   <div class="lg red"><div class="cap">RED CONFERENCE</div><div class="tblwrap"><table><thead><tr><th>#</th><th>Team</th><th>W-L-T</th><th>Conf</th><th>PF</th><th>PA</th></tr></thead><tbody id="red"></tbody></table></div></div>
  </div>
- <p class="sub">Click a team for its roster. Buttons: ⚙ lineup · ⇄＋ trade/open (each asks that team's passcode). <span style="color:var(--good);font-weight:700">Green</span> rank = top 8 → playoffs.</p>
+ <p class="sub">Click a team for its roster. Buttons: ⚙ lineup · ⇄＋ trade/open (each asks that team's PIN). <span style="color:var(--good);font-weight:700">Green</span> rank = top 8 → playoffs.</p>
 
  <div class="elim" id="elimBox" style="margin-top:22px"></div>
 
@@ -293,7 +293,57 @@ async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?we
     +(d.payments||[]).map(p=>`<div class="frow"><span>✓ payment${p.note?` <span class="sub">(${p.note})</span>`:''}</span><span class="paid">−${b(p.amount_cents)}</span></div>`).join('')
     +(f.winnings_cents?`<div class="frow"><span>🏆 Week 15 winnings</span><span class="paid">−${b(f.winnings_cents)}</span></div>`:'')
     +`</div>`;
-  openM(`<h3>${d.name} — Roster</h3><div class="sub">${d.managers||''}</div><div style="margin-top:10px">${rows}</div>${openRows?`<div class="sub" style="margin-top:10px">Open this week (1-week rentals)</div>${openRows}`:''}${fees}`);
+  openM(`<h3>${d.name} — Roster</h3><div class="sub">${d.managers||''}</div><div style="margin-top:10px">${rows}</div>${openRows?`<div class="sub" style="margin-top:10px">Open this week (1-week rentals)</div>${openRows}`:''}${fees}${pinBox(id)}`);
+}
+/* Manager PIN. Unclaimed + window open -> set one. Claimed -> change it (needs
+   the current PIN). Forgotten PINs are a commissioner reset, by design: PINs are
+   hashed, so nobody can look one up. */
+function pinBox(id){
+  const t=TEAMS[id]||{}, open=!!(STATE.season&&STATE.season.pin_setup_open);
+  if(!t.has_pin && open) return `<div class="fees" id="pinbox">
+    <div class="fhd"><span>🔑 Set your PIN</span></div>
+    <div class="sub" style="padding:2px 10px 8px">First time — pick a 4-6 digit PIN you'll remember.
+      You'll use it to submit lineups and make moves.</div>
+    <div class="pass"><input id="pinName" placeholder="your name (optional)" style="width:150px">
+      <input type="password" id="pin1" inputmode="numeric" placeholder="PIN" style="width:80px">
+      <input type="password" id="pin2" inputmode="numeric" placeholder="again" style="width:80px">
+      <button class="go" onclick="claimPin(${id})">Set PIN</button></div>
+    <div class="err" id="pinerr"></div></div>`;
+  if(!t.has_pin) return `<div class="fees"><div class="fhd"><span>🔑 No PIN set</span></div>
+    <div class="sub" style="padding:2px 10px 8px">Ask the commissioner to open PIN setup, then set yours here.</div></div>`;
+  return `<div class="fees" id="pinbox"><div class="fhd"><span>🔑 PIN</span>
+      <button class="chip" onclick="showChangePin(${id})">change</button></div>
+    <div id="pinchange"></div></div>`;
+}
+function showChangePin(id){
+  $('pinchange').innerHTML=`<div class="pass"><input type="password" id="pinOld" inputmode="numeric" placeholder="current" style="width:90px">
+    <input type="password" id="pin1" inputmode="numeric" placeholder="new" style="width:80px">
+    <input type="password" id="pin2" inputmode="numeric" placeholder="again" style="width:80px">
+    <button class="go" onclick="changePin(${id})">Save</button></div>
+    <div class="sub" style="padding:0 10px 8px">Forgot it? The commissioner can reset it — it can't be looked up.</div>
+    <div class="err" id="pinerr"></div>`;
+}
+function _pinPair(){
+  const a=$('pin1').value.trim(), b=$('pin2').value.trim();
+  if(a!==b){ $('pinerr').textContent="Those don't match."; return null; }
+  if(!/^\d{4,6}$/.test(a)){ $('pinerr').textContent='PIN must be 4-6 digits.'; return null; }
+  return a;
+}
+async function pinPost(url, body){
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok){ $('pinerr').textContent='⚠ '+(j.error||'error'); return null; }
+  return j;
+}
+async function claimPin(id){
+  const pin=_pinPair(); if(!pin) return;
+  const j=await pinPost(`/api/team/${id}/claim-pin`,{pin, manager_names:$('pinName').value});
+  if(j){ alert('PIN set. Use it to submit lineups and make moves.'); await load(VIEW,SEASON); roster(id); }
+}
+async function changePin(id){
+  const pin=_pinPair(); if(!pin) return;
+  const j=await pinPost(`/api/team/${id}/change-pin`,{current_pin:$('pinOld').value.trim(), new_pin:pin});
+  if(j){ alert('PIN changed.'); roster(id); }
 }
 let LU={team:null,sel:new Set(),items:[]};
 async function lineupModal(id, wk){
@@ -315,7 +365,7 @@ async function lineupModal(id, wk){
     ${banner}
     <div class="sub">Start 9: C, K, DEF/ST, QB, 2 RB, 3 R. Players lock at their kickoff.</div>
     <div id="luRows" style="margin-top:10px"></div><div class="explain" id="luHint"></div>
-    <div class="pass"><span>passcode:</span><input type="password" id="lpc" placeholder="demo"><button class="go" onclick="submitLineup()">Submit lineup</button></div>`);
+    <div class="pass"><span>PIN:</span><input type="password" id="lpc" inputmode="numeric" placeholder="4-6 digits"><button class="go" onclick="submitLineup()">Submit lineup</button></div>`);
   renderLineup();
 }
 function renderLineup(){ const ord={'C':0,'K':1,'DEF/ST':2,'QB':3,'RB':4,'R':5}, unit=s=>['C','K','DEF/ST','QB'].includes(s);
@@ -371,7 +421,7 @@ function renderTxBuild(){ if(TX.step==='review')return renderTxReview();
     <div class="cols"><div><h4>Your roster — move OUT</h4><div class="plist">${rosterList}</div></div>
       <div><h4>${TX.out?'Available '+TX.outPos:'Available'}</h4><input class="searchbox" id="asearch" placeholder="search…" ${TX.out?'':'disabled'} oninput="txFilter(this.value)" value="${TX.filter||''}"><div class="plist" id="avail">${availHtml()}</div></div></div>
     ${hint}
-    <div class="pass"><span>passcode:</span><input type="password" id="txpc" placeholder="demo" value="${TX.pc||''}"><button class="go" onclick="txReview()">Review →</button></div>`;
+    <div class="pass"><span>PIN:</span><input type="password" id="txpc" inputmode="numeric" placeholder="4-6 digits" value="${TX.pc||''}"><button class="go" onclick="txReview()">Review →</button></div>`;
 }
 function txReview(){ if(!TX.out||!TX.in){alert('Pick a player to move out and one to bring in.');return;}
   TX.pc=$('txpc').value; TX.step='review'; renderTxReview(); }
@@ -395,10 +445,11 @@ async function submitTx(){
 let COMMISH_PC='';
 function commishModal(){ openM(`<h3>🛠 Commissioner <span class="sub">Steve &amp; Scott</span></h3>
    <div class="pass"><span>passcode:</span><input type="password" id="cpc" placeholder="commish" value="${COMMISH_PC}"><button class="btn" onclick="commishUnlock()">Unlock</button><button class="btn" onclick="runCurrent()">▶ Score current week(s)</button><button class="btn" onclick="newSeason()">🆕 Start new season</button></div>
-   <div id="commBody"><div class="sub">Unlock to edit team #/slot/passcode, override a week's score, and record payments. Score/balance shown are for the week selected up top (${VIEW!=null?'Week '+VIEW:'current'}).</div></div>`); }
+   <div id="commBody"><div class="sub">Unlock to edit team names/#s, manage PINs, override a week's score, and record payments. Score/balance shown are for the week selected up top (${VIEW!=null?'Week '+VIEW:'current'}).</div></div>`); }
 function commishUnlock(){ COMMISH_PC=$('cpc').value; renderCommish(); }
 async function apost(url,body){ body.passcode=COMMISH_PC; const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const j=await r.json(); if(!r.ok){alert('⚠ '+(j.error||'error'));return null;} return j; }
-function renderCommish(){ const L=STATE.lineups;
+function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothing to draw
+  const L=STATE.lineups;
   const lsum = L ? `<div class="lsum"><b>Lineups · Week ${L.week}:</b> <span style="color:var(--good)">${L.in}</span>/${L.total} in`
     + (L.not_in.length ? ` · <span style="color:var(--bad)">${L.not_in.length}</span> not in`
         + `<div class="nchips">${L.not_in.map(t=>`<span class="nchip">${TRI} ${t.name}</span>`).join('')}</div>`
@@ -421,16 +472,31 @@ function renderCommish(){ const L=STATE.lineups;
     +txs.map(t=>`<div class="frow"><span><span class="wk">W${t.week}</span> ${t.type==='TRADE'?'⇄':'＋'} <b>${t.team}</b> — ${txSwap(t)}</span>
       <span style="display:flex;gap:5px;white-space:nowrap"><button class="chip" onclick="convertTx(${t.id},'${t.type}')">→ ${t.type==='TRADE'?'Open':'Trade'}</button><button class="chip" style="border-color:var(--bad);color:var(--bad)" onclick="reverseTx(${t.id})">reverse</button></span></div>`).join('')
     +`<div class="sub" style="margin-top:6px">To fix the wrong player: reverse the move, then redo it correctly from the team's ⇄＋.</div>` : '';
+  const allT=[...STATE.standings.BLUE,...STATE.standings.RED];
+  const noPin=allT.filter(t=>!t.has_pin), PO=!!(STATE.season&&STATE.season.pin_setup_open);
+  const pinBar=`<div class="lsum" style="border-color:${PO?'var(--warn)':'var(--line)'}">`
+    +`<b>🔑 Manager PINs:</b> <span style="color:var(--good)">${allT.length-noPin.length}</span>/${allT.length} set`
+    +(noPin.length?`<div class="nchips">${noPin.map(t=>`<span class="nchip">${TRI} ${t.name}</span>`).join('')}</div>`:' <span class="sub">— everyone\'s in ✓</span>')
+    +`<div style="margin-top:6px">`
+    +(PO?`<b style="color:var(--warn)">Setup is OPEN</b> — managers can set their own PIN now. `
+        +`<button class="chip" onclick="pinSetup(false)">Close setup</button>`
+      :`Setup is closed. `
+        +`<button class="chip" onclick="pinSetup(true)">Open setup</button>`)
+    +`</div><div class="sub" style="margin-top:4px">Open it on draft day so each manager sets their own 4-6 digit PIN, then close it. `
+    +`PINs are hashed — you can reset one below, but nobody can look one up.</div></div>`;
   const lockBar=`<div class="lsum" style="border-color:${LK?'var(--good)':'var(--warn)'}">`
     +(LK?`🔒 <b>Season setup is locked.</b> Team names and numbers are fixed for the season. `
         +`<button class="chip" onclick="toggleLock(false)">🔓 Unlock…</button>`
       :`🔓 <b>Season setup is unlocked.</b> Enter every team's name and Team # (the draw that sets their schedule), then lock it. `
         +`<button class="chip" onclick="toggleLock(true)">🔒 Lock season setup</button>`)
     +`<div class="sub" style="margin-top:4px">Draft order (slot draw) is set in the Draft Room, not here.</div></div>`;
-  $('commBody').innerHTML=lsum+lockBar
+  const dangerBar=`<div class="lsum" style="border-color:var(--bad);margin-top:12px">`
+    +`<b style="color:var(--bad)">Delete season</b> <span class="sub">— removes ${STATE.season?STATE.season.label:''} and everything in it: teams, rosters, lineups, scores, transactions. Cannot be undone.</span>`
+    +`<div style="margin-top:6px"><button class="chip" style="border-color:var(--bad);color:var(--bad)" onclick="deleteSeason()">Delete this season…</button></div></div>`;
+  $('commBody').innerHTML=lsum+pinBar+lockBar
     +table(STATE.standings.BLUE,'BLUE CONFERENCE','var(--blue)')
     +table(STATE.standings.RED,'RED CONFERENCE','var(--red)')
-    +txSection;
+    +txSection+dangerBar;
 }
 async function convertTx(id,type){ if(!confirm(`Convert this ${type} to ${type==='TRADE'?'an Open (1-week rental)':'a permanent Trade'}?`))return;
   const j=await apost(`/api/admin/convert/${id}`,{}); if(j){alert('Converted.');await load(VIEW, SEASON);renderCommish();} }
@@ -457,6 +523,17 @@ async function newSeason(){ const yr=prompt('Start a new season — enter the st
     +`\n\nThe site will reload on the new season.`); location.reload(); } }
 async function applyPay(id){ const a=$('pay_'+id).value; if(!a)return; const j=await apost(`/api/team/${id}/payment`,{amount_cents:Math.round(parseFloat(a)*100),note:'commissioner'}); if(j){alert('Payment recorded');await load(VIEW, SEASON);renderCommish();} }
 async function setScore(id){ const v=$('sc_'+id).value; if(v==='')return; const j=await apost(`/api/admin/team/${id}/score`,{week:VIEW,points:parseFloat(v)}); if(j){alert('Score set for Week '+VIEW);await load(VIEW, SEASON);renderCommish();} }
+async function pinSetup(open){
+  if(open && !confirm('Open PIN setup?\n\nWhile it is open, any team WITHOUT a PIN can have one set by whoever is on the site. Do this with your managers present, then close it.')) return;
+  const j=await apost('/api/admin/pin-setup',{open});
+  if(j){ await load(VIEW, SEASON); renderCommish(); } }
+async function deleteSeason(){
+  const lbl=STATE.season?STATE.season.label:'';
+  if(!confirm(`Delete the ${lbl} season?\n\nThis removes ALL of it — teams, rosters, lineups, scores, transactions, payments — permanently.`)) return;
+  const typed=prompt(`This cannot be undone.\n\nType the season label exactly to confirm:\n${lbl}`,'');
+  if(typed===null) return;
+  const j=await apost('/api/admin/season/delete',{season_id:SEASON, confirm_label:typed});
+  if(j){ alert(`Deleted ${j.label}.`); location.reload(); } }
 async function runCurrent(){ const j=await apost('/api/admin/run-current',{}); if(!j)return;
   const p=[]; if(j.scored_weeks&&j.scored_weeks.length)p.push('finalized: '+j.scored_weeks.join(', '));
   if(j.live_weeks&&j.live_weeks.length)p.push('live (still playing): '+j.live_weeks.join(', '));
