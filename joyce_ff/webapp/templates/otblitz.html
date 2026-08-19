@@ -315,7 +315,15 @@ async function draftFetch(path,body){
 }
 async function loadDraft(){
   const r=await fetch(`/api/otblitz/draft?pc=${encodeURIComponent(getPC())}&conf=${DCONF}`);
-  if(!r.ok){ $('board').innerHTML=`<div class="explain">Could not load draft (${r.status}).</div>`; return; }
+  if(!r.ok){
+    const j=await r.json().catch(()=>({}));
+    const site=API?'/dark/':'/';
+    $('board').innerHTML=`<div class="explain"><h3>Draft room not ready</h3>`
+      +`<div class="lead">${j.error||('Could not load draft ('+r.status+').')}</div>`
+      +(r.status===400?`<div class="sub" style="margin-top:8px">Open <a href="${site}" style="color:var(--blue)">the league site</a> → 🛠 Commissioner → 🆕 Start new season, then come back.</div>`:'')
+      +`</div>`;
+    return;
+  }
   DRAFT=await r.json(); renderDraft();
 }
 function setDConf(c){ if(DCONF===c)return; DCONF=c; DASSIGN=null; DRAFT=null; DORDER=false; loadDraft(); }

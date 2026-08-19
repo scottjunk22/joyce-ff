@@ -100,6 +100,17 @@ def create_app(db_path: str | None = None) -> Flask:
         return db().execute(
             "SELECT id, label, current_ff_week FROM seasons ORDER BY year DESC LIMIT 1").fetchone()
 
+    def _need_season():
+        """(season, None) or (None, error-response) when the league has no season
+        yet — a fresh install, and the practice universe before its first
+        'Start new season'. Endpoints that read season data must say so plainly
+        rather than blowing up on a missing row."""
+        s = season()
+        if s is None:
+            return None, (jsonify(error="No season yet — create one on the league "
+                                        "site (Commissioner → Start new season)."), 400)
+        return s, None
+
     def _season_sel():
         """(selected season row, all season rows newest-first). Selection comes
         from ?season=<id>; defaults to the newest season."""
@@ -160,7 +171,10 @@ def create_app(db_path: str | None = None) -> Flask:
     def otblitz_draft():
         if not _platform(request.values.get("pc", "")):
             return jsonify(error="locked"), 403
-        conn, s = db(), season()
+        s, err = _need_season()
+        if err:
+            return err
+        conn = db()
         sid = s["id"]
         code = (request.args.get("conf") or "BLUE").upper()
         conf = conn.execute("SELECT id FROM conferences WHERE code=?", (code,)).fetchone()
@@ -215,7 +229,10 @@ def create_app(db_path: str | None = None) -> Flask:
         if not _platform(_passcode()):
             return jsonify(error="locked"), 403
         b = request.get_json(force=True)
-        conn, sid, team_id = db(), season()["id"], int(b["team_id"])
+        s, err = _need_season()
+        if err:
+            return err
+        conn, sid, team_id = db(), s["id"], int(b["team_id"])
         conf_id = repo._team_conf(conn, team_id)
         # Capture the clock BEFORE inserting so advance = old clock + 1.
         prev = repo.get_draft_cursor(conn, sid, conf_id)
@@ -235,7 +252,10 @@ def create_app(db_path: str | None = None) -> Flask:
     def otblitz_undo():
         if not _platform(_passcode()):
             return jsonify(error="locked"), 403
-        ref = repo.undo_last_draft(db(), season()["id"], _conf_id(request.get_json(force=True).get("conf")))
+        s, err = _need_season()
+        if err:
+            return err
+        ref = repo.undo_last_draft(db(), s["id"], _conf_id(request.get_json(force=True).get("conf")))
         return jsonify(ok=True, undone=ref)
 
     @app.post("/api/otblitz/draft/remove")
@@ -243,7 +263,10 @@ def create_app(db_path: str | None = None) -> Flask:
         if not _platform(_passcode()):
             return jsonify(error="locked"), 403
         b = request.get_json(force=True)
-        ref = repo.remove_draft_entry(db(), season()["id"], _conf_id(b.get("conf")), int(b["entry_id"]))
+        s, err = _need_season()
+        if err:
+            return err
+        ref = repo.remove_draft_entry(db(), s["id"], _conf_id(b.get("conf")), int(b["entry_id"]))
         return jsonify(ok=True, removed=ref)
 
     @app.get("/api/otblitz/chat")
@@ -277,7 +300,10 @@ def create_app(db_path: str | None = None) -> Flask:
         if not _platform(_passcode()):
             return jsonify(error="locked"), 403
         b = request.get_json(force=True)
-        conn, sid, conf_id = db(), season()["id"], _conf_id(b.get("conf"))
+        s, err = _need_season()
+        if err:
+            return err
+        conn, sid, conf_id = db(), s["id"], _conf_id(b.get("conf"))
         if conf_id is None:
             return jsonify(error="unknown conference"), 400
         try:
@@ -293,14 +319,20 @@ def create_app(db_path: str | None = None) -> Flask:
         if not _platform(_passcode()):
             return jsonify(error="locked"), 403
         b = request.get_json(force=True)
-        pick = repo.set_draft_cursor(db(), season()["id"], _conf_id(b.get("conf")), int(b["pick"]))
+        s, err = _need_season()
+        if err:
+            return err
+        pick = repo.set_draft_cursor(db(), s["id"], _conf_id(b.get("conf")), int(b["pick"]))
         return jsonify(ok=True, pick=pick)
 
     @app.post("/api/otblitz/draft/reset")
     def otblitz_reset():
         if not _platform(_passcode()):
             return jsonify(error="locked"), 403
-        n = repo.reset_draft(db(), season()["id"], _conf_id(request.get_json(force=True).get("conf")))
+        s, err = _need_season()
+        if err:
+            return err
+        n = repo.reset_draft(db(), s["id"], _conf_id(request.get_json(force=True).get("conf")))
         return jsonify(ok=True, cleared=n)
 
     def _dname(conn, sid, kind, ref, unit=None):
@@ -592,7 +624,7 @@ def create_app(db_path: str | None = None) -> Flask:
     def claim_pin(team_id):
         b = request.get_json(force=True)
         try:
-            auth.claim_team_pin(db(), season()["id"], team_id, b.get("pin", ""),
+            auth.claim_team_pin(db(), (season() or {"id": 0})["id"], team_id, b.get("pin", ""),
                                 b.get("manager_names"))
         except auth.PinError as e:
             return jsonify(error=str(e)), 400
@@ -667,7 +699,10 @@ def create_app(db_path: str | None = None) -> Flask:
         if (bad := _commish()):
             return bad
         is_open = bool(request.get_json(force=True).get("open"))
-        auth.set_pin_setup_open(db(), season()["id"], is_open)
+        s, err = _need_season()
+        if err:
+            return err
+        auth.set_pin_setup_open(db(), s["id"], is_open)
         return jsonify(ok=True, open=is_open)
 
     @app.post("/api/admin/season/delete")
@@ -739,7 +774,10 @@ def create_app(db_path: str | None = None) -> Flask:
         if (bad := _commish()):
             return bad
         from ..league.runner import run_current
-        r = run_current(db(), season()["id"])
+        s, err = _need_season()
+        if err:
+            return err
+        r = run_current(db(), s["id"])
         return jsonify(ok=True, scored_weeks=r["scored"], live_weeks=r["live"])
 
     @app.post("/api/admin/reverse/<int:tx_id>")
