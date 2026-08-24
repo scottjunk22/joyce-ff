@@ -186,7 +186,7 @@ const SLOT_TABS=[['overall','★ Overall'],['RB','RB'],['R','R (WR/TE)'],['QB','
 const UNIT_TABS=new Set(['QB','K','DEF/ST','C']);
 const TIP={rank:'Strict rank by the current sort (no ties)',tier:'Value groups between cliffs — same tier ≈ interchangeable',
   slot:'Roster slot / asset type',name:'Asset name; flags mark thin or missing history',team:'NFL team',
-  proj:"Projected points per game in this league's threshold scoring",vor:'Value Over Replacement — pts/game above a freely-available player',
+  proj:"Projected points per game in this league's threshold scoring",vor:'Value Over Replacement — pts/game above the best player still available for free at this slot (34th RB / 45th receiver / 12th team unit)',
   floor:'A typical bad week (25th percentile)',ceil:'A typical good week (75th percentile)',
   bust:'Share of games that scored a flat zero',games25:'Games played in 2025 (sample size / recency)',
   cur_ppg:'This season so far: points per game. NOT in the projection — too few games to average honestly, but it shows a changed role',
@@ -243,8 +243,8 @@ function explainer(){
     <div class="lead">All numbers are <b>per game</b>, in this league's threshold scoring — a 74-yard, no-TD game counts as 0. Hover any column header for the short version.</div>
     <dl>
      <dt>Tier</dt><dd>Value groups between cliffs. Same tier ≈ interchangeable; a tier drop is a real drop-off worth drafting ahead of.</dd>
-     <dt>Proj/g</dt><dd>Every real game (2023–25, recent seasons weighted heavier) scored with the engine and averaged — threshold-aware, so weak games count as 0. Shrunk toward replacement when the sample is thin.</dd>
-     <dt>VOR</dt><dd>Value over replacement — pts/game above a freely-available player at the same slot (≈ the 33rd RB / 44th receiver in your 11-team division; the 12th team for units). The real draft currency — it compares an RB vs a kicker vs a QB room on one scale.</dd>
+     <dt>Proj/g</dt><dd>Every real game 2023–25 scored with the engine, then averaged — threshold-aware, so weak games count as 0. Each <b>game</b> carries its season's weight (2025×1.0, 2024×0.6, 2023×0.35), not each season, so a 4-game injury year counts as 4 games of evidence and not as a third of the résumé. Then shrunk toward replacement when the sample is thin, so two hot games can't rank like a season.</dd>
+     <dt>VOR</dt><dd>Value over replacement — pts/game above the best player you could still get for free at the same slot. Your 11-team division drafts 33 RBs and 44 receivers, so replacement is the <b>34th RB</b> / <b>45th receiver</b> — the first one still on the board — and the <b>12th</b> team for units (11 of ~32 get owned). The real draft currency: it compares an RB vs a kicker vs a QB room on one scale.</dd>
      <dt>Floor / Ceil</dt><dd>A typical bad week (25th pct) and good week (75th pct). Their width shows consistency — tight = steady, wide = boom-bust.</dd>
      <dt>Bust%</dt><dd>Share of games that scored a flat 0. Under threshold scoring, zeros are common — a high bust% is a real cost even if the average looks fine.</dd>
      <dt>G25</dt><dd>Games played in 2025 — sample size / recency. G25=17 is a full season; a big projection on G25=2 is thin (shrunk and flagged, never chased).</dd>
