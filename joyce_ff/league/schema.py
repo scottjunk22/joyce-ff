@@ -275,6 +275,18 @@ def migrate(conn: sqlite3.Connection) -> None:
                  "body TEXT NOT NULL, created_at TEXT NOT NULL)")
     conn.commit()
 
+    # nflverse's 2026 roster spells Arizona "AZ" while its schedule says "ARI",
+    # so a season loaded before that was normalised has players whose team never
+    # matches nfl_teams — silently no bye week, hence no BYE tag, no Open, and a
+    # miscounted bye-flex. Realign any rows already stored.
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='nfl_players'").fetchone():
+        conn.execute("UPDATE nfl_players SET nfl_team_abbr='ARI' WHERE nfl_team_abbr='AZ'")
+        conn.execute("UPDATE nfl_teams SET abbr='ARI' WHERE abbr='AZ' AND NOT EXISTS "
+                     "(SELECT 1 FROM nfl_teams t2 WHERE t2.season_id=nfl_teams.season_id "
+                     "AND t2.abbr='ARI')")
+        conn.commit()
+
     has_roster = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='roster_entries'").fetchone()
     if has_roster:

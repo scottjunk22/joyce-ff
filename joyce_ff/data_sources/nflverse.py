@@ -102,13 +102,30 @@ def load_games() -> pd.DataFrame:
     return pd.read_csv(dest)
 
 
+# nflverse is not internally consistent about team abbreviations: the 2026
+# roster release calls Arizona "AZ" while every schedule and play-by-play file
+# calls it "ARI" (2024 and 2025 rosters said ARI too). Left alone, Arizona
+# players silently fail every join against the schedule — no strength of
+# schedule, and worse, no bye week, which would quietly disable BYE tags, Open
+# transactions and the bye-flex lineup rule for that whole roster. Normalise
+# rosters onto the schedule's spelling, which is what byes and matchups use.
+TEAM_ALIASES = {"AZ": "ARI"}
+
+
+def normalize_team(abbr):
+    return TEAM_ALIASES.get(abbr, abbr)
+
+
 def load_roster(season: int) -> pd.DataFrame:
     """Season roster: gsis_id (joins to PBP player ids), position, team, name,
     status. Used to define the draftable pool and classify RB vs R (WR/TE)."""
     dest = CACHE_DIR / f"roster_{season}.parquet"
     _download(ROSTER_URL.format(season=season), dest,
               max_age=LIVE_MAX_AGE if _is_live(season) else None)
-    return pd.read_parquet(dest)
+    df = pd.read_parquet(dest)
+    if "team" in df.columns:
+        df["team"] = df["team"].map(normalize_team)
+    return df
 
 
 # ---------------------------------------------------------------------------
