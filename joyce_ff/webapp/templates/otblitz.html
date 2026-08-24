@@ -102,6 +102,8 @@
  .ntag.hot{color:var(--warn);font-weight:700}.ntag.cold{color:var(--dim)}
  .nread{border-top:1px solid var(--line);padding:6px 10px;font-size:12px;line-height:1.5}
  td.cur{color:var(--warn)}
+ td.sos-easy{color:var(--good);font-weight:700}
+ td.sos-hard{color:var(--bad);font-weight:700}
  th[title^="This season"],th[title^="Games played this"]{color:var(--warn)}
  #chatDock{position:fixed;right:14px;bottom:14px;z-index:50}
  #chatToggle{background:var(--panel);border:1px solid var(--line);color:var(--text);border-radius:20px;
@@ -190,8 +192,17 @@ const TIP={rank:'Strict rank by the current sort (no ties)',tier:'Value groups b
   floor:'A typical bad week (25th percentile)',ceil:'A typical good week (75th percentile)',
   bust:'Share of games that scored a flat zero',games25:'Games played in 2025 (sample size / recency)',
   cur_ppg:'This season so far: points per game. NOT in the projection — too few games to average honestly, but it shows a changed role',
-  cur_g:'Games played this season so far'};
+  cur_g:'Games played this season so far',
+  sos:'Strength of schedule over our FF weeks, in OUR scoring. + = opponents are generous to this slot (easier), − = tougher. A tiebreaker between close players, not a ranking'};
 const CUR=()=>(BOARD&&BOARD.current_season)||{available:false,year:'',weeks:0};
+const SOS=()=>(BOARD&&BOARD.sos)||{available:false};
+/* SoS: 1.00 = average schedule. Above 1 = opponents give up more to this slot
+   (easier); below 1 = tougher. Rendered as a +/- percentage. */
+function sosCell(v){
+  if(v==null) return '<td><span class="sub">—</span></td>';
+  const pct=(v-1)*100, cls=pct>=3?'sos-easy':pct<=-3?'sos-hard':'';
+  return `<td class="${cls}">${pct>0?'+':''}${pct.toFixed(0)}%</td>`;
+}
 
 async function fetchBoard(pc){
   const r=await fetch('/api/otblitz/board?pc='+encodeURIComponent(pc));
@@ -245,6 +256,7 @@ function explainer(){
      <dt>Tier</dt><dd>Value groups between cliffs. Same tier ≈ interchangeable; a tier drop is a real drop-off worth drafting ahead of.</dd>
      <dt>Proj/g</dt><dd>Every real game 2023–25 scored with the engine, then averaged — threshold-aware, so weak games count as 0. Each <b>game</b> carries its season's weight (2025×1.0, 2024×0.6, 2023×0.35), not each season, so a 4-game injury year counts as 4 games of evidence and not as a third of the résumé. Then shrunk toward replacement when the sample is thin, so two hot games can't rank like a season.</dd>
      <dt>VOR</dt><dd>Value over replacement — pts/game above the best player you could still get for free at the same slot. Your 11-team division drafts 33 RBs and 44 receivers, so replacement is the <b>34th RB</b> / <b>45th receiver</b> — the first one still on the board — and the <b>12th</b> team for units (11 of ~32 get owned). The real draft currency: it compares an RB vs a kicker vs a QB room on one scale.</dd>
+     <dt>SoS</dt><dd>Strength of schedule across <b>our</b> FF weeks only (NFL 3–17), rated in <b>our</b> scoring — how many points each upcoming defence actually surrenders to this slot, not yards or PPR. <b>+</b> = easier, <b>−</b> = tougher. Averaged over 15 opponents it's a narrow signal (roughly ±7%), so treat it as a tiebreaker between two players you already rate closely — never as a reason to move someone up a tier. Pre-season it leans on last season's defences, which change; it sharpens once this season has games.</dd>
      <dt>Floor / Ceil</dt><dd>A typical bad week (25th pct) and good week (75th pct). Their width shows consistency — tight = steady, wide = boom-bust.</dd>
      <dt>Bust%</dt><dd>Share of games that scored a flat 0. Under threshold scoring, zeros are common — a high bust% is a real cost even if the average looks fine.</dd>
      <dt>G25</dt><dd>Games played in 2025 — sample size / recency. G25=17 is a full season; a big projection on G25=2 is thin (shrunk and flagged, never chased).</dd>
@@ -276,7 +288,8 @@ function playerTable(){
   const mx=maxVor(list), tierGroup=(sortCol==='vor'); let prev=null;
   const C=CUR(), yy=String(C.year).slice(2);
   const curHead=C.available?`${th('cur_ppg',`'${yy} P/G`)}${th('cur_g',`'${yy} G`)}`:'';
-  const head=`<tr><th title="${TIP.rank}">#</th>${th('tier','Tier')}${isOverall?th('slot','Pos','l'):''}${th('name','Asset','l')}<th class="l">Tm</th>${th('proj','Proj/g')}${th('vor','VOR')}${th('floor','Flr')}${th('ceil','Ceil')}${th('bust','Bust%')}${th('games25','G25')}${curHead}</tr>`;
+  const sosHead=SOS().available?th('sos','SoS'):'';
+  const head=`<tr><th title="${TIP.rank}">#</th>${th('tier','Tier')}${isOverall?th('slot','Pos','l'):''}${th('name','Asset','l')}<th class="l">Tm</th>${th('proj','Proj/g')}${th('vor','VOR')}${th('floor','Flr')}${th('ceil','Ceil')}${th('bust','Bust%')}${th('games25','G25')}${sosHead}${curHead}</tr>`;
   const body=list.map((r,i)=>{
     const brk=(tierGroup&&prev!=null&&r.tier!=null&&r.tier!==prev)?' tierbreak':''; prev=r.tier;
     const flags=(r.no_history?'<span class="flag rk">no NFL history</span>':'')+(r.low_sample&&!r.no_history?'<span class="flag lo">small sample</span>':'');
@@ -286,8 +299,8 @@ function playerTable(){
       <td class="l"><span class="nm">${r.name}</span>${flags}</td>
       <td class="l">${r.team?`<span class="tm">${r.team}</span>`:'<span class="sub">—</span>'}</td>
       <td>${fmt(r.proj)}</td>${vorCell(r.vor,mx)}<td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td>
-      ${bustCell(r.bust)}<td>${r.games25??0}</td>${curCells}</tr>`;
-  }).join('')||'<tr><td class="l sub" colspan="12" style="padding:14px">no matches</td></tr>';
+      ${bustCell(r.bust)}<td>${r.games25??0}</td>${SOS().available?sosCell(r.sos):''}${curCells}</tr>`;
+  }).join('')||'<tr><td class="l sub" colspan="13" style="padding:14px">no matches</td></tr>';
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
 function unitTable(){

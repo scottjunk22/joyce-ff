@@ -14,6 +14,7 @@ from ..data_sources import nflverse as nv
 from ..draft import order as draft_order
 from ..scoring import rules
 from . import history
+from . import sos
 from . import valuation as val
 
 BOARD_CACHE = Path(__file__).resolve().parents[2] / "data" / "boards.json"
@@ -62,18 +63,22 @@ def current_form(season: int) -> tuple[dict, dict, int]:
     return players, units, weeks
 
 
-def _player_records(board, form=None) -> list[dict]:
+def _player_records(board, form=None, sos_map=None) -> list[dict]:
     form = form or {}
+    sos_map = sos_map or {}
     recs = []
     for slot in ("RB", "R"):
         sub = board[board["slot"] == slot].reset_index(drop=True)
+        team_sos = sos_map.get(slot, {})
         for i, r in sub.iterrows():
             cur = form.get(str(r["player_id"]))
+            tm = None if r.get("team") is None else str(r["team"])
             recs.append({
                 "rank": int(i) + 1,
                 "id": str(r["player_id"]),
                 "cur_ppg": None if not cur else round(cur[0], 2),
                 "cur_g": None if not cur else cur[1],
+                "sos": team_sos.get(tm),
                 "slot": slot,
                 "tier": None if _num(r.get("tier")) is None else int(r["tier"]),
                 "name": str(r["name"]),
@@ -127,7 +132,7 @@ def _overall_records(player_recs: list[dict], unit_recs: dict,
         rows.append({k: p[k] for k in
                      ("id", "slot", "name", "team", "position", "proj", "vor",
                       "floor", "ceil", "bust", "games25", "low_sample",
-                      "no_history", "cur_ppg", "cur_g")})
+                      "no_history", "cur_ppg", "cur_g", "sos")})
     for unit, lst in unit_recs.items():
         for u in lst:
             if u["vor"] is None:
@@ -138,6 +143,7 @@ def _overall_records(player_recs: list[dict], unit_recs: dict,
                          "floor": u["floor"], "ceil": u["ceil"],
                          "bust": u.get("bust"),
                          "cur_ppg": u.get("cur_ppg"), "cur_g": u.get("cur_g"),
+                         "sos": None,
                          "games25": u["games25"], "low_sample": False,
                          "no_history": False})
 
@@ -170,7 +176,13 @@ def build_all(seasons=history.SEASONS_DEFAULT, draft_season=DRAFT_SEASON) -> dic
     # Form in the season being drafted (2026 wks 1-2 by draft day). Shown as its
     # own columns; the projection deliberately stays a 2023-25 measure.
     pform, uform, cur_weeks = current_form(draft_season)
-    precs = _player_records(pboard, pform)
+    # Strength of schedule for the slots where a matchup debate actually happens
+    # (RB / R). Measured in our scoring, over the NFL weeks our season covers.
+    try:
+        sos_data = sos.build(sp, draft_season)
+    except Exception:
+        sos_data = {"ratings": {}, "sos": {}, "basis": {}, "weeks": [], "seasons": []}
+    precs = _player_records(pboard, pform, sos_data.get("sos"))
     urecs = _unit_records(uboard, uform)
 
     return {
@@ -179,6 +191,12 @@ def build_all(seasons=history.SEASONS_DEFAULT, draft_season=DRAFT_SEASON) -> dic
         "draft_season": draft_season,
         "current_season": {"year": draft_season, "weeks": cur_weeks,
                            "available": bool(pform or uform)},
+        "sos": {"available": bool(sos_data.get("sos")),
+                "nfl_weeks": sos_data.get("weeks", []),
+                "seasons": sos_data.get("seasons", []),
+                "basis": sos_data.get("basis", {}),
+                "by_team": sos_data.get("sos", {}),
+                "defense_ratings": sos_data.get("ratings", {})},
         "league": {
             "teams": rules.NUM_TEAMS,
             "division_teams": rules.DIVISION_TEAMS,
