@@ -36,6 +36,13 @@ from any other project on this machine.
 - Replacement level is calibrated for ONE DIVISION = 11 teams (22 started RB,
   33 started R; 33 rostered RB, 44 rostered R). Public rankings/ADP are for
   10-12 teams and DO NOT apply.
+- **Replacement is the first asset still AVAILABLE, i.e. N+1, not N.** 33 RBs
+  get drafted, so the 33rd is the LAST ONE TAKEN and the replacement is the
+  **34th** — likewise the **45th** R and the **12th** of each team unit (11 of
+  ~32 owned). VOR = proj - that. Getting this wrong is an easy off-by-one (it
+  shipped that way once) and it is not cosmetic: each slot's baseline moves by
+  a different amount, so it changes cross-position ordering. The same N+1 index
+  is used for the shrinkage prior, so both mean the same thing.
 - Full rulebook: see `BRIEF.md.txt` and `joyce_ff/scoring/rules.py`.
 
 ## Stack
