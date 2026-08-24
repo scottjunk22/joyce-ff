@@ -98,7 +98,7 @@ def player_board(scored_players: pd.DataFrame, roster_pool: pd.DataFrame,
                .sort_values("proj_raw", ascending=False))
         if sub.empty:
             continue
-        prior = float(sub["proj_raw"].iloc[min(cutoff, len(sub)) - 1])
+        prior = float(sub["proj_raw"].iloc[min(cutoff, len(sub) - 1)])
         m = (board["slot"] == slot) & board["proj_raw"].notna()
         board.loc[m, "prior"] = prior
         board.loc[m, "proj"] = _shrink(board.loc[m, "proj_w_num"],
@@ -119,7 +119,10 @@ def _add_vor(board: pd.DataFrame) -> pd.DataFrame:
                .sort_values("proj", ascending=False))
         if sub.empty:
             continue
-        idx = min(cutoff, len(sub)) - 1
+        # `cutoff` assets get drafted, so the last one TAKEN is index cutoff-1
+        # and the best one still AVAILABLE is index cutoff. Replacement level is
+        # what you can actually get, so it's the latter.
+        idx = min(cutoff, len(sub) - 1)
         repl = float(sub["proj"].iloc[idx])
         board.loc[sub.index, "repl_level"] = repl
         board.loc[sub.index, "vor"] = board.loc[sub.index, "proj"] - repl
@@ -151,16 +154,16 @@ def _add_tiers(board: pd.DataFrame, min_gap: float = TIER_GAP) -> pd.DataFrame:
 
 def team_unit_board(unit_games: dict[str, pd.DataFrame],
                     weights: dict = RECENCY_WEIGHTS) -> dict[str, pd.DataFrame]:
-    """Per-unit (QB/K/DEF-ST/C) team boards with VOR vs the first unowned team
-    (~22 of 32 owned)."""
+    """Per-unit (QB/K/DEF-ST/C) team boards with VOR vs the best unit still
+    AVAILABLE — 11 of ~32 are owned in a division, so that's the 12th-best."""
     boards = {}
     for unit, df in unit_games.items():
         red = _reduce(df, "team", weights).sort_values("proj_raw", ascending=False)
-        prior = float(red["proj_raw"].iloc[min(UNITS_OWNED, len(red)) - 1])
+        prior = float(red["proj_raw"].iloc[min(UNITS_OWNED, len(red) - 1)])
         red["prior"] = prior
         red["proj"] = _shrink(red["proj_w_num"], red["proj_w_den"], prior)
         red = red.sort_values("proj", ascending=False)
-        repl = float(red["proj"].iloc[min(UNITS_OWNED, len(red)) - 1])
+        repl = float(red["proj"].iloc[min(UNITS_OWNED, len(red) - 1)])
         red["repl_level"] = repl
         red["vor"] = red["proj"] - repl
         red["unit"] = unit
