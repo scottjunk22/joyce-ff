@@ -26,6 +26,16 @@ POS_TO_SLOT = {"RB": "RB", "WR": "R", "TE": "R"}
 # takes over as it accumulates (2 games ~ a nudge, 8 games ~ dominant).
 CURRENT_SEASON_WEIGHT = 3.0
 
+# Week 18 is excluded from the defensive ratings. Not because it scores low —
+# a league-wide dip cancels out in a ratio-to-average — but because it's
+# UNEVENLY low: whether a defence drew a resting, playoff-locked team is decided
+# by the opponent's seeding. Across 2024-25 the per-defence deviation in week 18
+# is sd 4.8 (range -6.3 to +14.1) against 2.2 in weeks 1-2, and it lands in just
+# ONE game per defence per season, so the noise goes straight into the rating.
+# Weeks 1-2 stay: their dip is broadly shared, spread over two games, and in the
+# season being drafted they are the only current evidence that exists.
+MEASURE_EXCLUDE_WEEKS = (18,)
+
 
 def _opponent_map(games: pd.DataFrame, season: int) -> dict:
     """(week, team) -> opponent, regular season only."""
@@ -46,13 +56,14 @@ def _slot_map(season: int) -> dict:
             for _, r in ros.iterrows() if r.get("gsis_id")}
 
 
-def points_allowed(scored: pd.DataFrame, games: pd.DataFrame,
-                   seasons: list[int]) -> pd.DataFrame:
+def points_allowed(scored: pd.DataFrame, games: pd.DataFrame, seasons: list[int],
+                   exclude_weeks: tuple = MEASURE_EXCLUDE_WEEKS) -> pd.DataFrame:
     """One row per (season, week, defense, slot): engine points that defence
-    gave up to that slot in that game."""
+    gave up to that slot in that game. Postseason drops out on its own — the
+    opponent map is regular-season only."""
     frames = []
     for s in seasons:
-        sub = scored[scored["season"] == s]
+        sub = scored[(scored["season"] == s) & (~scored["week"].isin(exclude_weeks))]
         if sub.empty:
             continue
         opp = _opponent_map(games, s)
