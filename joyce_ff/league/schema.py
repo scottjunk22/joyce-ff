@@ -142,6 +142,7 @@ CREATE TABLE IF NOT EXISTS weekly_lineups (
     unit_type    TEXT,
     is_rental    INTEGER NOT NULL DEFAULT 0,  -- 1 = filled via an OPEN this week
     submitted_at TEXT,
+    submitted_by TEXT,               -- NULL = the manager; else commissioner name
     UNIQUE(season_id, team_id, ff_week, roster_slot, asset_ref)
 );
 CREATE INDEX IF NOT EXISTS ix_lineup_week ON weekly_lineups(season_id, ff_week, team_id);
@@ -161,6 +162,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     fee_cents      INTEGER NOT NULL DEFAULT 200,
     reversed       INTEGER NOT NULL DEFAULT 0,   -- commissioner can reverse
     note           TEXT,
+    entered_by     TEXT,               -- NULL = the manager; else commissioner name
     created_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_tx_team ON transactions(season_id, team_id, reversed);
@@ -286,6 +288,16 @@ def migrate(conn: sqlite3.Connection) -> None:
                      "(SELECT 1 FROM nfl_teams t2 WHERE t2.season_id=nfl_teams.season_id "
                      "AND t2.abbr='ARI')")
         conn.commit()
+
+    # Who entered a move: NULL means the manager did it themselves, a name means
+    # a commissioner entered it for them (a phoned-in lineup or trade).
+    for table, col in (("transactions", "entered_by"), ("weekly_lineups", "submitted_by")):
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                        (table,)).fetchone():
+            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if col not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
+                conn.commit()
 
     has_roster = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='roster_entries'").fetchone()

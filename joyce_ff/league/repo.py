@@ -125,7 +125,7 @@ def _assert_available(conn, season_id, conf_id, position, asset_ref):
 # --- transactions --------------------------------------------------------
 
 def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
-             actor="manager") -> int:
+             actor=None) -> int:
     """Permanent swap: drop out_ref, add in_ref (same position). $2 fee."""
     if position not in INDIVIDUAL_POS | UNIT_POS:
         raise RuleError(f"invalid position {position!r}")
@@ -146,11 +146,11 @@ def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
         (season_id, team_id, kind, in_ref, position if kind == "TEAM_UNIT" else None,
          position, ff_week, order, _now()))
     return _log_tx(conn, season_id, team_id, ff_week, "TRADE", position,
-                   out_ref, in_ref, kind)
+                   out_ref, in_ref, kind, entered_by=actor)
 
 
 def do_open(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
-            actor="manager") -> int:
+            actor=None) -> int:
     """One-week rental: start in_ref for out_ref THIS week only. Requires the
     outgoing player to be on his NFL bye. $2 fee. Roster is unchanged."""
     if position not in INDIVIDUAL_POS | UNIT_POS:
@@ -163,7 +163,7 @@ def do_open(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
     conf = _team_conf(conn, team_id)
     _assert_available(conn, season_id, conf, position, in_ref)
     return _log_tx(conn, season_id, team_id, ff_week, "OPEN", position,
-                   out_ref, in_ref, _kind_for(position))
+                   out_ref, in_ref, _kind_for(position), entered_by=actor)
 
 
 DRAFT_SLOT_MAX = {"C": 1, "K": 1, "DEF/ST": 1, "QB": 1, "RB": 3, "R": 4}
@@ -368,15 +368,17 @@ def _tx_count(conn, team_id) -> int:
                         (team_id,)).fetchone()["c"]
 
 
-def _log_tx(conn, season_id, team_id, ff_week, typ, position, out_ref, in_ref, in_kind) -> int:
+def _log_tx(conn, season_id, team_id, ff_week, typ, position, out_ref, in_ref, in_kind,
+            entered_by=None) -> int:
     kind_out = _kind_for(position)
     fee = 0 if _tx_count(conn, team_id) < FREE_TRADES else FEE_CENTS   # first 5 are free
     cur = conn.execute(
         "INSERT INTO transactions(season_id,team_id,ff_week,type,position,"
-        "out_asset_kind,out_asset_ref,in_asset_kind,in_asset_ref,fee_cents,created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        "out_asset_kind,out_asset_ref,in_asset_kind,in_asset_ref,fee_cents,"
+        "entered_by,created_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (season_id, team_id, ff_week, typ, position, kind_out, out_ref, in_kind,
-         in_ref, fee, _now()))
+         in_ref, fee, entered_by, _now()))
     conn.commit()
     return int(cur.lastrowid)
 
@@ -400,7 +402,7 @@ def _bye_count(conn, season_id, team_id, slot, ff_week) -> int:
 
 
 def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
-               locked_refs=None) -> None:
+               locked_refs=None, submitted_by=None) -> None:
     """starters: list of {roster_slot, asset_ref}. Validates the 9-man lineup,
     the bye-flex composition, that every starter is owned or a valid rental, and
     (if locked_refs given) that no player whose game has kicked off is being
@@ -448,8 +450,10 @@ def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
     for slot, kind, ref, unit, rental in resolved:
         conn.execute(
             "INSERT INTO weekly_lineups(season_id,team_id,ff_week,roster_slot,asset_kind,"
-            "asset_ref,unit_type,is_rental,submitted_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (season_id, team_id, ff_week, slot, kind, ref, unit, rental, _now()))
+            "asset_ref,unit_type,is_rental,submitted_at,submitted_by) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (season_id, team_id, ff_week, slot, kind, ref, unit, rental, _now(),
+             submitted_by))
     conn.commit()
 
 

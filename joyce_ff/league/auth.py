@@ -128,12 +128,18 @@ def set_admin_passcode(conn, name: str, passcode: str) -> None:
     conn.commit()
 
 
+def commissioner_name(conn, passcode: str) -> str | None:
+    """Which commissioner this passcode belongs to, or None. Used to record who
+    entered a move made on a manager's behalf."""
+    for row in conn.execute("SELECT name, passcode_hash FROM admins"):
+        if verify_passcode(passcode, row["passcode_hash"]):
+            return row["name"]
+    return None
+
+
 def is_commissioner(conn, passcode: str) -> bool:
     """True if the passcode matches ANY commissioner (Steve or Scott)."""
-    for row in conn.execute("SELECT passcode_hash FROM admins"):
-        if verify_passcode(passcode, row["passcode_hash"]):
-            return True
-    return False
+    return commissioner_name(conn, passcode) is not None
 
 
 # --- private OT-Blitz platform (draft board etc.) — Scott's eyes only -----

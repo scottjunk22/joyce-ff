@@ -493,10 +493,23 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
   const dangerBar=`<div class="lsum" style="border-color:var(--bad);margin-top:12px">`
     +`<b style="color:var(--bad)">Delete season</b> <span class="sub">— removes ${STATE.season?STATE.season.label:''} and everything in it: teams, rosters, lineups, scores, transactions. Cannot be undone.</span>`
     +`<div style="margin-top:6px"><button class="chip" style="border-color:var(--bad);color:var(--bad)" onclick="deleteSeason()">Delete this season…</button></div></div>`;
-  $('commBody').innerHTML=lsum+pinBar+lockBar
+  const actBar=`<div class="lsum"><b>Acting for a manager</b>
+    <div class="sub" style="margin-top:4px">Open the team on the main page and use ⚙ lineup or ⇄＋ trade exactly as a manager would — enter <b>your commissioner passcode</b> where it asks for the PIN. You can also set past weeks and start players whose game has already kicked off.</div>
+    <div id="auditBox"></div></div>`;
+  $('commBody').innerHTML=lsum+pinBar+actBar+lockBar
     +table(STATE.standings.BLUE,'BLUE CONFERENCE','var(--blue)')
     +table(STATE.standings.RED,'RED CONFERENCE','var(--red)')
     +txSection+dangerBar;
+  loadAudit();
+}
+async function loadAudit(){
+  const box=$('auditBox'); if(!box) return;
+  const j=await apost('/api/admin/audit',{}); if(!j||!box) return;
+  const rows=[...(j.transactions||[]).map(t=>`<div class="frow"><span><span class="wk">W${t.week}</span> ${t.type==='TRADE'?'⇄':'＋'} <b>${t.team}</b></span><span class="sub">entered by ${t.entered_by}</span></div>`),
+              ...(j.lineups||[]).map(l=>`<div class="frow"><span><span class="wk">W${l.week}</span> ⚙ <b>${l.team}</b> lineup</span><span class="sub">entered by ${l.by}</span></div>`)];
+  box.innerHTML = rows.length
+    ? `<div style="margin-top:8px;font-weight:800;font-size:12px">Entered on a manager's behalf <span class="sub">(only you see this)</span></div>`+rows.join('')
+    : `<div class="sub" style="margin-top:6px">Nothing entered on a manager's behalf yet.</div>`;
 }
 async function convertTx(id,type){ if(!confirm(`Convert this ${type} to ${type==='TRADE'?'an Open (1-week rental)':'a permanent Trade'}?`))return;
   const j=await apost(`/api/admin/convert/${id}`,{}); if(j){alert('Converted.');await load(VIEW, SEASON);renderCommish();} }

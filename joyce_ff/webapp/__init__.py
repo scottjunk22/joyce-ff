@@ -569,7 +569,8 @@ def create_app(db_path: str | None = None) -> Flask:
         b = request.get_json(force=True)
         try:
             tx = repo.do_trade(db(), season()["id"], team_id, b["position"],
-                               b["out"], b["in"], _week(season()["current_ff_week"]))
+                               b["out"], b["in"], _week(season()["current_ff_week"]),
+                               actor=auth.commissioner_name(db(), _passcode()))
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
         return jsonify(ok=True, transaction_id=tx, **_tx_fee_info(tx, team_id))
@@ -581,7 +582,8 @@ def create_app(db_path: str | None = None) -> Flask:
         b = request.get_json(force=True)
         try:
             tx = repo.do_open(db(), season()["id"], team_id, b["position"],
-                              b["out"], b["in"], _week(season()["current_ff_week"]))
+                              b["out"], b["in"], _week(season()["current_ff_week"]),
+                              actor=auth.commissioner_name(db(), _passcode()))
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
         return jsonify(ok=True, transaction_id=tx, **_tx_fee_info(tx, team_id))
@@ -598,7 +600,10 @@ def create_app(db_path: str | None = None) -> Flask:
         try:
             from ..league.locks import locked_assets
             locked = set() if is_comm else locked_assets(db(), sid, wk)   # commissioner bypasses kickoff locks
-            repo.set_lineup(db(), sid, team_id, wk, b["starters"], locked_refs=locked)
+            # NULL = the manager did it themselves; a name = a commissioner
+            # entered it for them (a phoned-in lineup).
+            repo.set_lineup(db(), sid, team_id, wk, b["starters"], locked_refs=locked,
+                            submitted_by=auth.commissioner_name(db(), _passcode()))
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
         # If this week is already scored, refresh the stored team total so the
@@ -693,6 +698,34 @@ def create_app(db_path: str | None = None) -> Flask:
                                      f"fill those in before locking"), 400
         repo.set_setup_locked(conn, sid, locked)
         return jsonify(ok=True, locked=locked)
+
+    @app.post("/api/admin/audit")
+    def admin_audit():
+        """Who entered what. Commissioner-only by design: it exists so the
+        commissioner can show that a phoned-in move was entered by him rather
+        than by the manager, not to publish anyone's habits."""
+        if (bad := _commish()):
+            return bad
+        s, err = _need_season()
+        if err:
+            return err
+        conn, sid = db(), s["id"]
+        tx = [{"id": r["id"], "week": r["w"], "team": r["team"], "type": r["type"],
+               "entered_by": r["eb"]}
+              for r in conn.execute(
+                  "SELECT tr.id id, tr.ff_week w, t.name team, tr.type, tr.entered_by eb "
+                  "FROM transactions tr JOIN teams t ON t.id=tr.team_id "
+                  "WHERE tr.season_id=? AND tr.reversed=0 AND tr.entered_by IS NOT NULL "
+                  "ORDER BY tr.ff_week DESC, tr.id DESC LIMIT 40", (sid,))]
+        lu = [{"team": r["team"], "week": r["w"], "by": r["by"], "at": r["at"]}
+              for r in conn.execute(
+                  "SELECT DISTINCT t.name team, wl.ff_week w, wl.submitted_by by, "
+                  "MAX(wl.submitted_at) at FROM weekly_lineups wl "
+                  "JOIN teams t ON t.id=wl.team_id "
+                  "WHERE wl.season_id=? AND wl.submitted_by IS NOT NULL "
+                  "GROUP BY t.name, wl.ff_week, wl.submitted_by "
+                  "ORDER BY wl.ff_week DESC LIMIT 40", (sid,))]
+        return jsonify(ok=True, transactions=tx, lineups=lu)
 
     @app.post("/api/admin/pin-setup")
     def admin_pin_setup():
