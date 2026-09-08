@@ -78,6 +78,7 @@
  .lban svg{flex:none;margin-top:1px}
  .lsum{margin-bottom:12px;font-size:13px}
  .lsum .nchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+ .svok{color:var(--good);font-weight:800;margin-left:4px;font-size:12px}
  .nchip{border:1px solid var(--bad);color:var(--bad);background:var(--panel);border-radius:999px;padding:2px 10px;font-size:12px;white-space:nowrap}
  /* box score */
  .box{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
@@ -458,9 +459,9 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
   const scoreMap={}; (STATE.scoreboard||[]).forEach(g=>{scoreMap[g.home.id]=g.home.points;scoreMap[g.away.id]=g.away.points;});
   const LK=!!(STATE.season&&STATE.season.setup_locked), dis=LK?' disabled':'';
   const row=t=>{const f=STATE.fees[t.team_id]||{net_cents:0}, sc=scoreMap[t.team_id];
-    return `<tr><td><input id="nm_${t.team_id}" style="width:108px" value="${t.name}"${dis}></td><td><input id="tn_${t.team_id}" style="width:34px" value="${t.team_number??''}"${dis}></td>
+    return `<tr><td><input id="nm_${t.team_id}" style="width:108px" value="${t.name}"${dis} onchange="autoSaveTeam(${t.team_id})"><span class="svok" id="sv_${t.team_id}"></span></td><td><input id="tn_${t.team_id}" style="width:34px" value="${t.team_number??''}"${dis} onchange="autoSaveTeam(${t.team_id})"></td>
       <td><input id="pc_${t.team_id}" style="width:70px" placeholder="—"></td>
-      <td><button class="chip" onclick="saveTeam(${t.team_id})">save</button></td>
+      <td><button class="chip" onclick="setTeamPin(${t.team_id})">set PIN</button></td>
       <td><input id="sc_${t.team_id}" style="width:42px" placeholder="${sc==null?'—':(+sc).toFixed(0)}"><button class="chip" onclick="setScore(${t.team_id})">set</button></td>
       <td>${bal(f.net_cents)}</td>
       <td><input id="pay_${t.team_id}" style="width:36px" placeholder="$"><button class="chip" onclick="applyPay(${t.team_id})">pay</button></td></tr>`;};
@@ -487,7 +488,7 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
   const lockBar=`<div class="lsum" style="border-color:${LK?'var(--good)':'var(--warn)'}">`
     +(LK?`✔ <b>Setup is finished.</b> Team names and numbers are set for the season, so they can't be changed by accident. `
         +`<button class="chip" onclick="toggleLock(false)">Make changes…</button>`
-      :`<b>Team names and numbers can still be changed.</b> Type each team's name and its Team # — the number they drew, which decides who they play — then press Finish setup. `
+      :`<b>Team names and numbers can still be changed.</b> Type each team's name and its Team # — the number they drew, which decides who they play. Each box saves on its own when you click out of it (a ✓ appears). Then press Finish setup. `
         +`<button class="chip" onclick="toggleLock(true)">Finish setup</button>`)
     +`<div class="sub" style="margin-top:4px">The draft order each manager draws is entered in the Draft Room, not here.</div></div>`;
   const dangerBar=`<div class="lsum" style="border-color:var(--bad);margin-top:12px">`
@@ -515,14 +516,60 @@ async function convertTx(id,type){ if(!confirm(`Convert this ${type} to ${type==
   const j=await apost(`/api/admin/convert/${id}`,{}); if(j){alert('Converted.');await load(VIEW, SEASON);renderCommish();} }
 async function reverseTx(id){ if(!confirm('Reverse (undo) this move? For a trade this restores the roster.'))return;
   const j=await apost(`/api/admin/reverse/${id}`,{}); if(j){alert('Reversed.');await load(VIEW, SEASON);renderCommish();} }
-async function saveTeam(id){ const LK=!!(STATE.season&&STATE.season.setup_locked);
-  const nm=$('nm_'+id).value,tn=$('tn_'+id).value,pc=$('pc_'+id).value;
-  const body=LK?{}:{name:nm||undefined,team_number:tn||undefined};
-  const j=Object.keys(body).length?await apost(`/api/admin/team/${id}`,body):{ok:true};
-  if(j&&pc) await apost(`/api/admin/team/${id}/passcode`,{new_passcode:pc});
-  if(j){alert(LK&&!pc?'Season setup is locked — nothing to save.':'Saved');await load(VIEW, SEASON);renderCommish();} }
+/* Team name and number save themselves when you tab out of the box. They used
+   to need a per-row button, and Finish setup silently discarded anything typed
+   but not pressed — which quietly locked a season under its generic names. */
+function _teamRow(id){ return [...STATE.standings.BLUE,...STATE.standings.RED].find(t=>t.team_id===id); }
+async function _postTeam(id, body){
+  const r=await fetch(`/api/admin/team/${id}`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({passcode:COMMISH_PC,...body})});
+  const j=await r.json().catch(()=>({}));
+  return r.ok ? {ok:true} : {error:j.error||'error'};
+}
+async function autoSaveTeam(id){
+  const t=_teamRow(id); if(!t) return;
+  const nm=$('nm_'+id), tn=$('tn_'+id), tick=$('sv_'+id);
+  if(!nm||nm.disabled) return;
+  const name=nm.value.trim(), num=tn.value.trim();
+  const body={};
+  if(name && name!==t.name) body.name=name;
+  if(num && num!==String(t.team_number??'')) body.team_number=num;
+  if(!Object.keys(body).length) return;
+  const res=await _postTeam(id, body);
+  if(res.error){ if(tick){tick.textContent='⚠';tick.title=res.error;} alert('⚠ '+res.error); return; }
+  if(body.name) t.name=body.name;
+  if(body.team_number) t.team_number=+body.team_number;
+  if(tick){ tick.textContent='✓'; tick.title='saved'; setTimeout(()=>{tick.textContent='';},2000); }
+}
+/* Save anything typed but not yet blurred, so Finish setup can never lock in
+   values the commissioner thought he had entered. */
+async function flushTeamEdits(){
+  for(const t of [...STATE.standings.BLUE,...STATE.standings.RED]){
+    const nm=$('nm_'+t.team_id), tn=$('tn_'+t.team_id);
+    if(!nm||nm.disabled) continue;
+    const name=nm.value.trim(), num=tn.value.trim();
+    const body={};
+    if(name && name!==t.name) body.name=name;
+    if(num && num!==String(t.team_number??'')) body.team_number=num;
+    if(!Object.keys(body).length) continue;
+    const res=await _postTeam(t.team_id, body);
+    if(res.error) return `${t.name}: ${res.error}`;
+    if(body.name) t.name=body.name;
+    if(body.team_number) t.team_number=+body.team_number;
+  }
+  return null;
+}
+async function setTeamPin(id){
+  const pc=$('pc_'+id).value.trim();
+  if(!pc){ alert('Type a PIN in the box first, then press set PIN.'); return; }
+  const j=await apost(`/api/admin/team/${id}/passcode`,{new_passcode:pc});
+  if(j){ alert('PIN set for this team.'); $('pc_'+id).value=''; } }
 async function toggleLock(lock){
-  if(lock){ if(!confirm('Finish setup?\n\nTeam names and Team numbers will be set for the season. You can still change them later, but it takes two confirmations so it cannot happen by accident.')) return; }
+  if(lock){
+    const err=await flushTeamEdits();
+    if(err){ alert('⚠ Could not save '+err+'\n\nFix that, then press Finish setup again.'); return; }
+    if(!confirm('Finish setup?\n\nTeam names and Team numbers will be set for the season. You can still change them later, but it takes two confirmations so it cannot happen by accident.')) return;
+  }
   else { if(!confirm('Change team names or numbers?\n\nA team\'s number decides who they play each week.\n\nChanging a number REBUILDS the whole season schedule — games already played would no longer match the printed schedule.\n\nOnly do this if a name or number was typed in wrong.')) return;
          if(!confirm('Are you sure? This is the second and final check.')) return; }
   const j=await apost('/api/admin/season/lock',{locked:lock});
