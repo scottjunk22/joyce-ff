@@ -235,6 +235,19 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT
 );
 
+-- ---- past champions -----------------------------------------------------
+-- 35 seasons predate this app and the champion comes out of the Super Bowl,
+-- which nothing here computes, so it is commissioner-entered and keyed by year
+-- rather than by season_id.
+CREATE TABLE IF NOT EXISTS champions (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    year    INTEGER NOT NULL UNIQUE,   -- 2025 = the 2025-26 season
+    label   TEXT NOT NULL,             -- '2025-26'
+    team    TEXT NOT NULL,
+    manager TEXT,
+    note    TEXT
+);
+
 -- ---- private OT-Blitz chat (Scott + Drew, draft-day back-channel) --------
 CREATE TABLE IF NOT EXISTS chat_messages (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -275,6 +288,9 @@ def migrate(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE TABLE IF NOT EXISTS chat_messages ("
                  "id INTEGER PRIMARY KEY AUTOINCREMENT, author TEXT NOT NULL, "
                  "body TEXT NOT NULL, created_at TEXT NOT NULL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS champions ("
+                 "id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER NOT NULL UNIQUE, "
+                 "label TEXT NOT NULL, team TEXT NOT NULL, manager TEXT, note TEXT)")
     conn.commit()
 
     # nflverse's 2026 roster spells Arizona "AZ" while its schedule says "ARI",

@@ -10,7 +10,24 @@
  @media(prefers-color-scheme:light){:root{--bg:#eef1f6;--panel:#fff;--panel2:#f0f3f8;
    --line:#d9e0ea;--text:#131922;--bright:#000000;--dim:#5c6673;--blue:#1663d6;--red:#d62b3b}}
  *{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
- header{background:var(--panel);border-bottom:1px solid var(--line);padding:12px 16px;display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap}
+ header{background:var(--panel);border-bottom:1px solid var(--line);padding:12px 16px;
+   display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px}
+ .hmid{text-align:center}
+ .hsub{color:var(--dim);font-size:12px;letter-spacing:.06em;text-transform:uppercase;margin-top:2px}
+ .hctl{display:flex;gap:10px;align-items:center;justify-self:end;flex-wrap:wrap}
+ @media(max-width:700px){
+   header{grid-template-columns:1fr;justify-items:center}
+   .hpad{display:none}
+   .hctl{justify-self:center;margin-top:6px}
+ }
+ .champband{background:color-mix(in srgb,var(--warn) 14%,var(--panel));border-bottom:1px solid var(--line);
+   text-align:center;padding:5px 12px;font-size:12.5px;display:none}
+ .champband.on{display:block}
+ .champband b{color:var(--warn)}
+ .foot{margin:30px 0 10px;padding-top:14px;border-top:1px solid var(--line);text-align:center;
+   color:var(--dim);font-size:12px}
+ .foot a{color:var(--dim);cursor:pointer;text-decoration:none}
+ .foot a:hover{color:var(--text);text-decoration:underline}
  h1{margin:0;font-size:18px}.sub{color:var(--dim);font-size:12px}.spacer{margin-left:auto}
  select,input{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:5px 9px;font:inherit}
  .btn{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer}
@@ -122,13 +139,17 @@
  }
 </style></head><body>
 <header>
- <h1>🏈 Steve Joyce Fantasy Football</h1>
- <label class="sub">Season <select id="yr"></select></label>
- <label class="sub">Week <select id="wk"></select></label>
- <span class="spacer"></span>
- <button class="btn commish" onclick="commishModal()">🛠 Commissioner</button>
- <span class="sub" id="seasonlbl"></span>
+ <div class="hpad"></div>
+ <div class="hmid">
+   <h1>🏈 Steve Joyce Fantasy Football</h1>
+   <div class="hsub" id="ordinal"></div>
+ </div>
+ <div class="hctl">
+   <label class="sub">Season <select id="yr"></select></label>
+   <label class="sub">Week <select id="wk"></select></label>
+ </div>
 </header>
+<div class="champband" id="champband"></div>
 <div class="wrap">
  <h2>Scoreboard <span class="sub" style="text-transform:none;letter-spacing:0" id="upd"></span></h2>
  <div class="byestrip" id="byes"></div>
@@ -148,6 +169,12 @@
   <div class="txlist"><div class="cap" style="color:var(--blue)">BLUE</div><div id="txBlue"></div></div>
   <div class="txlist"><div class="cap" style="color:var(--red)">RED</div><div id="txRed"></div></div>
  </div>
+ <footer class="foot">
+   <a id="lnkScoring">Point System</a> ·
+   <a id="lnkHistory">Past Champions</a> ·
+   <a onclick="commishModal()">Commissioner</a>
+   <div class="sub" id="seasonlbl" style="margin-top:5px"></div>
+ </footer>
 </div>
 <div class="mb" id="mb"><div class="modal"><span class="x" onclick="closeM()">×</span><div id="mbody"></div></div></div>
 
@@ -181,11 +208,13 @@ async function load(week, seasonId){
   SEASON = STATE.season.id; VIEW = STATE.season.week; CUR = STATE.season.current; TEAMS={};
   for(const c of ['BLUE','RED']) STATE.standings[c].forEach(t=>TEAMS[t.team_id]=t);
   buildSeasonPicker(); buildWeekPicker(); renderScores(); renderByes(); renderStandings(); renderElim(); renderTx();
+  renderChrome();
   $('seasonlbl').textContent = STATE.season.label;
   const lu = STATE.season.last_updated;
   $('upd').innerHTML = '— updates as games finish' + (lu ? ' · last updated '+new Date(lu).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '');
 }
 function renderNoSeason(){
+  renderChrome();
   // Fresh league (and the practice site before its first season). Give the
   // commissioner the one action that matters instead of an empty page.
   const main=document.querySelector('.wrap');
@@ -200,6 +229,25 @@ function renderNoSeason(){
   const sl=$('seasonlbl'); if(sl) sl.textContent='—';
   const up=$('upd'); if(up) up.textContent='';
 }
+/* Header subtitle, champion band and footer links. The season number is derived
+   from the year, so it stays right without anyone bumping it and reads
+   correctly when looking back at an older season. */
+function renderChrome(){
+  const o=STATE.season&&STATE.season.ordinal;
+  const ord=$('ordinal'); if(ord) ord.textContent = o ? o+_ord(o)+' Season' : '';
+  const c=STATE.champion, band=$('champband');
+  if(band){
+    if(c){ band.innerHTML=`🏆 <b>${c.label} Champion:</b> ${c.team}`
+             +(c.manager?` <span class="sub">(${c.manager})</span>`:'');
+           band.classList.add('on'); }
+    else band.classList.remove('on');
+  }
+  const sc=$('lnkScoring'), hi=$('lnkHistory');
+  if(sc) sc.href=(API||'')+'/scoring';
+  if(hi) hi.href=(API||'')+'/history';
+}
+function _ord(n){ const t=n%100; if(t>=11&&t<=13) return 'th';
+  return {1:'st',2:'nd',3:'rd'}[n%10]||'th'; }
 function buildSeasonPicker(){
   $('yr').innerHTML = (STATE.season.seasons||[]).map(s=>`<option value="${s.id}" ${s.id===SEASON?'selected':''}>${s.label}</option>`).join('');
   $('yr').onchange = e => load(null, +e.target.value);   // switch season -> its current week

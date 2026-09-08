@@ -19,6 +19,7 @@ from pathlib import Path
 from flask import Flask, g, jsonify, redirect, render_template, request
 
 from ..league import auth, repo, schema, scoring
+from ..scoring import rules
 from ..league import standings as st
 
 # Everything the app serves is mirrored under this prefix against a separate
@@ -145,6 +146,34 @@ def create_app(db_path: str | None = None) -> Flask:
     @app.get("/healthz")
     def health():
         return {"ok": True}
+
+    def _home():
+        return (DARK_PREFIX + "/") if _is_dark() else "/"
+
+    @app.get("/scoring")
+    def scoring_page():
+        """The rulebook, rendered from the engine's own constants."""
+        from .scoring_page import build_cards
+        return render_template("scoring.html", cards=build_cards(), home=_home())
+
+    @app.get("/history")
+    def history_page():
+        rows = list(db().execute(
+            "SELECT year, label, team, manager, note FROM champions ORDER BY year DESC"))
+        if not rows:
+            return render_template("history.html", home=_home(), reign="",
+                                   table='<div class="empty">No champions recorded yet.</div>')
+        top = rows[0]
+        reign = (f'<div class="reign"><div class="yr">{top["label"]} Champion</div>'
+                 f'<div class="tm">{top["team"]}</div>'
+                 + (f'<div class="mg">{top["manager"]}</div>' if top["manager"] else "")
+                 + "</div>")
+        body = "".join(
+            f'<tr><td class="yr">{r["label"]}</td><td class="tm">{r["team"]}</td>'
+            f'<td class="mg">{r["manager"] or ""}</td></tr>' for r in rows)
+        table = ("<table><thead><tr><th>Season</th><th>Champion</th><th>Manager</th></tr></thead>"
+                 f"<tbody>{body}</tbody></table>")
+        return render_template("history.html", home=_home(), reign=reign, table=table)
 
     # ---- private OT-Blitz platform (Scott's eyes only) ----
     board_json = os.environ.get("JOYCE_BOARD_PATH") or str(
@@ -386,6 +415,12 @@ def create_app(db_path: str | None = None) -> Flask:
         final = set(gf["home_team"]) | set(gf["away_team"])
         return playing - final
 
+    def _latest_champion():
+        """Most recent crowned champion, for the band under the header."""
+        r = db().execute("SELECT year, label, team, manager, note FROM champions "
+                         "ORDER BY year DESC LIMIT 1").fetchone()
+        return dict(r) if r else None
+
     # ---- read API ----
     @app.get("/api/state")
     def state():
@@ -398,7 +433,7 @@ def create_app(db_path: str | None = None) -> Flask:
             return jsonify(season=None, standings={"BLUE": [], "RED": []}, scoreboard=[],
                            fees={}, pool={"alive": [], "eliminated": []},
                            transactions={"BLUE": [], "RED": []}, lineups=None,
-                           byes=[], payout=None)
+                           byes=[], payout=None, champion=_latest_champion())
         sid = s["id"]
         wk = int(request.args.get("week") or s["current_ff_week"])
         stand = st.compute_standings(conn, sid, wk)
@@ -493,12 +528,14 @@ def create_app(db_path: str | None = None) -> Flask:
 
         return jsonify(season={"id": sid, "year": s["year"], "label": s["label"], "week": wk,
                                "current": s["current_ff_week"], "weeks": weeks, "last_updated": last,
+                               "ordinal": rules.season_ordinal(s["year"]),
                                "setup_locked": repo.is_setup_locked(conn, sid),
                                "pin_setup_open": auth.pin_setup_open(conn, sid),
                                "seasons": [{"id": r["id"], "year": r["year"], "label": r["label"]}
                                            for r in all_seasons]},
                        standings=stand, scoreboard=board, fees=fees, pool=pool,
                        transactions=tx, lineups=lineups, byes=byes,
+                       champion=_latest_champion(),
                        payout=st.final_payout(conn, sid))
 
     @app.get("/api/team/<int:team_id>/detail")

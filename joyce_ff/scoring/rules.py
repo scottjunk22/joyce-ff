@@ -146,6 +146,16 @@ WEEKLY_STARTERS = {
 NUM_TEAMS = 22            # whole league (season structure only)
 DIVISION_TEAMS = 11       # one division = the draft-relevant competition
 
+# The league's first season, so "36th Season" is derived rather than hardcoded:
+# it stays right every year without anyone remembering to bump it, and it reads
+# correctly when looking back (2025-26 shows as the 35th).
+FIRST_SEASON_YEAR = 1991   # 1991-92 was season 1; 2026-27 is the 36th
+
+
+def season_ordinal(year: int) -> int:
+    """Which season number a starting year is. 2026 -> 36."""
+    return year - FIRST_SEASON_YEAR + 1
+
 # Draft-relevant replacement counts (ONE division):
 STARTED_RB_DIVISION = DIVISION_TEAMS * WEEKLY_STARTERS["RB"]   # 22
 STARTED_R_DIVISION = DIVISION_TEAMS * WEEKLY_STARTERS["R"]     # 33
