@@ -345,17 +345,22 @@ async function changePin(id){
   const j=await pinPost(`/api/team/${id}/change-pin`,{current_pin:$('pinOld').value.trim(), new_pin:pin});
   if(j){ alert('PIN changed.'); roster(id); }
 }
+const LUKEY=(slot,ref)=>slot+'|'+ref;
 let LU={team:null,sel:new Set(),items:[]};
 async function lineupModal(id, wk){
   wk = wk || CUR;
   const d=await (await fetch(`/api/team/${id}/detail?week=${wk}&season=${SEASON}`)).json();
   const items=d.roster.map(r=>({slot:r.slot,ref:r.asset_ref,name:r.name})); (d.opens||[]).forEach(o=>items.push({slot:o.position,ref:o.asset_ref,name:o.name+' (open)'}));
   LU={team:id,week:wk,sel:new Set(),items};
-  const started=new Set((d.box||[]).map(x=>x.asset_ref)), unit=s=>['C','K','DEF/ST','QB'].includes(s);
-  if(started.size) items.forEach(i=>{if(started.has(i.ref))LU.sel.add(i.ref);});
-  else{['C','K','DEF/ST','QB'].forEach(s=>{const f=items.find(i=>i.slot===s);if(f)LU.sel.add(f.ref);});
-       items.filter(i=>i.slot==='RB').slice(0,2).forEach(i=>LU.sel.add(i.ref));
-       items.filter(i=>i.slot==='R').slice(0,3).forEach(i=>LU.sel.add(i.ref));}
+  // Key every selection by SLOT + REF. A team unit's ref is just the NFL club
+  // (BAL), so a roster holding BAL's coach and BAL's QB room has two starters
+  // sharing one ref — keyed by ref alone they collapse into one, the lineup
+  // silently counts 8/9, and toggling one moves the other.
+  const started=new Set((d.box||[]).map(x=>LUKEY(x.roster_slot,x.asset_ref)));
+  if(started.size) items.forEach(i=>{if(started.has(LUKEY(i.slot,i.ref)))LU.sel.add(LUKEY(i.slot,i.ref));});
+  else{['C','K','DEF/ST','QB'].forEach(s=>{const f=items.find(i=>i.slot===s);if(f)LU.sel.add(LUKEY(f.slot,f.ref));});
+       items.filter(i=>i.slot==='RB').slice(0,2).forEach(i=>LU.sel.add(LUKEY(i.slot,i.ref)));
+       items.filter(i=>i.slot==='R').slice(0,3).forEach(i=>LU.sel.add(LUKEY(i.slot,i.ref)));}
   const banner = started.size
     ? `<div class="lban ok">${CHK}<span>Week ${wk} lineup is in. Players lock at their kickoff.</span></div>`
     : `<div class="lban warn">${TRI}<span>No lineup set for Week ${wk} — currently on last week's lineup. Submit below to confirm or change it.</span></div>`;
@@ -372,16 +377,21 @@ function renderLineup(){ const ord={'C':0,'K':1,'DEF/ST':2,'QB':3,'RB':4,'R':5},
   const items=[...LU.items].sort((a,b)=>ord[a.slot]-ord[b.slot]);
   const cnt={}; LU.items.forEach(i=>cnt[i.slot]=(cnt[i.slot]||0)+1);
   const clickable=i=> !unit(i.slot) || cnt[i.slot]>1;   // a unit toggles only when an Open gives it a choice
-  $('luRows').innerHTML=items.map(i=>{const on=LU.sel.has(i.ref);
-    return `<div class="srow"><span class="slot">${i.slot}</span><span class="nm">${i.name}</span><span class="st ${on?'start':'bench'}" ${clickable(i)?`onclick="toggleStart('${i.ref}')"`:''}>${on?'START':'BENCH'}</span></div>`;}).join('');
-  const c=s=>[...LU.sel].filter(r=>LU.items.find(i=>i.ref===r&&i.slot===s)).length;
+  $('luRows').innerHTML=items.map(i=>{const key=LUKEY(i.slot,i.ref), on=LU.sel.has(key);
+    return `<div class="srow"><span class="slot">${i.slot}</span><span class="nm">${i.name}</span><span class="st ${on?'start':'bench'}" ${clickable(i)?`onclick="toggleStart('${encodeURIComponent(key)}')"`:''}>${on?'START':'BENCH'}</span></div>`;}).join('');
+  const c=s=>[...LU.sel].filter(k=>k.startsWith(s+'|')).length;
   $('luHint').innerHTML=`Starting <b>${LU.sel.size}</b>/9 · RB ${c('RB')} · R ${c('R')} ${LU.sel.size===9?'✅':'— pick 9'}`;
 }
-function toggleStart(ref){ const it=LU.items.find(i=>i.ref===ref), unit=['C','K','DEF/ST','QB'].includes(it.slot);
-  if(unit){ LU.items.filter(i=>i.slot===it.slot&&i.ref!==ref).forEach(i=>LU.sel.delete(i.ref)); LU.sel.add(ref); }  // radio: one per unit slot
-  else { LU.sel.has(ref)?LU.sel.delete(ref):LU.sel.add(ref); }
+function toggleStart(encKey){ const key=decodeURIComponent(encKey);
+  const it=LU.items.find(i=>LUKEY(i.slot,i.ref)===key); if(!it) return;
+  const unit=['C','K','DEF/ST','QB'].includes(it.slot);
+  if(unit){ // radio within that slot only — never touches another slot's unit
+    LU.items.filter(i=>i.slot===it.slot).forEach(i=>LU.sel.delete(LUKEY(i.slot,i.ref)));
+    LU.sel.add(key); }
+  else { LU.sel.has(key)?LU.sel.delete(key):LU.sel.add(key); }
   renderLineup(); }
-async function submitLineup(){ const starters=[...LU.sel].map(ref=>({roster_slot:LU.items.find(i=>i.ref===ref).slot,asset_ref:ref}));
+async function submitLineup(){ const starters=[...LU.sel].map(k=>{const j=k.indexOf('|');
+    return {roster_slot:k.slice(0,j), asset_ref:k.slice(j+1)};});
   const res=await fetch(`/api/team/${LU.team}/lineup`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:$('lpc').value,week:LU.week,starters})});
   const j=await res.json(); if(res.ok){alert('Lineup saved!');closeM();load(VIEW, SEASON);}else alert('⚠ '+(j.error||'error')); }
 
@@ -394,7 +404,8 @@ async function txModal(id){
 }
 function txSetMode(m){ if(m==='open'&&!(TX.out&&TX.outBye))return; TX.mode=m; renderTxBuild(); }
 async function pickOut(ref,pos,bye){
-  const r=TX.roster.find(x=>x.asset_ref===ref)||{};
+  // match slot as well: a club's units share one asset_ref (BAL C and BAL QB)
+  const r=TX.roster.find(x=>x.asset_ref===ref&&x.slot===pos)||{};
   TX.out=ref;TX.outPos=pos;TX.outName=r.name||ref;TX.outBye=!!bye;TX.in=null;TX.inName='';TX.filter='';
   if(!TX.outBye&&TX.mode==='open')TX.mode='trade';
   renderTxBuild();
@@ -411,7 +422,7 @@ function availHtml(){ if(!TX.out)return '<div class="sub" style="padding:14px;te
 }
 function renderTxBuild(){ if(TX.step==='review')return renderTxReview();
   const openOk=TX.out&&TX.outBye;
-  const rosterList=TX.roster.map(r=>`<div class="pl ${TX.out===r.asset_ref?'sel':''}" onclick='pickOut(${JSON.stringify(r.asset_ref)},${JSON.stringify(r.slot)},${r.bye?1:0})'><span><span class="pos">${r.slot}</span>${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}${r.bye?' <span class="tag-bye">BYE</span>':''}</span></div>`).join('');
+  const rosterList=TX.roster.map(r=>`<div class="pl ${TX.out===r.asset_ref&&TX.outPos===r.slot?'sel':''}" onclick='pickOut(${JSON.stringify(r.asset_ref)},${JSON.stringify(r.slot)},${r.bye?1:0})'><span><span class="pos">${r.slot}</span>${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}${r.bye?' <span class="tag-bye">BYE</span>':''}</span></div>`).join('');
   const hint=TX.out?(TX.outBye?`<div class="txhint">💡 ${TX.outName} is on bye — most managers <b>Open</b> (rent) a bye player rather than Trade him away.</div>`:`<div class="sub" style="margin-top:8px">Open is unavailable — ${TX.outName} isn't on a bye this week, so only Trade applies.</div>`):'';
   $('txbody').innerHTML=`<h3>${TX.teamName} — Move a player</h3>
     <div class="txseg">
