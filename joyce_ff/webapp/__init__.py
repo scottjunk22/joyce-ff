@@ -663,19 +663,47 @@ def create_app(db_path: str | None = None) -> Flask:
             return jsonify(error="season setup is locked — unlock it first to change "
                                  "team names or numbers"), 400
         num_changed = False
-        for col in ("name", "team_number", "draft_slot", "manager_names"):
+        sid = sid_row["season_id"]
+
+        # Team numbers are a permutation of 1..N inside a conference: every
+        # number is already taken, so "give this team #4" can only ever mean
+        # "swap with whoever holds #4". Without this, each renumber collided
+        # with UNIQUE(season, conference, team_number) and the whole save was
+        # rejected — the commissioner saw his entry silently revert.
+        if "team_number" in b and b["team_number"] not in (None, ""):
+            try:
+                want = int(b["team_number"])
+            except (TypeError, ValueError):
+                return jsonify(error="Team # must be a number"), 400
+            me = db().execute("SELECT conference_id, team_number FROM teams WHERE id=?",
+                              (team_id,)).fetchone()
+            n_teams = db().execute("SELECT COUNT(*) c FROM teams WHERE season_id=? AND conference_id=?",
+                                   (sid, me["conference_id"])).fetchone()["c"]
+            if not 1 <= want <= n_teams:
+                return jsonify(error=f"Team # must be between 1 and {n_teams}"), 400
+            holder = db().execute(
+                "SELECT id FROM teams WHERE season_id=? AND conference_id=? AND team_number=? "
+                "AND id<>?", (sid, me["conference_id"], want, team_id)).fetchone()
+            if holder:
+                # Park ours first so neither UPDATE trips the unique index.
+                db().execute("UPDATE teams SET team_number=NULL WHERE id=?", (team_id,))
+                db().execute("UPDATE teams SET team_number=? WHERE id=?",
+                             (me["team_number"], holder["id"]))
+            db().execute("UPDATE teams SET team_number=? WHERE id=?", (want, team_id))
+            num_changed = True
+
+        for col in ("name", "draft_slot", "manager_names"):
             if col in b and b[col] not in (None, ""):
-                val = int(b[col]) if col in ("team_number", "draft_slot") else b[col]
+                val = int(b[col]) if col == "draft_slot" else b[col]
                 try:
                     db().execute(f"UPDATE teams SET {col}=? WHERE id=?", (val, team_id))
-                except Exception as e:  # e.g. UNIQUE team_number / name collision
-                    return jsonify(error=f"{col}: {e}"), 400
-                if col == "team_number":
-                    num_changed = True
+                except Exception:
+                    friendly = ("another team already has that name"
+                                if col == "name" else f"could not set {col}")
+                    return jsonify(error=friendly), 400
         # The schedule is derived from team numbers — rebuild it if one changed.
         if num_changed:
             from ..league import standings as st
-            sid = db().execute("SELECT season_id FROM teams WHERE id=?", (team_id,)).fetchone()["season_id"]
             if not db().execute("SELECT 1 FROM teams WHERE season_id=? AND team_number IS NULL",
                                 (sid,)).fetchone():
                 st.generate_matchups(db(), sid)

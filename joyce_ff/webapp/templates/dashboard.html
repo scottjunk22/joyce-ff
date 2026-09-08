@@ -465,6 +465,9 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
       <td><input id="sc_${t.team_id}" style="width:42px" placeholder="${sc==null?'—':(+sc).toFixed(0)}"><button class="chip" onclick="setScore(${t.team_id})">set</button></td>
       <td>${bal(f.net_cents)}</td>
       <td><input id="pay_${t.team_id}" style="width:36px" placeholder="$"><button class="chip" onclick="applyPay(${t.team_id})">pay</button></td></tr>`;};
+  // Order these rows by Team #, not by name — this is the setup table, and the
+  // standings' name order reads as 1, 10, 11, 2 which looks broken.
+  const byNum=ts=>[...ts].sort((a,b)=>(a.team_number??99)-(b.team_number??99));
   const table=(teams,label,color)=>`<div style="margin:12px 0 4px;font-weight:800;color:${color}">${label}</div>`
     +`<div style="overflow-x:auto"><table class="feetable"><thead><tr><th>Team</th><th>#</th><th>Passcode</th><th></th><th>Score W${VIEW}</th><th>Balance</th><th>Pay</th></tr></thead><tbody>`
     +teams.map(row).join('')+`</tbody></table></div>`;
@@ -498,8 +501,8 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
     <div class="sub" style="margin-top:4px">Open the team on the main page and use ⚙ lineup or ⇄＋ trade exactly as a manager would — enter <b>your commissioner passcode</b> where it asks for the PIN. You can also set past weeks and start players whose game has already kicked off.</div>
     <div id="auditBox"></div></div>`;
   $('commBody').innerHTML=lsum+pinBar+actBar+lockBar
-    +table(STATE.standings.BLUE,'BLUE CONFERENCE','var(--blue)')
-    +table(STATE.standings.RED,'RED CONFERENCE','var(--red)')
+    +table(byNum(STATE.standings.BLUE),'BLUE CONFERENCE','var(--blue)')
+    +table(byNum(STATE.standings.RED),'RED CONFERENCE','var(--red)')
     +txSection+dangerBar;
   loadAudit();
 }
