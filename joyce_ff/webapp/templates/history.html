@@ -25,6 +25,10 @@
  td.yr{color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums}
  td.tm{font-weight:700}
  td.mg{color:var(--dim)}
+ .mult{font-size:11px;color:var(--warn);font-weight:800;margin-left:5px;vertical-align:1px}
+ td.multi{color:var(--warn)}
+ .tally{color:var(--dim);font-size:12.5px;text-align:center;margin:0 0 14px}
+ .tally b{color:var(--warn)}
  .empty{padding:26px 16px;text-align:center;color:var(--dim)}
  .foot{margin:26px 0 12px;padding-top:14px;border-top:1px solid var(--line);text-align:center;color:var(--dim);font-size:12px}
  .foot a{color:var(--dim)}
@@ -35,6 +39,7 @@
 </header>
 <div class="wrap">
   {{ reign|safe }}
+  {{ tally|safe }}
   <div class="tbl">{{ table|safe }}</div>
   <div class="foot"><a href="{{ home }}">← back to the league</a></div>
 </div>

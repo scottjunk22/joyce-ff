@@ -159,21 +159,49 @@ def create_app(db_path: str | None = None) -> Flask:
     @app.get("/history")
     def history_page():
         rows = list(db().execute(
-            "SELECT year, label, team, manager, note FROM champions ORDER BY year DESC"))
+            "SELECT year, label, team, runner_up FROM champions ORDER BY year DESC"))
         if not rows:
-            return render_template("history.html", home=_home(), reign="",
+            return render_template("history.html", home=_home(), reign="", tally="",
                                    table='<div class="empty">No champions recorded yet.</div>')
+
+        # Count repeat winners. Team names drift over 36 years ("Shuffling Crew"
+        # vs "ShufflingCrew"), so count on a squashed form while always
+        # DISPLAYING exactly what the commissioner recorded.
+        def key(n):
+            return "".join(ch for ch in n.lower() if ch.isalnum())
+
+        titles = {}
+        for r in rows:
+            titles[key(r["team"])] = titles.get(key(r["team"]), 0) + 1
+
         top = rows[0]
         reign = (f'<div class="reign"><div class="yr">{top["label"]} Champion</div>'
                  f'<div class="tm">{top["team"]}</div>'
-                 + (f'<div class="mg">{top["manager"]}</div>' if top["manager"] else "")
+                 + (f'<div class="mg">def. {top["runner_up"]}</div>' if top["runner_up"] else "")
                  + "</div>")
-        body = "".join(
-            f'<tr><td class="yr">{r["label"]}</td><td class="tm">{r["team"]}</td>'
-            f'<td class="mg">{r["manager"] or ""}</td></tr>' for r in rows)
-        table = ("<table><thead><tr><th>Season</th><th>Champion</th><th>Manager</th></tr></thead>"
-                 f"<tbody>{body}</tbody></table>")
-        return render_template("history.html", home=_home(), reign=reign, table=table)
+
+        body = ""
+        for r in rows:
+            n = titles[key(r["team"])]
+            badge = f' <span class="mult">&times;{n}</span>' if n > 1 else ""
+            body += (f'<tr><td class="yr">{r["label"]}</td>'
+                     f'<td class="{"tm multi" if n > 1 else "tm"}">{r["team"]}{badge}</td>'
+                     f'<td class="mg">{r["runner_up"] or ""}</td></tr>')
+        table = ("<table><thead><tr><th>Season</th><th>Champion</th><th>Runner-up</th></tr>"
+                 f"</thead><tbody>{body}</tbody></table>")
+
+        best = max(titles.values())
+        repeats = sum(1 for v in titles.values() if v > 1)
+        seen, leaders = set(), []
+        for r in rows:
+            if titles[key(r["team"])] == best and key(r["team"]) not in seen:
+                seen.add(key(r["team"]))
+                leaders.append(r["team"])
+        tally = (f'<div class="tally">Most titles: <b>{", ".join(leaders)}</b> ({best}) '
+                 f'&middot; {repeats} teams have won more than once in {len(rows)} seasons.'
+                 f'</div>') if best > 1 else ""
+        return render_template("history.html", home=_home(), reign=reign,
+                               tally=tally, table=table)
 
     # ---- private OT-Blitz platform (Scott's eyes only) ----
     board_json = os.environ.get("JOYCE_BOARD_PATH") or str(

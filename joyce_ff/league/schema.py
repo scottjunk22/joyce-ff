@@ -243,9 +243,10 @@ CREATE TABLE IF NOT EXISTS champions (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     year    INTEGER NOT NULL UNIQUE,   -- 2025 = the 2025-26 season
     label   TEXT NOT NULL,             -- '2025-26'
-    team    TEXT NOT NULL,
-    manager TEXT,
-    note    TEXT
+    team      TEXT NOT NULL,
+    runner_up TEXT,
+    manager   TEXT,
+    note      TEXT
 );
 
 -- ---- private OT-Blitz chat (Scott + Drew, draft-day back-channel) --------
@@ -290,7 +291,12 @@ def migrate(conn: sqlite3.Connection) -> None:
                  "body TEXT NOT NULL, created_at TEXT NOT NULL)")
     conn.execute("CREATE TABLE IF NOT EXISTS champions ("
                  "id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER NOT NULL UNIQUE, "
-                 "label TEXT NOT NULL, team TEXT NOT NULL, manager TEXT, note TEXT)")
+                 "label TEXT NOT NULL, team TEXT NOT NULL, runner_up TEXT, "
+                 "manager TEXT, note TEXT)")
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='champions'").fetchone():
+        ccols = {r["name"] for r in conn.execute("PRAGMA table_info(champions)")}
+        if "runner_up" not in ccols:
+            conn.execute("ALTER TABLE champions ADD COLUMN runner_up TEXT")
     conn.commit()
 
     # nflverse's 2026 roster spells Arizona "AZ" while its schedule says "ARI",

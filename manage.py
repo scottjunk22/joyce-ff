@@ -121,6 +121,27 @@ def cmd_new_season(argv: list[str]) -> int:
     return 0
 
 
+def cmd_load_champions(_argv: list[str]) -> int:
+    from joyce_ff.league import connect, schema
+    from joyce_ff.league.champions_seed import rows
+
+    conn = connect()
+    schema.migrate(conn)      # the CLI doesn't migrate on connect; runner_up may be new
+    n = 0
+    for year, label, team, runner in rows():
+        conn.execute(
+            "INSERT INTO champions(year,label,team,runner_up) VALUES (?,?,?,?) "
+            "ON CONFLICT(year) DO UPDATE SET label=excluded.label, team=excluded.team, "
+            "runner_up=excluded.runner_up", (year, label, team, runner))
+        n += 1
+    conn.commit()
+    total = conn.execute("SELECT COUNT(*) c FROM champions").fetchone()["c"]
+    latest = conn.execute("SELECT label, team FROM champions ORDER BY year DESC LIMIT 1").fetchone()
+    conn.close()
+    print(f"Loaded {n} champions ({total} on file). Most recent: {latest['label']} {latest['team']}.")
+    return 0
+
+
 def cmd_demo_seed(_argv: list[str]) -> int:
     from joyce_ff.league.demo import build_demo
 
@@ -216,6 +237,7 @@ COMMANDS = {
     "schedule": cmd_schedule,
     "league-init": cmd_league_init,
     "new-season": cmd_new_season,
+    "load-champions": cmd_load_champions,
     "demo-seed": cmd_demo_seed,
     "run-week": cmd_run_week,
     "run-current": cmd_run_current,
