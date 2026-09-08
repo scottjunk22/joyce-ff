@@ -405,7 +405,7 @@ def create_app(db_path: str | None = None) -> Flask:
         # compute_standings returns records only; merge in per-team metadata the
         # UI needs (alive dimming, commissioner # / slot fields).
         meta = {r["id"]: r for r in conn.execute(
-            "SELECT id, alive, eliminated_ff_week, team_number, draft_slot, manager_names, "
+            "SELECT id, alive, eliminated_ff_week, team_number, draft_slot, "
             "(passcode_hash IS NOT NULL) has_pin FROM teams WHERE season_id=?", (sid,))}
         for cc in ("BLUE", "RED"):
             for t in stand[cc]:
@@ -415,7 +415,6 @@ def create_app(db_path: str | None = None) -> Flask:
                     t["eliminated_ff_week"] = m["eliminated_ff_week"]
                     t["team_number"] = m["team_number"]
                     t["draft_slot"] = m["draft_slot"]
-                    t["manager_names"] = m["manager_names"]
                     t["has_pin"] = bool(m["has_pin"])
         scores, adjusted = {}, set()
         for r in conn.execute("SELECT team_id, computed_points, adjusted FROM team_week_scores "
@@ -629,8 +628,7 @@ def create_app(db_path: str | None = None) -> Flask:
     def claim_pin(team_id):
         b = request.get_json(force=True)
         try:
-            auth.claim_team_pin(db(), (season() or {"id": 0})["id"], team_id, b.get("pin", ""),
-                                b.get("manager_names"))
+            auth.claim_team_pin(db(), (season() or {"id": 0})["id"], team_id, b.get("pin", ""))
         except auth.PinError as e:
             return jsonify(error=str(e)), 400
         return jsonify(ok=True)

@@ -294,7 +294,7 @@ async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?we
     +(d.payments||[]).map(p=>`<div class="frow"><span>✓ payment${p.note?` <span class="sub">(${p.note})</span>`:''}</span><span class="paid">−${b(p.amount_cents)}</span></div>`).join('')
     +(f.winnings_cents?`<div class="frow"><span>🏆 Week 15 winnings</span><span class="paid">−${b(f.winnings_cents)}</span></div>`:'')
     +`</div>`;
-  openM(`<h3>${d.name} — Roster</h3><div class="sub">${d.managers||''}</div><div style="margin-top:10px">${rows}</div>${openRows?`<div class="sub" style="margin-top:10px">Open this week (1-week rentals)</div>${openRows}`:''}${fees}${pinBox(id)}`);
+  openM(`<h3>${d.name} — Roster</h3><div style="margin-top:10px">${rows}</div>${openRows?`<div class="sub" style="margin-top:10px">Open this week (1-week rentals)</div>${openRows}`:''}${fees}${pinBox(id)}`);
 }
 /* Manager PIN. Unclaimed + window open -> set one. Claimed -> change it (needs
    the current PIN). Forgotten PINs are a commissioner reset, by design: PINs are
@@ -305,8 +305,7 @@ function pinBox(id){
     <div class="fhd"><span>🔑 Set your PIN</span></div>
     <div class="sub" style="padding:2px 10px 8px">First time — pick a 4-6 digit PIN you'll remember.
       You'll use it to submit lineups and make moves.</div>
-    <div class="pass"><input id="pinName" placeholder="your name (optional)" style="width:150px">
-      <input type="password" id="pin1" inputmode="numeric" placeholder="PIN" style="width:80px">
+    <div class="pass"><input type="password" id="pin1" inputmode="numeric" placeholder="PIN" style="width:80px">
       <input type="password" id="pin2" inputmode="numeric" placeholder="again" style="width:80px">
       <button class="go" onclick="claimPin(${id})">Set PIN</button></div>
     <div class="err" id="pinerr"></div></div>`;
@@ -338,7 +337,7 @@ async function pinPost(url, body){
 }
 async function claimPin(id){
   const pin=_pinPair(); if(!pin) return;
-  const j=await pinPost(`/api/team/${id}/claim-pin`,{pin, manager_names:$('pinName').value});
+  const j=await pinPost(`/api/team/${id}/claim-pin`,{pin});
   if(j){ alert('PIN set. Use it to submit lineups and make moves.'); await load(VIEW,SEASON); roster(id); }
 }
 async function changePin(id){

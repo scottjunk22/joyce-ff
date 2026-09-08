@@ -82,8 +82,7 @@ def set_pin_setup_open(conn, season_id: int, is_open: bool) -> None:
     conn.commit()
 
 
-def claim_team_pin(conn, season_id: int, team_id: int, pin: str,
-                   manager_names: str | None = None) -> None:
+def claim_team_pin(conn, season_id: int, team_id: int, pin: str) -> None:
     """First-time claim: a manager sets their own PIN. Only possible while the
     commissioner has the setup window open AND the team has no PIN yet — so an
     unclaimed team is never left open to whoever wanders by."""
@@ -94,9 +93,6 @@ def claim_team_pin(conn, season_id: int, team_id: int, pin: str,
                        "commissioner to reset it")
     pin = validate_pin(pin)
     conn.execute("UPDATE teams SET passcode_hash=? WHERE id=?", (hash_passcode(pin), team_id))
-    if manager_names:
-        conn.execute("UPDATE teams SET manager_names=? WHERE id=?",
-                     (manager_names.strip()[:80], team_id))
     conn.commit()
 
 
