@@ -491,7 +491,7 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
   const lockBar=`<div class="lsum" style="border-color:${LK?'var(--good)':'var(--warn)'}">`
     +(LK?`✔ <b>Setup is finished.</b> Team names and numbers are set for the season, so they can't be changed by accident. `
         +`<button class="chip" onclick="toggleLock(false)">Make changes…</button>`
-      :`<b>Team names and numbers can still be changed.</b> Type each team's name and its Team # — the number they drew, which decides who they play. Each box saves on its own when you click out of it (a ✓ appears). Then press Finish setup. `
+      :`<b>Team names and numbers can still be changed.</b> Type each team's name and its Team # — the number they drew, which decides who they play. Each box saves on its own when you click out of it (a ✓ appears). To reuse a name, just type it where you want it — the team that had it takes the name you replaced. Then press Finish setup. `
         +`<button class="chip" onclick="toggleLock(true)">Finish setup</button>`)
     +`<div class="sub" style="margin-top:4px">The draft order each manager draws is entered in the Draft Room, not here.</div></div>`;
   const dangerBar=`<div class="lsum" style="border-color:var(--bad);margin-top:12px">`
@@ -534,6 +534,12 @@ async function autoSaveTeam(id){
   const nm=$('nm_'+id), tn=$('tn_'+id), tick=$('sv_'+id);
   if(!nm||nm.disabled) return;
   const name=nm.value.trim(), num=tn.value.trim();
+  // A team must have a name, so an emptied box can't be saved. Put the old one
+  // back rather than leaving a blank that silently reappears on the next redraw
+  // — and note you don't need to clear a slot to reuse its name: typing a name
+  // that another team has moves it, handing that team the name you replaced.
+  if(!name){ nm.value=t.name; }
+  if(!num){ tn.value=t.team_number??''; }
   const body={};
   if(name && name!==t.name) body.name=name;
   if(num && num!==String(t.team_number??'')) body.team_number=num;
@@ -551,6 +557,8 @@ async function flushTeamEdits(){
     const nm=$('nm_'+t.team_id), tn=$('tn_'+t.team_id);
     if(!nm||nm.disabled) continue;
     const name=nm.value.trim(), num=tn.value.trim();
+    if(!name){ nm.value=t.name; }
+    if(!num){ tn.value=t.team_number??''; }
     const body={};
     if(name && name!==t.name) body.name=name;
     if(num && num!==String(t.team_number??'')) body.team_number=num;

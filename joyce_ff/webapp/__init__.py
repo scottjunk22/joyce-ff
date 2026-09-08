@@ -692,15 +692,32 @@ def create_app(db_path: str | None = None) -> Flask:
             db().execute("UPDATE teams SET team_number=? WHERE id=?", (want, team_id))
             num_changed = True
 
-        for col in ("name", "draft_slot", "manager_names"):
+        # Names swap too. Setting up a season means moving 11 real names onto 11
+        # generic slots, and the natural way to do that is to type a name where
+        # you want it. Clearing the old slot first cannot work — the column is
+        # NOT NULL, so a blank never saves and the name is still taken. So a
+        # collision means "move it here", and the slot that had it takes ours.
+        if "name" in b and b["name"] not in (None, ""):
+            want = str(b["name"]).strip()[:60]
+            mine = db().execute("SELECT name FROM teams WHERE id=?", (team_id,)).fetchone()["name"]
+            if want != mine:
+                holder = db().execute(
+                    "SELECT id FROM teams WHERE season_id=? AND name=? AND id<>?",
+                    (sid, want, team_id)).fetchone()
+                if holder:
+                    # Park ours first: UNIQUE(season_id, name) blocks a direct swap.
+                    db().execute("UPDATE teams SET name=? WHERE id=?",
+                                 (f"__swapping__{team_id}", team_id))
+                    db().execute("UPDATE teams SET name=? WHERE id=?", (mine, holder["id"]))
+                db().execute("UPDATE teams SET name=? WHERE id=?", (want, team_id))
+
+        for col in ("draft_slot", "manager_names"):
             if col in b and b[col] not in (None, ""):
                 val = int(b[col]) if col == "draft_slot" else b[col]
                 try:
                     db().execute(f"UPDATE teams SET {col}=? WHERE id=?", (val, team_id))
                 except Exception:
-                    friendly = ("another team already has that name"
-                                if col == "name" else f"could not set {col}")
-                    return jsonify(error=friendly), 400
+                    return jsonify(error=f"could not set {col}"), 400
         # The schedule is derived from team numbers — rebuild it if one changed.
         if num_changed:
             from ..league import standings as st
