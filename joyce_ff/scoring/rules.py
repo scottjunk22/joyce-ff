@@ -146,14 +146,16 @@ WEEKLY_STARTERS = {
 NUM_TEAMS = 22            # whole league (season structure only)
 DIVISION_TEAMS = 11       # one division = the draft-relevant competition
 
-# The league's first season, so "36th Season" is derived rather than hardcoded:
-# it stays right every year without anyone remembering to bump it, and it reads
-# correctly when looking back (2025-26 shows as the 35th).
-FIRST_SEASON_YEAR = 1991   # 1991-92 was season 1; 2026-27 is the 36th
+# The league's first season, so the season number is derived rather than
+# hardcoded: it stays right every year without anyone remembering to bump it,
+# and it reads correctly when looking back.
+# Anchored on the champions list: 36 winners = 36 completed seasons, 1990-91
+# through 2025-26, which makes 2026-27 the 37th.
+FIRST_SEASON_YEAR = 1990   # 1990-91 was season 1; 2026-27 is the 37th
 
 
 def season_ordinal(year: int) -> int:
-    """Which season number a starting year is. 2026 -> 36."""
+    """Which season number a starting year is. 2026 -> 37."""
     return year - FIRST_SEASON_YEAR + 1
 
 # Draft-relevant replacement counts (ONE division):
