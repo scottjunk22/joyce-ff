@@ -63,17 +63,35 @@ def create_app(db_path: str | None = None) -> Flask:
                 for code, name in (("BLUE", "Blue Conference"), ("RED", "Red Conference")):
                     conn.execute("INSERT OR IGNORE INTO conferences(code, name) VALUES (?,?)",
                                  (code, name))
-                src = schema.connect(app.config["DB_PATH"])
-                try:
+            src = schema.connect(app.config["DB_PATH"])
+            try:
+                if fresh:
                     for r in src.execute("SELECT name, passcode_hash, created_at FROM admins"):
                         conn.execute("INSERT OR IGNORE INTO admins(name,passcode_hash,created_at) "
                                      "VALUES (?,?,?)", (r["name"], r["passcode_hash"], r["created_at"]))
                     for r in src.execute("SELECT key, value FROM settings WHERE key='otblitz_pc'"):
                         conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
                                      (r["key"], r["value"]))
-                finally:
-                    src.close()
-                conn.commit()
+                # League history is shared, not invented: a practice run should
+                # show the same champions band the real site does. Topped up
+                # whenever the practice DB is behind, so a season crowned after
+                # the practice DB was created still turns up here.
+                have = conn.execute("SELECT COUNT(*) c FROM champions").fetchone()["c"]
+                want = src.execute("SELECT COUNT(*) c FROM champions").fetchone()["c"]
+                if want and have < want:
+                    for r in src.execute("SELECT year,label,team,runner_up,manager,note "
+                                         "FROM champions"):
+                        conn.execute(
+                            "INSERT INTO champions(year,label,team,runner_up,manager,note) "
+                            "VALUES (?,?,?,?,?,?) ON CONFLICT(year) DO UPDATE SET "
+                            "label=excluded.label, team=excluded.team, "
+                            "runner_up=excluded.runner_up, manager=excluded.manager, "
+                            "note=excluded.note",
+                            (r["year"], r["label"], r["team"], r["runner_up"],
+                             r["manager"], r["note"]))
+            finally:
+                src.close()
+            conn.commit()
         finally:
             conn.close()
 
