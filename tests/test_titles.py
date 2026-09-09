@@ -65,3 +65,26 @@ def test_repeat_winner_lists_every_year_newest_first(tmp_path):
 def test_teams_that_never_won_are_absent(tmp_path):
     conn, sid = _db(tmp_path, [(2025, "2025-26", "Ribears")], ["Ribears", "OT Blitz"])
     assert len(titles.for_season(conn, sid)) == 1
+
+
+def test_the_crown_belongs_to_the_season_being_viewed(tmp_path):
+    """Looking back at an old season must not crown today's champion. The
+    defending team in season Y is the winner of Y-1, whoever that was."""
+    conn, _ = _db(tmp_path,
+                  [(2024, "2024-25", "Bad Boys"), (2025, "2025-26", "Ribears")],
+                  ["Bad Boys", "Ribears"])
+    conn.execute("INSERT INTO seasons(year,label,current_ff_week) VALUES (2025,'2025-26',1)")
+    old = conn.execute("SELECT id FROM seasons WHERE year=2025").fetchone()["id"]
+    new = conn.execute("SELECT id FROM seasons WHERE year=2026").fetchone()["id"]
+    cid = conn.execute("SELECT id FROM conferences WHERE code='BLUE'").fetchone()["id"]
+    for i, name in enumerate(["Bad Boys", "Ribears"], start=1):   # same two teams, both seasons
+        conn.execute("INSERT INTO teams(season_id,conference_id,name,team_number) "
+                     "VALUES (?,?,?,?)", (old, cid, name, i))
+    conn.commit()
+
+    def crowned(sid):
+        return {conn.execute("SELECT name FROM teams WHERE id=?", (k,)).fetchone()["name"]
+                for k, v in titles.for_season(conn, sid).items() if v["defending"]}
+
+    assert crowned(new) == {"Ribears"}      # 2026-27: Ribears defend
+    assert crowned(old) == {"Bad Boys"}     # 2025-26: Bad Boys were defending

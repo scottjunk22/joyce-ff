@@ -63,9 +63,16 @@ def titles_by_key(conn: sqlite3.Connection) -> dict[str, list[str]]:
     return out
 
 
-def defending_key(conn: sqlite3.Connection) -> str | None:
-    """The reigning champion's key — the crown that flies this season."""
-    r = conn.execute("SELECT team FROM champions ORDER BY year DESC LIMIT 1").fetchone()
+def defending_key(conn: sqlite3.Connection, season_year: int | None = None) -> str | None:
+    """The key of the team defending the title during `season_year` — i.e. the
+    winner of the season before it. Anchored to the season being VIEWED, not to
+    today, so looking back at 2019-20 doesn't crown whoever happens to hold the
+    trophy now."""
+    if season_year is None:
+        r = conn.execute("SELECT team FROM champions ORDER BY year DESC LIMIT 1").fetchone()
+    else:
+        r = conn.execute("SELECT team FROM champions WHERE year < ? ORDER BY year DESC LIMIT 1",
+                         (season_year,)).fetchone()
     return key_for(r["team"]) if r else None
 
 
@@ -74,8 +81,9 @@ def for_season(conn: sqlite3.Connection, season_id: int) -> dict[int, dict]:
     in one season. Teams with no titles are omitted entirely, so the caller can
     treat "absent" and "never won" as the same thing."""
     try:
+        yr = conn.execute("SELECT year FROM seasons WHERE id=?", (season_id,)).fetchone()
         hist = titles_by_key(conn)
-        holder = defending_key(conn)
+        holder = defending_key(conn, yr["year"] if yr else None)
     except sqlite3.OperationalError:      # champions table predates this DB
         return {}
     out: dict[int, dict] = {}
