@@ -21,7 +21,7 @@ CHAMPIONS = [
     (2025, "ShufflingCrew", "TallBoys"),
     (2024, "TallBears", "Ribears"),
     (2023, "OTBlitz", "BGH"),
-    (2022, "MuddyChicks", "BarnBrners"),
+    (2022, "MuddyChicks", "BarnBurners"),
     (2021, "Cooper", "Hellman"),
     (2020, "Hellman", "BarnBurners"),
     (2019, "Chaos", "BarnBurners"),
