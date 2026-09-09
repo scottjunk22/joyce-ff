@@ -18,7 +18,7 @@ from pathlib import Path
 
 from flask import Flask, g, jsonify, redirect, render_template, request
 
-from ..league import auth, repo, schema, scoring
+from ..league import auth, repo, schema, scoring, titles
 from ..scoring import rules
 from ..league import standings as st
 
@@ -482,7 +482,8 @@ def create_app(db_path: str | None = None) -> Flask:
             return jsonify(season=None, standings={"BLUE": [], "RED": []}, scoreboard=[],
                            fees={}, pool={"alive": [], "eliminated": []},
                            transactions={"BLUE": [], "RED": []}, lineups=None,
-                           byes=[], payout=None, champion=_latest_champion())
+                           byes=[], payout=None, titles={},
+                           champion=_latest_champion())
         sid = s["id"]
         wk = int(request.args.get("week") or s["current_ff_week"])
         stand = st.compute_standings(conn, sid, wk)
@@ -585,6 +586,7 @@ def create_app(db_path: str | None = None) -> Flask:
                        standings=stand, scoreboard=board, fees=fees, pool=pool,
                        transactions=tx, lineups=lineups, byes=byes,
                        champion=_latest_champion(),
+                       titles=titles.for_season(conn, sid),
                        payout=st.final_payout(conn, sid))
 
     @app.get("/api/team/<int:team_id>/detail")
@@ -625,6 +627,7 @@ def create_app(db_path: str | None = None) -> Flask:
                        roster=roster, fees=fees, history=hist, payments=pays, opens=opens,
                        box=scoring.box_score(conn, sid, wk, team_id),
                        adjusted=bool(tw and tw["adjusted"]),
+                       titles=titles.for_season(conn, sid).get(team_id),
                        team_total=(tw["computed_points"] if tw else None))
 
     @app.get("/api/team/<int:team_id>/available")

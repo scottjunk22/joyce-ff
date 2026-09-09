@@ -23,6 +23,14 @@
  .champband{background:color-mix(in srgb,var(--warn) 14%,var(--panel));border-bottom:1px solid var(--line);
    text-align:center;padding:5px 12px;font-size:12.5px;display:none}
  .champband.on{display:block}
+ .crown{margin-left:4px;font-size:11.5px;vertical-align:1px}
+ .tcase{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:9px 0 2px;padding:8px 11px;
+   background:color-mix(in srgb,var(--warn) 12%,var(--panel2));border-radius:10px;
+   border:1px solid color-mix(in srgb,var(--warn) 45%,var(--line))}
+ .tcase .cups{font-size:15px;letter-spacing:1px;line-height:1;white-space:nowrap}
+ .tcase .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--warn);font-weight:800}
+ .tcase .yrs{color:var(--dim);font-size:12.5px}
+ .tcase .yrs b{color:var(--text);font-weight:600}
  .champband b{color:var(--warn)}
  .foot{margin:30px 0 10px;padding-top:14px;border-top:1px solid var(--line);text-align:center;
    color:var(--dim);font-size:12px}
@@ -246,6 +254,24 @@ function renderChrome(){
   if(sc) sc.href=(API||'')+'/scoring';
   if(hi) hi.href=(API||'')+'/history';
 }
+/* Championships, shown where people already look. The crown flies on the
+   DEFENDING champion only — one team, all season. The trophy case is every
+   title a team has ever won, and lives on the team itself so the record is
+   attached to them permanently rather than only on the history page.
+   The server omits teams that have never won, so absent == never won. */
+function crownFor(t){ return (t&&t.defending)
+  ? ' <span class="crown" title="Defending champion">\u{1F3C6}</span>' : ''; }
+function crown(id){ return crownFor((STATE.titles||{})[id]); }
+function trophyCase(t){
+  if(!t||!t.count) return '';
+  const cups = t.count<=4 ? '\u{1F3C6}'.repeat(t.count)
+                          : `\u{1F3C6} <span class="lbl">\u00d7${t.count}</span>`;
+  const lbl = t.defending ? 'Defending champion'
+            : t.count>1 ? `${t.count}\u00d7 champion` : 'Champion';
+  return `<div class="tcase"><span class="cups">${cups}</span>`
+    + `<span class="lbl">${lbl}</span>`
+    + `<span class="yrs">${t.years.map(y=>`<b>${y}</b>`).join(' \u00b7 ')}</span></div>`;
+}
 function _ord(n){ const t=n%100; if(t>=11&&t<=13) return 'th';
   return {1:'st',2:'nd',3:'rd'}[n%10]||'th'; }
 function buildSeasonPicker(){
@@ -265,7 +291,7 @@ function renderScores(){
     const isCur = VIEW===CUR;
     const tp=t=>t.to_play>0?`<span class="toplay">${t.to_play} to play</span>`:'';
     const flag=t=>(isCur && !done && !t.lineup_set)?`<span class="noflag">${TRI} no lineup</span>`:'';
-    const row=(t,win)=>`<div class="r ${win?'win':''}"><span class="nm">${t.name}</span>${flag(t)}${tp(t)}${t.adjusted?'<span class="adj" title="commissioner-adjusted">adj</span>':''}<span class="s">${f(t.points)}</span></div>`;
+    const row=(t,win)=>`<div class="r ${win?'win':''}"><span class="nm">${t.name}${crown(t.id)}</span>${flag(t)}${tp(t)}${t.adjusted?'<span class="adj" title="commissioner-adjusted">adj</span>':''}<span class="s">${f(t.points)}</span></div>`;
     return `<div class="game" onclick="boxScore(${g.home.id},${g.away.id})">${row(g.home,hw)}${row(g.away,aw)}
       <div class="meta"><span class="${done?'final':''}">${done?'Final':g.kind.toLowerCase()} · Week ${VIEW}</span><span class="boxlink">box score ›</span></div></div>`;
   }).join('') || '<span class="sub">No games this week.</span>';
@@ -278,7 +304,7 @@ function renderByes(){
 }
 function teamRow(t){
   return `<tr class="${t.playoffs?'playoff':''}"><td>${t.seed}</td>
-    <td><span class="tname" onclick="roster(${t.team_id})">${t.name}</span>
+    <td><span class="tname" onclick="roster(${t.team_id})">${t.name}</span>${crown(t.team_id)}
     <span class="acts"><span class="chip" onclick="event.stopPropagation();lineupModal(${t.team_id})">⚙</span>
     <span class="chip" onclick="event.stopPropagation();txModal(${t.team_id})">⇄＋</span></span></td>
     <td>${t.wins}-${t.losses}-${t.ties}</td><td>${t.conf_wins}-${t.conf_losses}</td>
@@ -322,7 +348,7 @@ async function boxScore(homeId,awayId){
       +`<span class="nm">${has?'<span class="ci">▸</span>':''}${x.display}${x.is_rental?' <span class="tag-open">OPEN</span>':''}</span>`
       +`<span class="pts">${(x.points||0).toFixed(0)}</span></div>`
       +(has?`<div class="bd" style="display:none">${bdLines(x)}</div>`:'');};
-  const col=(t,cls,won)=>`<div class="boxcol ${cls} ${won?'won':''}"><div class="bh"><span>${t.name}</span><span class="tot">${tot(t).toFixed(0)}</span></div>`
+  const col=(t,cls,won)=>`<div class="boxcol ${cls} ${won?'won':''}"><div class="bh"><span>${t.name}${crownFor(t.titles)}</span><span class="tot">${tot(t).toFixed(0)}</span></div>`
     +t.box.map(entry).join('')
     +(t.adjusted?`<div class="bdline" style="color:var(--warn);padding-left:10px">⚠ commissioner-adjusted total; player lines are the raw scores</div>`:'')
     +`</div>`;
@@ -342,7 +368,7 @@ async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?we
     +(d.payments||[]).map(p=>`<div class="frow"><span>✓ payment${p.note?` <span class="sub">(${p.note})</span>`:''}</span><span class="paid">−${b(p.amount_cents)}</span></div>`).join('')
     +(f.winnings_cents?`<div class="frow"><span>🏆 Week 15 winnings</span><span class="paid">−${b(f.winnings_cents)}</span></div>`:'')
     +`</div>`;
-  openM(`<h3>${d.name} — Roster</h3><div style="margin-top:10px">${rows}</div>${openRows?`<div class="sub" style="margin-top:10px">Open this week (1-week rentals)</div>${openRows}`:''}${fees}${pinBox(id)}`);
+  openM(`<h3>${d.name} — Roster</h3>${trophyCase(d.titles)}<div style="margin-top:10px">${rows}</div>${openRows?`<div class="sub" style="margin-top:10px">Open this week (1-week rentals)</div>${openRows}`:''}${fees}${pinBox(id)}`);
 }
 /* Manager PIN. Unclaimed + window open -> set one. Claimed -> change it (needs
    the current PIN). Forgotten PINs are a commissioner reset, by design: PINs are
