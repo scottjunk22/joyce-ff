@@ -180,17 +180,20 @@ def create_app(db_path: str | None = None) -> Flask:
                  + (f'<div class="mg">def. {top["runner_up"]}</div>' if top["runner_up"] else "")
                  + "</div>")
 
+        # Gold for whoever leads on titles, blue for the other repeat winners, so
+        # the outright leader isn't visually tied with the two-timers.
+        best = max(titles.values())
         body = ""
         for r in rows:
             n = titles[key(r["team"])]
-            badge = f' <span class="mult">&times;{n}</span>' if n > 1 else ""
+            tier = "gold" if n == best and n > 1 else ("silver" if n > 1 else "")
+            badge = f' <span class="mult {tier}">&times;{n}</span>' if n > 1 else ""
             body += (f'<tr><td class="yr">{r["label"]}</td>'
-                     f'<td class="{"tm multi" if n > 1 else "tm"}">{r["team"]}{badge}</td>'
+                     f'<td class="tm {("multi " + tier) if n > 1 else ""}">{r["team"]}{badge}</td>'
                      f'<td class="mg">{r["runner_up"] or ""}</td></tr>')
         table = ("<table><thead><tr><th>Season</th><th>Champion</th><th>Runner-up</th></tr>"
                  f"</thead><tbody>{body}</tbody></table>")
 
-        best = max(titles.values())
         repeats = sum(1 for v in titles.values() if v > 1)
         seen, leaders = set(), []
         for r in rows:
