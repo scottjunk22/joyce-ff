@@ -202,6 +202,8 @@ def cmd_run_current(_argv: list[str]) -> int:
         parts.append(f"finalized {r['scored']}")
     if r["live"]:
         parts.append(f"live-updated {r['live']}")
+    if r.get("note"):
+        parts.append(r["note"])
     print(f"[{stamp}] run-current: {'; '.join(parts) or 'nothing to score yet'}")
     conn.close()
     return 0

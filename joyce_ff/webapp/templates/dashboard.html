@@ -23,6 +23,10 @@
  .champband{background:color-mix(in srgb,var(--warn) 14%,var(--panel));border-bottom:1px solid var(--line);
    text-align:center;padding:5px 12px;font-size:12.5px;display:none}
  .champband.on{display:block}
+ .snote{display:none;background:color-mix(in srgb,var(--warn) 10%,var(--panel));
+   border:1px solid color-mix(in srgb,var(--warn) 45%,var(--line));border-radius:10px;
+   padding:9px 12px;margin:0 0 11px;color:var(--text);font-size:13px;line-height:1.45}
+ .snote.on{display:block} .snote b{color:var(--warn)}
  .crown{margin-left:4px;font-size:11.5px;vertical-align:1px}
  .champband b{color:var(--warn)}
  .foot{margin:30px 0 10px;padding-top:14px;border-top:1px solid var(--line);text-align:center;
@@ -153,6 +157,7 @@
 <div class="champband" id="champband"></div>
 <div class="wrap">
  <h2>Scoreboard <span class="sub" style="text-transform:none;letter-spacing:0" id="upd"></span></h2>
+ <div class="snote" id="snote"></div>
  <div class="byestrip" id="byes"></div>
  <div class="scores" id="scores"></div>
 
@@ -211,6 +216,12 @@ async function load(week, seasonId){
   buildSeasonPicker(); buildWeekPicker(); renderScores(); renderByes(); renderStandings(); renderElim(); renderTx();
   renderChrome();
   $('seasonlbl').textContent = STATE.season.label;
+  /* Why the scoreboard is empty, when it is. A blank scoreboard and a
+     scoreboard of real zeros look identical, so the reason gets said out loud
+     rather than left for someone to guess at. */
+  const sn=$('snote'), note=STATE.scoring_note;
+  if(sn){ if(note){ sn.innerHTML='<b>No scores yet.</b> '+note; sn.classList.add('on'); }
+          else sn.classList.remove('on'); }
   const lu = STATE.season.last_updated;
   $('upd').innerHTML = '— updates as games finish' + (lu ? ' · last updated '+new Date(lu).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '');
 }

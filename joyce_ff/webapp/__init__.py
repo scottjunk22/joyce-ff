@@ -18,7 +18,7 @@ from pathlib import Path
 
 from flask import Flask, g, jsonify, redirect, render_template, request
 
-from ..league import auth, repo, schema, scoring, titles
+from ..league import auth, repo, runner, schema, scoring, titles
 from ..scoring import rules
 from ..league import standings as st
 
@@ -587,6 +587,7 @@ def create_app(db_path: str | None = None) -> Flask:
                        transactions=tx, lineups=lineups, byes=byes,
                        champion=_latest_champion(),
                        titles=titles.for_season(conn, sid),
+                       scoring_note=runner.scoring_note(conn, sid),
                        payout=st.final_payout(conn, sid))
 
     @app.get("/api/team/<int:team_id>/detail")

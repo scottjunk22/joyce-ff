@@ -21,6 +21,7 @@ import os
 import time
 import urllib.request
 import warnings
+from urllib.error import HTTPError
 from datetime import date
 from pathlib import Path
 
@@ -87,10 +88,29 @@ def _download(url: str, dest: Path, max_age: float | None = None) -> Path:
     return _fetch(url, dest)
 
 
+class NotPublishedYet(RuntimeError):
+    """nflverse has no file for this season yet.
+
+    Distinct from a network failure on purpose. The schedules CSV carries final
+    scores the moment a game ends, but the play-by-play parquet for a new season
+    isn't built until after its first games — so between the opener kicking off
+    and that file appearing, the scores exist and the stats to compute them do
+    not. Callers must say so out loud rather than showing a blank scoreboard;
+    a silent zero is indistinguishable from a real one."""
+
+
 def load_pbp(season: int) -> pd.DataFrame:
     dest = CACHE_DIR / f"play_by_play_{season}.parquet"
-    _download(PBP_URL.format(season=season), dest,
-              max_age=LIVE_MAX_AGE if _is_live(season) else None)
+    try:
+        _download(PBP_URL.format(season=season), dest,
+                  max_age=LIVE_MAX_AGE if _is_live(season) else None)
+    except HTTPError as e:
+        if e.code == 404 and not dest.exists():
+            raise NotPublishedYet(
+                f"nflverse hasn't published {season} play-by-play yet. Scores "
+                f"appear once it does — usually within a day of the first "
+                f"games. Nothing is wrong with the league setup.") from e
+        raise
     return pd.read_parquet(dest)
 
 

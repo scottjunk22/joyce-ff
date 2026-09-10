@@ -105,21 +105,60 @@ def run_current(conn, season_id: int) -> dict:
     weeks = [r["ff_week"] for r in conn.execute(
         "SELECT DISTINCT ff_week FROM weekly_lineups WHERE season_id=? ORDER BY ff_week",
         (season_id,))]
+    if not weeks:
+        # Nothing to score isn't the same as nothing happening. Say which.
+        return _note(conn, season_id,
+                     "No lineups have been submitted yet, so there is nothing to "
+                     "score. Set a lineup for at least one team and this will "
+                     "start filling in.")
+
     scored, live = [], []
-    for ff in weeks:
-        if _is_finalized(conn, season_id, ff):
-            continue
-        n_final, n_games = played.get(scoring.nfl_week_for(conn, season_id, ff), (0, 0))
-        if n_games and n_final == n_games:
-            run_week(conn, season_id, ff, do_ingest=True, eliminate=True, carry=True)
-            conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,'1')",
-                         (_final_key(season_id, ff),))
-            conn.commit()
-            scored.append(ff)
-        elif n_final:
-            run_week(conn, season_id, ff, do_ingest=True, eliminate=False, carry=False)
-            live.append(ff)
-    return {"scored": scored, "live": live}
+    try:
+        for ff in weeks:
+            if _is_finalized(conn, season_id, ff):
+                continue
+            n_final, n_games = played.get(scoring.nfl_week_for(conn, season_id, ff), (0, 0))
+            if n_games and n_final == n_games:
+                run_week(conn, season_id, ff, do_ingest=True, eliminate=True, carry=True)
+                conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,'1')",
+                             (_final_key(season_id, ff),))
+                conn.commit()
+                scored.append(ff)
+            elif n_final:
+                run_week(conn, season_id, ff, do_ingest=True, eliminate=False, carry=False)
+                live.append(ff)
+    except nv.NotPublishedYet as e:
+        # Games have finished but the stats behind them don't exist yet. An
+        # empty scoreboard here would look exactly like a scoreboard of zeros,
+        # so this has to reach the site as words.
+        return _note(conn, season_id, str(e), scored=scored, live=live)
+
+    _clear_note(conn, season_id)
+    return {"scored": scored, "live": live, "note": None}
+
+
+def _note_key(season_id: int) -> str:
+    return f"scoring_note:{season_id}"
+
+
+def _note(conn, season_id: int, msg: str, scored=None, live=None) -> dict:
+    """Record why a run produced nothing, for the site to display."""
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)",
+                 (_note_key(season_id), msg))
+    conn.commit()
+    return {"scored": scored or [], "live": live or [], "note": msg}
+
+
+def _clear_note(conn, season_id: int) -> None:
+    conn.execute("DELETE FROM settings WHERE key=?", (_note_key(season_id),))
+    conn.commit()
+
+
+def scoring_note(conn, season_id: int) -> str | None:
+    """The last reason scoring produced nothing, or None if all is well."""
+    r = conn.execute("SELECT value FROM settings WHERE key=?",
+                     (_note_key(season_id),)).fetchone()
+    return r["value"] if r else None
 
 
 def reconcile_week(conn, season_id: int, ff_week: int, tol: float = 0.5) -> dict:
