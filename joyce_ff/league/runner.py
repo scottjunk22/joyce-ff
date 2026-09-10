@@ -2,48 +2,34 @@
 The weekly automation runner — the "it scores itself" command.
 
 run_week() orchestrates the pipeline for one FF week: pull the NFL stats, score
-every team from its submitted lineup, run the elimination step, and advance the
-season. Idempotent — safe to re-run when a stat corrects.
+every team from its lineup, run the elimination step, and advance the season.
+Each NFL game's stats lock the first time they're complete (scoring.py), so
+re-running never moves a finished game's points.
 
-reconcile_week() compares our computed totals against the legacy site's posted
-totals (populated by scrape.py) and flags any disagreement.
+run_current() is what the hourly job calls; its docstring walks through a
+week's lifecycle. reconcile_week() compares our computed totals against the
+legacy site's posted totals (populated by scrape.py) and flags any disagreement.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import datetime as _dt
 
-from . import scoring
+from . import progress, scoring
 from . import standings as st
+
+# How long after its last kickoff a week still counts as the one being played:
+# long enough to ride out nflverse running days late, short enough that a
+# finished season's empty weeks are never filled in after the fact.
+ACTIVE_GRACE = _dt.timedelta(days=7)
 
 
 def carry_forward_lineups(conn, season_id: int, ff_week: int) -> int:
-    """Rule: a team that didn't set a lineup keeps last week's. Copies the most
-    recent prior week's (non-rental) starters for any team missing one."""
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    filled = 0
-    for r in conn.execute("SELECT id FROM teams WHERE season_id=?", (season_id,)):
-        tid = r["id"]
-        if conn.execute("SELECT 1 FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=? LIMIT 1",
-                        (season_id, tid, ff_week)).fetchone():
-            continue
-        prev = conn.execute(
-            "SELECT MAX(ff_week) w FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week<?",
-            (season_id, tid, ff_week)).fetchone()["w"]
-        if prev is None:
-            continue
-        for s in conn.execute(
-            "SELECT roster_slot, asset_kind, asset_ref, unit_type FROM weekly_lineups "
-            "WHERE season_id=? AND team_id=? AND ff_week=? AND is_rental=0",
-                (season_id, tid, prev)):
-            conn.execute(
-                "INSERT INTO weekly_lineups(season_id,team_id,ff_week,roster_slot,asset_kind,"
-                "asset_ref,unit_type,is_rental,submitted_at) VALUES (?,?,?,?,?,?,?,0,?)",
-                (season_id, tid, ff_week, s["roster_slot"], s["asset_kind"], s["asset_ref"],
-                 s["unit_type"], now))
-        filled += 1
-    conn.commit()
-    return filled
+    """Rule: a team that didn't set a lineup keeps last week's — made the way
+    the commissioner would make it by hand (see carry.py). Returns how many
+    teams got one."""
+    from . import carry
+    return carry.carry_forward(conn, season_id, ff_week)
 
 
 def run_week(conn, season_id: int, ff_week: int, *, do_ingest: bool = True,
@@ -68,80 +54,99 @@ def run_week(conn, season_id: int, ff_week: int, *, do_ingest: bool = True,
     return summary
 
 
-def _final_key(season_id: int, ff_week: int) -> str:
-    return f"week_final:{season_id}:{ff_week}"
-
-
 def _is_finalized(conn, season_id: int, ff_week: int) -> bool:
-    row = conn.execute("SELECT value FROM settings WHERE key=?",
-                       (_final_key(season_id, ff_week),)).fetchone()
-    return bool(row) and row["value"] == "1"
+    return progress.is_finalized(conn, season_id, ff_week)
 
 
-def run_current(conn, season_id: int) -> dict:
+def run_current(conn, season_id: int, now: _dt.datetime | None = None) -> dict:
     """Bring every FF week up to date with the NFL games played so far.
 
-    Designed for an hourly schedule on the host:
-      * NFL week fully final  -> score, carry forward missing lineups, run the
-                                 elimination, and mark the week finalized so
-                                 later runs skip it.
-      * NFL week in progress  -> re-score from the games already final, so
-                                 totals climb through the weekend. No lineup
-                                 carry-forward (managers may still be setting
-                                 theirs) and NO elimination — the lowest score
-                                 isn't knowable until every game is done.
-      * NFL week not started  -> skipped.
-
-    Idempotent: an unfinalized week is always re-ingested (so a week first
-    scored live gets a complete re-score once it finishes), and a finalized
-    week is left alone.
+    Designed for an hourly schedule on the host. A week's lifecycle:
+      * first game kicks off -> any team without a lineup gets last week's,
+                                carried forward the way the commissioner would
+                                (carry.py). From then on it's their lineup.
+      * games in progress    -> score what's in. Each NFL game locks the first
+                                time its stats are complete and its points never
+                                move again. A matchup whose starters are all
+                                locked is final and goes on the records, and the
+                                week's elimination is called as soon as it's
+                                certain (standings.try_early_elimination).
+      * every game locked    -> the final run: the elimination if it hasn't
+                                been called yet, the week marked finalized, and
+                                later runs skip it.
+      * not started          -> skipped.
     """
     from ..data_sources import nflverse as nv
+    from . import carry
+    from .locks import ET, _kickoff
 
+    now = now or _dt.datetime.now(ET)
     year = conn.execute("SELECT year FROM seasons WHERE id=?", (season_id,)).fetchone()["year"]
     g = nv.load_games()
     g = g[g["season"] == year]
-    played = {}   # nfl week -> (games final, games total, ids of the final ones)
+    played, kicks = {}, {}   # nfl week -> (final, total, final ids) / (first, last kickoff)
     for w, grp in g.groupby("week"):
         fin = grp["home_score"].notna()
         played[int(w)] = (int(fin.sum()), int(len(grp)), set(grp.loc[fin, "game_id"]))
+        kos = [k for k in (_kickoff(r.get("gameday"), r.get("gametime"))
+                           for r in grp.to_dict("records")) if k]
+        if kos:
+            kicks[int(w)] = (min(kos), max(kos))
 
-    weeks = [r["ff_week"] for r in conn.execute(
-        "SELECT DISTINCT ff_week FROM weekly_lineups WHERE season_id=? ORDER BY ff_week",
-        (season_id,))]
-    if not weeks:
-        # Nothing to score isn't the same as nothing happening. Say which.
-        return _note(conn, season_id,
-                     "No lineups have been submitted yet, so there is nothing to "
-                     "score. Set a lineup for at least one team and this will "
-                     "start filling in.")
+    # The week being played right now: its first game has kicked off and its
+    # last isn't long over. Only that week gets lineups carried forward — a
+    # past season's empty weeks must never be filled in after the fact.
+    active = set()
+    for r in conn.execute("SELECT DISTINCT ff_week FROM matchups WHERE season_id=?",
+                          (season_id,)).fetchall():
+        k = kicks.get(scoring.nfl_week_for(conn, season_id, r["ff_week"]))
+        if k:
+            progress.store_kickoffs(conn, season_id, r["ff_week"], *k)
+            if k[0] <= now <= k[1] + ACTIVE_GRACE:
+                active.add(r["ff_week"])
+    conn.commit()
+
+    weeks = sorted(active | {r["ff_week"] for r in conn.execute(
+        "SELECT DISTINCT ff_week FROM weekly_lineups WHERE season_id=?", (season_id,))})
 
     scored, live = [], []
     try:
         for ff in weeks:
-            if _is_finalized(conn, season_id, ff):
+            if progress.is_finalized(conn, season_id, ff):
+                continue
+            if ff in active:
+                carry.carry_forward(conn, season_id, ff)      # first kickoff has passed
+            if not conn.execute("SELECT 1 FROM weekly_lineups WHERE season_id=? AND ff_week=? "
+                                "LIMIT 1", (season_id, ff)).fetchone():
                 continue
             n_final, n_games, final_ids = played.get(
                 scoring.nfl_week_for(conn, season_id, ff), (0, 0, set()))
             # Final means every score is posted AND every game's stats are in.
             # The schedule alone runs hours ahead of the play-by-play, and
             # finalizing is one-way: it eliminates a team and locks the week.
-            # Until the stats catch up the week keeps updating as in progress.
             if n_games and n_final == n_games and final_ids <= nv.finished_games(year):
                 run_week(conn, season_id, ff, do_ingest=True, eliminate=True, carry=True)
-                conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,'1')",
-                             (_final_key(season_id, ff),))
+                progress.mark_finalized(conn, season_id, ff)
                 conn.commit()
                 scored.append(ff)
             elif n_final:
                 st.mark_live(conn, season_id, ff)
                 run_week(conn, season_id, ff, do_ingest=True, eliminate=False, carry=False)
+                st.try_early_elimination(conn, season_id, ff, now=now)
                 live.append(ff)
     except nv.NotPublishedYet as e:
         # Games have finished but the stats behind them don't exist yet. An
         # empty scoreboard here would look exactly like a scoreboard of zeros,
         # so this has to reach the site as words.
         return _note(conn, season_id, str(e), scored=scored, live=live)
+
+    if not scored and not live and not conn.execute(
+            "SELECT 1 FROM weekly_lineups WHERE season_id=? LIMIT 1", (season_id,)).fetchone():
+        # Nothing to score isn't the same as nothing happening. Say which.
+        return _note(conn, season_id,
+                     "No lineups have been submitted yet, so there is nothing to "
+                     "score. Set a lineup for at least one team and this will "
+                     "start filling in.")
 
     _clear_note(conn, season_id)
     return {"scored": scored, "live": live, "note": None}

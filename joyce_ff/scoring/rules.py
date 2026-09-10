@@ -136,6 +136,25 @@ WEEKLY_STARTERS = {
     "R": 3,       # start 3 of 4
 }  # total started = 9
 
+# The bye-week flex (confirmed with the commissioner). When byes leave you
+# short at one position you may start your spare at the other instead:
+#   * 3 RB + 2 R — only when 2 or more of your receivers are on bye;
+#   * 1 RB + 4 R — only when 2 or more of your RBs are on bye.
+# No other mix is legal. "On bye" means the player's NFL team has no game that
+# week — an injured or inactive player doesn't count. It counts your ROSTER
+# (2 of your 4 receivers, 2 of your 3 RBs), and a bye player you've covered
+# with an Open doesn't count: the Open already filled the hole the flex exists
+# to fill. Enforced in league/repo.py (LEGAL_SKILL, set_lineup).
+BYE_FLEX_MIN_ON_BYE = 2
+
+# An unset lineup carries forward the previous week's (commissioner). The copy
+# is made when the week's first game kicks off, and it's then the team's lineup
+# like any other: anyone whose game has started is locked in. It's fixed the
+# way the commissioner would fix it by hand — traded players replaced, last
+# week's Open giving way to the player it covered, a flex that's no longer
+# legal rolled back, bye players replaced from the bench (then by the flex).
+# See league/carry.py.
+
 # Team counts. The league has 22 teams total, but it drafts as TWO SEPARATE
 # 11-team divisions (Blue/Red), each with its OWN draft from the FULL NFL pool
 # — the same NFL player/team-unit can be owned in both divisions at once.

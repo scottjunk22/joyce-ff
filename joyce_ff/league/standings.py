@@ -14,6 +14,9 @@ from datetime import datetime, timezone
 from itertools import groupby
 
 from ..schedule import rotation
+from . import progress
+# Re-exported: the runner and the tests reach these as standings.*.
+from .progress import clear_live, live_weeks, mark_live  # noqa: F401
 
 
 def _now() -> str:
@@ -60,40 +63,16 @@ def _blank(team) -> dict:
             "pf": 0.0, "pa": 0.0}
 
 
-# --- weeks still being played ---------------------------------------------
-# The hourly runner scores a week while its NFL games are still going, so the
-# scoreboard climbs through the weekend. Those running totals are not results:
-# a team up 40-12 at 4pm Sunday hasn't won anything. Such weeks are flagged
-# IN PROGRESS until they're final, and everything that decides outcomes —
-# records, PF/PA, seeds, the payout — skips them.
-#
-# The flag marks in-progress weeks rather than finished ones on purpose: weeks
-# scored before this existed, or by the run-week command, carry no flag and
-# keep counting exactly as they always have.
-
-def _live_key(season_id: int, ff_week: int) -> str:
-    return f"week_live:{season_id}:{ff_week}"
-
-
-def mark_live(conn, season_id: int, ff_week: int) -> None:
-    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES (?,'1')",
-                 (_live_key(season_id, ff_week),))
-
-
-def clear_live(conn, season_id: int, ff_week: int) -> None:
-    conn.execute("DELETE FROM settings WHERE key=?", (_live_key(season_id, ff_week),))
-
-
-def live_weeks(conn, season_id: int) -> set[int]:
-    prefix = f"week_live:{season_id}:"
-    return {int(r["key"][len(prefix):]) for r in conn.execute(
-        "SELECT key FROM settings WHERE key LIKE ?", (prefix + "%",))}
-
+# A week still being played is flagged IN PROGRESS (progress.py): its running
+# totals aren't results — a team up 40-12 at 4pm Sunday hasn't won anything.
+# In such a week a matchup counts only once both teams are done (every
+# starter's game locked, nothing left that could change the total); the
+# Week-15 payout waits for the whole week.
 
 def compute_standings(conn, season_id: int, through_week: int | None = None) -> dict:
     """Return {'BLUE': [ranked team dicts], 'RED': [...]} with records, PF/PA,
-    and playoff seed (1-based). Only games where both teams have a score count,
-    and never a week that is still being played.
+    and playoff seed (1-based). Only games where both teams have a score count;
+    in a week still being played, only matchups that are already decided.
     """
     teams = conn.execute(
         "SELECT t.id, t.name, c.code conf FROM teams t "
@@ -106,14 +85,19 @@ def compute_standings(conn, season_id: int, through_week: int | None = None) -> 
         scores[(r["team_id"], r["ff_week"])] = r["computed_points"]
 
     live = live_weeks(conn, season_id)
+    week_status: dict[int, dict] = {}
     results = []  # (winner_id, loser_id) for H2H, ties excluded
     q = "SELECT ff_week, kind, home_team_id, away_team_id FROM matchups WHERE season_id=? AND away_team_id IS NOT NULL"
-    for m in conn.execute(q, (season_id,)):
+    for m in conn.execute(q, (season_id,)).fetchall():
         if through_week is not None and m["ff_week"] > through_week:
             continue
-        if m["ff_week"] in live:
-            continue
         h, a = m["home_team_id"], m["away_team_id"]
+        if m["ff_week"] in live:
+            s = week_status.get(m["ff_week"])
+            if s is None:
+                s = week_status[m["ff_week"]] = progress.statuses(conn, season_id, m["ff_week"])
+            if not (s.get(h, {}).get("done") and s.get(a, {}).get("done")):
+                continue
         hs, as_ = scores.get((h, m["ff_week"])), scores.get((a, m["ff_week"]))
         if hs is None or as_ is None:
             continue
@@ -178,6 +162,43 @@ def run_elimination(conn, season_id: int, ff_week: int) -> list[int]:
     tied = [r["team_id"] for r in rows if r["computed_points"] == low]
     conn.executemany("UPDATE teams SET alive=0, eliminated_ff_week=? WHERE id=?",
                      [(ff_week, tid) for tid in tied])
+    conn.commit()
+    return tied
+
+
+def try_early_elimination(conn, season_id: int, ff_week: int, now=None) -> list[int]:
+    """Eliminate this week's lowest scorer(s) before the week is over, once the
+    result is certain. Returns the eliminated team_ids ([] if not certain yet,
+    or already decided this week).
+
+    Safe because no slot in this league scores negative: points from a locked
+    game can't be taken away, so every team's locked total is the least it can
+    finish with. Team X is out when
+      * X is done (every starter's game locked, nothing left that could change), and
+      * every other survivor has already locked in MORE than X — running totals
+        from games still going don't count, since a defense's points can drop
+        mid-game as the other team scores.
+    A survivor with exactly X's score locked in and players left could finish
+    tied (a tie for lowest eliminates everyone tied) or above, so that waits.
+    A team with no lineup, or a commissioner-overridden total, also waits: the
+    final run settles those."""
+    if conn.execute("SELECT 1 FROM teams WHERE season_id=? AND eliminated_ff_week=?",
+                    (season_id, ff_week)).fetchone():
+        return []
+    alive = [r["id"] for r in conn.execute(
+        "SELECT id FROM teams WHERE season_id=? AND alive=1", (season_id,))]
+    s = progress.statuses(conn, season_id, ff_week, now=now)
+    if not alive or any(t not in s or not s[t]["has_lineup"] or s[t]["adjusted"] for t in alive):
+        return []
+    done = {t: s[t]["floor"] for t in alive if s[t]["done"]}
+    if not done:
+        return []
+    low = min(done.values())
+    if any(t not in done and s[t]["floor"] <= low for t in alive):
+        return []
+    tied = [t for t, pts in done.items() if pts == low]
+    conn.executemany("UPDATE teams SET alive=0, eliminated_ff_week=? WHERE id=?",
+                     [(ff_week, t) for t in tied])
     conn.commit()
     return tied
 

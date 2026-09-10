@@ -188,25 +188,45 @@ def cmd_run_week(argv: list[str]) -> int:
 
 
 def cmd_run_current(_argv: list[str]) -> int:
-    from joyce_ff.league import connect
+    """The hourly job. Scores the league, and the practice universe too when it
+    exists — a rehearsal is only a rehearsal if it runs on the same clock."""
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from joyce_ff.league import connect, schema
     from joyce_ff.league.runner import run_current
 
-    from datetime import datetime, timezone
+    main = Path(schema.DEFAULT_DB_PATH)
+    dbs = [("league", main)]
+    practice = main.with_name("league_dark.sqlite")      # same rule as the web app
+    if practice.exists():
+        dbs.append(("practice", practice))
 
-    conn = connect()
-    sid = conn.execute("SELECT id FROM seasons ORDER BY year DESC LIMIT 1").fetchone()["id"]
-    r = run_current(conn, sid)
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    parts = []
-    if r["scored"]:
-        parts.append(f"finalized {r['scored']}")
-    if r["live"]:
-        parts.append(f"live-updated {r['live']}")
-    if r.get("note"):
-        parts.append(r["note"])
-    print(f"[{stamp}] run-current: {'; '.join(parts) or 'nothing to score yet'}")
-    conn.close()
-    return 0
+    failed = 0
+    for label, path in dbs:
+        conn = connect(path)
+        try:
+            schema.migrate(conn)              # the CLI doesn't migrate on connect
+            row = conn.execute("SELECT id FROM seasons ORDER BY year DESC LIMIT 1").fetchone()
+            if row is None:
+                print(f"[{stamp}] run-current ({label}): no season yet")
+                continue
+            r = run_current(conn, row["id"])
+            parts = []
+            if r["scored"]:
+                parts.append(f"finalized {r['scored']}")
+            if r["live"]:
+                parts.append(f"live-updated {r['live']}")
+            if r.get("note"):
+                parts.append(r["note"])
+            print(f"[{stamp}] run-current ({label}): {'; '.join(parts) or 'nothing to score yet'}")
+        except Exception as e:              # one database failing mustn't stop the other
+            failed += 1
+            print(f"[{stamp}] run-current ({label}) FAILED: {type(e).__name__}: {e}")
+        finally:
+            conn.close()
+    return 1 if failed else 0
 
 
 def cmd_sync(_argv: list[str]) -> int:

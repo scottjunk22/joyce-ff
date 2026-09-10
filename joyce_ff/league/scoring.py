@@ -4,7 +4,8 @@ Weekly scoring pipeline.
 Two layers, split so the pure DB logic is testable without network:
   * ingest_asset_scores_from_nflverse() — pulls real stats for the NFL week,
     scores every player/unit with the validated engine, stores per-asset lines
-    (with breakdown) in asset_week_scores.
+    (with breakdown) in asset_week_scores, and locks each game the first time
+    its stats are complete.
   * score_team_week() / box_score() — pure DB: sum a team's started assets
     from its lineup, using the stored asset scores. No network.
 """
@@ -40,21 +41,32 @@ def _upsert_asset(conn, season_id, ff_week, kind, ref, unit, breakdown):
 def ingest_asset_scores_from_nflverse(conn, season_id: int, ff_week: int) -> int:
     """Score every player + team unit for the NFL week behind this FF week and
     store them. Returns the number of asset lines written. Needs nflverse data.
+
+    Per-game lock: the first run after a game's play-by-play reaches END GAME,
+    with its final score posted in the schedule, writes that game's lines one
+    last time and locks the game. From then on every line from it is left
+    alone, so a stat correction published on Monday can't move a Sunday result.
+    The commissioner scores from the box score as it stood; his score override
+    is the way to correct one.
     """
     from ..data_sources import nflverse as nv
     from ..scoring import engine as E
     from ..scoring.models import (CoachUnitGame, DefenseUnitGame, KickerUnitGame,
                                   PlayerGame, QBUnitGame)
+    from .progress import locked_teams
 
     year = conn.execute("SELECT year FROM seasons WHERE id=?", (season_id,)).fetchone()["year"]
     wk = nfl_week_for(conn, season_id, ff_week)
     pbp = nv.load_pbp(year)
     pbp = pbp[pbp["season_type"].isin(["REG", "POST"])]
     games = nv.load_games()
+    frozen = locked_teams(conn, season_id, ff_week)     # games locked on an earlier run
     n = 0
 
     pw = nv.player_week_stats(pbp)
     for _, r in pw[pw["week"] == wk].iterrows():
+        if r["team"] in frozen:
+            continue
         b = E.score_player_game(PlayerGame(
             player=r["name"], team=r["team"], rushing_yards=r.rushing_yards,
             rushing_tds=r.rushing_tds, receiving_yards=r.receiving_yards,
@@ -63,18 +75,24 @@ def ingest_asset_scores_from_nflverse(conn, season_id: int, ff_week: int) -> int
 
     qb = nv.qb_unit_week_stats(pbp)
     for _, r in qb[qb["week"] == wk].iterrows():
+        if r.team in frozen:
+            continue
         b = E.score_qb_unit_game(QBUnitGame(team=r.team, passing_yards=r.passing_yards,
                                             passing_tds=r.passing_tds))
         _upsert_asset(conn, season_id, ff_week, "TEAM_UNIT", r.team, "QB", b); n += 1
 
     kk = nv.kicker_unit_week_stats(pbp)
     for _, r in kk[kk["week"] == wk].iterrows():
+        if r.team in frozen:
+            continue
         b = E.score_kicker_unit_game(KickerUnitGame(team=r.team,
             field_goal_distances=tuple(r.fg_distances), extra_points_made=int(r.extra_points_made)))
         _upsert_asset(conn, season_id, ff_week, "TEAM_UNIT", r.team, "K", b); n += 1
 
     dd = nv.defense_unit_week_stats(pbp, games, year)
     for _, r in dd[dd["week"] == wk].iterrows():
+        if r.team in frozen:
+            continue
         b = E.score_defense_unit_game(DefenseUnitGame(team=r.team,
             points_allowed=int(r.points_allowed), yards_allowed=int(r.yards_allowed),
             sacks=int(r.sacks), interceptions=int(r.interceptions),
@@ -84,10 +102,33 @@ def ingest_asset_scores_from_nflverse(conn, season_id: int, ff_week: int) -> int
 
     cc = nv.coach_unit_week_stats(games, year)
     for _, r in cc[cc["week"] == wk].iterrows():
+        if r.team in frozen:
+            continue
         b = E.score_coach_unit_game(CoachUnitGame(team=r.team, won=bool(r.won), tied=bool(r.tied)))
         _upsert_asset(conn, season_id, ff_week, "TEAM_UNIT", r.team, "C", b); n += 1
 
+    _lock_finished_games(conn, season_id, ff_week, nv.finished_game_ids(pbp), games, year, wk)
     conn.commit()
+    return n
+
+
+def _lock_finished_games(conn, season_id, ff_week, finished, games, year, wk) -> int:
+    """Lock every game this week whose play-by-play has reached END GAME and
+    whose final score is posted — the coach's win and the defense's points
+    allowed both come from that score, so it has to be in too. The lines just
+    written for these games are the ones that stand. Returns how many locked."""
+    import pandas as pd
+
+    week = games[(games["season"] == year) & (games["week"] == wk)]
+    n = 0
+    for r in week.to_dict("records"):
+        if (r["game_id"] in finished and pd.notna(r["home_score"])
+                and pd.notna(r["away_score"])):
+            n += conn.execute(
+                "INSERT OR IGNORE INTO nfl_game_locks(season_id,ff_week,game_id,home_team,"
+                "away_team,locked_at) VALUES (?,?,?,?,?,?)",
+                (season_id, ff_week, r["game_id"], r["home_team"], r["away_team"],
+                 _now())).rowcount
     return n
 
 

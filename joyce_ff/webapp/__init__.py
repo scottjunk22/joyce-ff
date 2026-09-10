@@ -18,7 +18,7 @@ from pathlib import Path
 
 from flask import Flask, g, jsonify, redirect, render_template, request
 
-from ..league import auth, repo, runner, schema, scoring, titles
+from ..league import auth, progress, repo, runner, schema, scoring, titles
 from ..scoring import rules
 from ..league import standings as st
 
@@ -451,19 +451,6 @@ def create_app(db_path: str | None = None) -> Flask:
         a["net_cents"] = a["balance_cents"] - a["winnings_cents"]
         return a
 
-    def _pending_teams(conn, sid, wk):
-        """NFL teams that HAVE a game this FF week that isn't final yet (i.e.
-        'still to play'). Excludes bye teams (no game) and finished teams."""
-        from ..data_sources import nflverse as nv
-        year = conn.execute("SELECT year FROM seasons WHERE id=?", (sid,)).fetchone()["year"]
-        nflw = scoring.nfl_week_for(conn, sid, wk)
-        g = nv.load_games()
-        g = g[(g["season"] == year) & (g["week"] == nflw)]
-        playing = set(g["home_team"]) | set(g["away_team"])
-        gf = g[g["home_score"].notna()]
-        final = set(gf["home_team"]) | set(gf["away_team"])
-        return playing - final
-
     def _latest_champion():
         """Most recent crowned champion, for the band under the header."""
         r = db().execute("SELECT year, label, team, manager, note FROM champions "
@@ -507,21 +494,22 @@ def create_app(db_path: str | None = None) -> Flask:
             scores[r["team_id"]] = r["computed_points"]
             if r["adjusted"]:
                 adjusted.add(r["team_id"])
-        try:
-            pending = _pending_teams(conn, sid, wk)
-        except Exception:
-            pending = set()                    # unknown -> treat as all done
-        toplay, lset = {}, {}
-        for r in conn.execute("SELECT team_id, asset_kind, asset_ref FROM weekly_lineups "
-                              "WHERE season_id=? AND ff_week=?", (sid, wk)):
-            lset[r["team_id"]] = lset.get(r["team_id"], 0) + 1
-            abbr = _asset_team(conn, sid, r["asset_kind"], r["asset_ref"])
-            if abbr and abbr in pending:
-                toplay[r["team_id"]] = toplay.get(r["team_id"], 0) + 1
+        # Where each team stands this week, from the DB alone: starters still to
+        # play, done (every starter's game locked — the card says Final and the
+        # result counts), and whether the lineup was carried forward because the
+        # manager didn't set one.
+        stat = progress.statuses(conn, sid, wk)
+        carried = {r["team_id"]: (r["cf"], r["cn"]) for r in conn.execute(
+            "SELECT team_id, MAX(carried_from) cf, MAX(carry_note) cn FROM weekly_lineups "
+            "WHERE season_id=? AND ff_week=? GROUP BY team_id", (sid, wk))}
 
         def side(tid, name):
+            s_ = stat.get(tid, {})
+            cf, cn = carried.get(tid, (None, None))
             return {"id": tid, "name": name, "points": scores.get(tid),
-                    "to_play": toplay.get(tid, 0), "lineup_set": lset.get(tid, 0) >= 9,
+                    "to_play": s_.get("to_play", 0), "done": bool(s_.get("done")),
+                    "lineup_set": bool(s_.get("has_lineup")),
+                    "carried_from": cf, "carry_note": cn,
                     "adjusted": tid in adjusted}
         board = []
         for m in conn.execute(
@@ -561,9 +549,11 @@ def create_app(db_path: str | None = None) -> Flask:
         cur = s["current_ff_week"]
         alive_ids = {r["id"] for r in conn.execute(
             "SELECT id FROM teams WHERE season_id=? AND alive=1", (sid,))}
+        # A lineup carried forward doesn't count as "in": the manager didn't
+        # submit it, and the commissioner still wants to see who that was.
         cur_counts = {r["team_id"]: r["c"] for r in conn.execute(
             "SELECT team_id, COUNT(*) c FROM weekly_lineups WHERE season_id=? AND ff_week=? "
-            "GROUP BY team_id", (sid, cur))}
+            "AND carried_from IS NULL GROUP BY team_id", (sid, cur))}
         lin_in, lin_notin = 0, []
         for cc in ("BLUE", "RED"):
             for t in stand[cc]:

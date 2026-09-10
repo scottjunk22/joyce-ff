@@ -48,6 +48,7 @@
  .game .r.win .nm{font-weight:800}
  .toplay{font-size:10px;color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent);border-radius:999px;padding:1px 6px;white-space:nowrap}
  .noflag{font-size:11px;color:var(--warn);white-space:nowrap;display:inline-flex;align-items:center;gap:3px;font-weight:700}
+ .carried{font-size:11px;color:var(--dim);white-space:nowrap;font-weight:600}
  .adj{font-size:9px;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:0 4px;white-space:nowrap}
  .game .r .s{font-variant-numeric:tabular-nums;font-weight:700;min-width:26px;text-align:right}
  .game .meta{color:var(--dim);font-size:11px;margin-top:5px;border-top:1px solid var(--line);padding-top:5px;display:flex;justify-content:space-between}
@@ -277,13 +278,19 @@ function buildWeekPicker(){
 }
 function renderScores(){
   $('scores').innerHTML = STATE.scoreboard.map(g=>{
-    const done = g.home.to_play===0 && g.away.to_play===0;
+    /* Final = both teams done: every starter's game locked, so the result is
+       permanent and already on the records. Decided by the server. */
+    const done = !!(g.home.done && g.away.done);
     const hp=g.home.points, ap=g.away.points;
     const hw=done&&hp>ap, aw=done&&ap>hp;
     const f=v=>v==null?'<span class="sub">—</span>':(+v).toFixed(0);
     const isCur = VIEW===CUR;
     const tp=t=>t.to_play>0?`<span class="toplay">${t.to_play} to play</span>`:'';
-    const flag=t=>(isCur && !done && !t.lineup_set)?`<span class="noflag">${TRI} no lineup</span>`:'';
+    const flag=t=>{
+      if(t.carry_note) return `<span class="noflag" title="${String(t.carry_note).replace(/"/g,'&quot;')}">${TRI} check lineup</span>`;
+      if(t.carried_from) return `<span class="carried" title="No lineup submitted — using Week ${t.carried_from}'s">last week's lineup</span>`;
+      return (isCur && !done && !t.lineup_set)?`<span class="noflag">${TRI} no lineup</span>`:'';
+    };
     const row=(t,win)=>`<div class="r ${win?'win':''}"><span class="nm">${t.name}${crown(t.id)}</span>${flag(t)}${tp(t)}${t.adjusted?'<span class="adj" title="commissioner-adjusted">adj</span>':''}<span class="s">${f(t.points)}</span></div>`;
     return `<div class="game" onclick="boxScore(${g.home.id},${g.away.id})">${row(g.home,hw)}${row(g.away,aw)}
       <div class="meta"><span class="${done?'final':''}">${done?'Final':g.kind.toLowerCase()} · Week ${VIEW}</span><span class="boxlink">box score ›</span></div></div>`;

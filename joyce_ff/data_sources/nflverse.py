@@ -121,9 +121,13 @@ def finished_games(season: int) -> set[str]:
     the play-by-play every stat comes from can trail it by many hours (ten,
     for the 2026 opener). So "the schedule says final" is not "the stats are
     in" — a week is only safe to finalize once every game is finished HERE."""
-    p = load_pbp(season)
-    done = p["desc"].fillna("").str.contains("END GAME", regex=False)
-    return set(p.loc[done, "game_id"].unique())
+    return finished_game_ids(load_pbp(season))
+
+
+def finished_game_ids(pbp: pd.DataFrame) -> set[str]:
+    """game_ids in an already-loaded play-by-play that run through END GAME."""
+    done = pbp["desc"].fillna("").str.contains("END GAME", regex=False)
+    return set(pbp.loc[done, "game_id"].unique())
 
 
 def load_games() -> pd.DataFrame:

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from ..scoring import rules
+
 INDIVIDUAL_POS = {"RB", "R"}
 UNIT_POS = {"QB", "K", "DEF/ST", "C"}
 POS_TO_NFL = {"RB": ("RB",), "R": ("WR", "TE")}   # R = WR + TE
@@ -393,10 +395,16 @@ def _open_rentals(conn, season_id, team_id, ff_week) -> dict[str, str]:
 # --- lineups (with bye-flex) --------------------------------------------
 
 def _bye_count(conn, season_id, team_id, slot, ff_week) -> int:
+    """How many of this team's rostered players at `slot` are on bye this week
+    and NOT covered by an Open. A covered player doesn't count toward the
+    bye-week flex: the Open already filled the hole the flex exists to fill."""
+    covered = {r["out_asset_ref"] for r in conn.execute(
+        "SELECT out_asset_ref FROM transactions WHERE season_id=? AND team_id=? "
+        "AND ff_week=? AND type='OPEN' AND reversed=0", (season_id, team_id, ff_week))}
     n = 0
     for e in current_roster(conn, team_id):
-        if e["roster_slot"] == slot and is_on_bye(conn, season_id, e["asset_kind"],
-                                                   e["asset_ref"], ff_week):
+        if (e["roster_slot"] == slot and e["asset_ref"] not in covered
+                and is_on_bye(conn, season_id, e["asset_kind"], e["asset_ref"], ff_week)):
             n += 1
     return n
 
@@ -419,10 +427,13 @@ def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
     need = LEGAL_SKILL.get((n_rb, n_r), "ILLEGAL")
     if need == "ILLEGAL":
         raise RuleError(f"{n_rb} RB + {n_r} R isn't a legal lineup")
-    if need == "recv_bye" and _bye_count(conn, season_id, team_id, "R", ff_week) < 2:
-        raise RuleError("you can only start a 3rd RB when 2 of your receivers are on bye")
-    if need == "rb_bye" and _bye_count(conn, season_id, team_id, "RB", ff_week) < 2:
-        raise RuleError("you can only start a 4th receiver when 2 of your RBs are on bye")
+    least = rules.BYE_FLEX_MIN_ON_BYE
+    if need == "recv_bye" and _bye_count(conn, season_id, team_id, "R", ff_week) < least:
+        raise RuleError("you can only start a 3rd RB when 2 or more of your receivers are on "
+                        "bye (a receiver covered by an Open doesn't count)")
+    if need == "rb_bye" and _bye_count(conn, season_id, team_id, "RB", ff_week) < least:
+        raise RuleError("you can only start a 4th receiver when 2 or more of your RBs are on "
+                        "bye (an RB covered by an Open doesn't count)")
 
     rentals = _open_rentals(conn, season_id, team_id, ff_week)
     resolved = []

@@ -143,6 +143,8 @@ CREATE TABLE IF NOT EXISTS weekly_lineups (
     is_rental    INTEGER NOT NULL DEFAULT 0,  -- 1 = filled via an OPEN this week
     submitted_at TEXT,
     submitted_by TEXT,               -- NULL = the manager; else commissioner name
+    carried_from INTEGER,            -- set = copied from this week's lineup (not submitted)
+    carry_note   TEXT,               -- what the copy couldn't settle, for the commissioner
     UNIQUE(season_id, team_id, ff_week, roster_slot, asset_ref)
 );
 CREATE INDEX IF NOT EXISTS ix_lineup_week ON weekly_lineups(season_id, ff_week, team_id);
@@ -193,6 +195,21 @@ CREATE TABLE IF NOT EXISTS asset_week_scores (
     -- unit_type MUST be in the key: one NFL team fields 4 distinct units
     -- (QB, K, DEF/ST, C). Players use '' (never NULL) so the dedup key holds.
     UNIQUE(season_id, ff_week, asset_kind, asset_ref, unit_type)
+);
+
+-- NFL games whose stats are locked for scoring. Written the first time a
+-- game's play-by-play reaches END GAME with its final score posted; from then
+-- on every line from that game is frozen (the commissioner scores from the box
+-- score as it stood, never from later corrections).
+CREATE TABLE IF NOT EXISTS nfl_game_locks (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    season_id  INTEGER NOT NULL REFERENCES seasons(id),
+    ff_week    INTEGER NOT NULL,
+    game_id    TEXT NOT NULL,
+    home_team  TEXT NOT NULL,
+    away_team  TEXT NOT NULL,
+    locked_at  TEXT NOT NULL,
+    UNIQUE(season_id, ff_week, game_id)
 );
 
 -- Per-team weekly total: our computed score + the site's posted score.
@@ -320,6 +337,21 @@ def migrate(conn: sqlite3.Connection) -> None:
             if col not in cols:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
                 conn.commit()
+
+    # Per-game scoring locks, and the markers on a lineup the runner carried
+    # forward for a manager who didn't set one (see SCHEMA_SQL).
+    conn.execute("CREATE TABLE IF NOT EXISTS nfl_game_locks ("
+                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                 "season_id INTEGER NOT NULL REFERENCES seasons(id), ff_week INTEGER NOT NULL, "
+                 "game_id TEXT NOT NULL, home_team TEXT NOT NULL, away_team TEXT NOT NULL, "
+                 "locked_at TEXT NOT NULL, UNIQUE(season_id, ff_week, game_id))")
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='weekly_lineups'").fetchone():
+        lcols = {r["name"] for r in conn.execute("PRAGMA table_info(weekly_lineups)")}
+        for col, typ in (("carried_from", "INTEGER"), ("carry_note", "TEXT")):
+            if col not in lcols:
+                conn.execute(f"ALTER TABLE weekly_lineups ADD COLUMN {col} {typ}")
+    conn.commit()
 
     has_roster = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='roster_entries'").fetchone()
