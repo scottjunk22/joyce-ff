@@ -76,21 +76,49 @@ def test_no_payout_while_the_final_week_is_being_played(tmp_path):
     assert st.final_payout(conn, sid) is not None
 
 
-def test_the_runner_flags_a_live_week_and_unflags_it_when_final(tmp_path, monkeypatch):
-    conn, sid, a, _ = _league(tmp_path)
+def _wired(tmp_path, monkeypatch):
+    """A league whose runner uses the real run_week but no network: stats
+    ingest and team scoring are no-ops, so the scores already in the table are
+    what standings see. Returns schedule(), which sets how far the NFL week has
+    got — in the schedule, and separately in the play-by-play."""
+    conn, sid, a, b = _league(tmp_path)
     conn.execute("INSERT INTO weekly_lineups(season_id,team_id,ff_week,roster_slot,asset_kind,asset_ref) "
                  "VALUES (?,?,1,'QB','TEAM','SEA')", (sid, a))
     conn.commit()
-    # Real run_week, but no network: stats ingest and team scoring are no-ops,
-    # so the scores already in the table are what standings see.
-    monkeypatch.setattr(sc, "ingest_asset_scores_from_nflverse", lambda *a, **k: 0)
-    monkeypatch.setattr(sc, "score_team_week", lambda *a, **k: None)
-    monkeypatch.setattr(sc, "nfl_week_for", lambda *a, **k: 1)
+    monkeypatch.setattr(sc, "ingest_asset_scores_from_nflverse", lambda *_, **__: 0)
+    monkeypatch.setattr(sc, "score_team_week", lambda *_, **__: None)
+    monkeypatch.setattr(sc, "nfl_week_for", lambda *_, **__: 1)
 
-    def schedule(finals, games=2):
-        rows = [{"season": 2026, "week": 1, "home_team": f"H{i}", "away_team": f"A{i}",
-                 "home_score": (13.0 if i < finals else None)} for i in range(games)]
+    def schedule(finals, in_pbp=None, games=2):
+        rows = [{"season": 2026, "week": 1, "game_id": f"G{i}", "home_team": f"H{i}",
+                 "away_team": f"A{i}", "home_score": (13.0 if i < finals else None)}
+                for i in range(games)]
+        done = {f"G{i}" for i in range(finals if in_pbp is None else in_pbp)}
         monkeypatch.setattr(nv, "load_games", lambda: pd.DataFrame(rows))
+        monkeypatch.setattr(nv, "finished_games", lambda season: done)
+
+    return conn, sid, a, b, schedule
+
+
+def test_a_week_is_not_final_until_its_play_by_play_is(tmp_path, monkeypatch):
+    """Monday night: the schedule posts the final score within the hour, the
+    stats arrive hours later. Finalizing on the schedule alone would score the
+    week without Monday night, eliminate a team on those numbers, and lock it."""
+    conn, sid, _, _, schedule = _wired(tmp_path, monkeypatch)
+
+    schedule(finals=2, in_pbp=1)             # both scores posted, one game's stats missing
+    r = runner.run_current(conn, sid)
+    assert (r["scored"], r["live"]) == ([], [1])
+    assert 1 in st.live_weeks(conn, sid)
+    assert conn.execute("SELECT COUNT(*) c FROM teams WHERE alive=0").fetchone()["c"] == 0
+
+    schedule(finals=2, in_pbp=2)             # the stats land
+    assert runner.run_current(conn, sid)["scored"] == [1]
+    assert conn.execute("SELECT COUNT(*) c FROM teams WHERE alive=0").fetchone()["c"] == 1
+
+
+def test_the_runner_flags_a_live_week_and_unflags_it_when_final(tmp_path, monkeypatch):
+    conn, sid, a, _, schedule = _wired(tmp_path, monkeypatch)
 
     schedule(finals=1)                       # Sunday afternoon: one game done
     assert runner.run_current(conn, sid)["live"] == [1]

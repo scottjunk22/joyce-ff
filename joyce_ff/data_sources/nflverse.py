@@ -114,6 +114,18 @@ def load_pbp(season: int) -> pd.DataFrame:
     return pd.read_parquet(dest)
 
 
+def finished_games(season: int) -> set[str]:
+    """game_ids whose play-by-play runs all the way to END GAME.
+
+    The schedule shows a final score within about an hour of a game ending;
+    the play-by-play every stat comes from can trail it by many hours (ten,
+    for the 2026 opener). So "the schedule says final" is not "the stats are
+    in" — a week is only safe to finalize once every game is finished HERE."""
+    p = load_pbp(season)
+    done = p["desc"].fillna("").str.contains("END GAME", regex=False)
+    return set(p.loc[done, "game_id"].unique())
+
+
 def load_games() -> pd.DataFrame:
     # Always refreshable: this file carries the final scores that decide whether
     # a week is complete, for every season including the live one.

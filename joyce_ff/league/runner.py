@@ -101,9 +101,10 @@ def run_current(conn, season_id: int) -> dict:
     year = conn.execute("SELECT year FROM seasons WHERE id=?", (season_id,)).fetchone()["year"]
     g = nv.load_games()
     g = g[g["season"] == year]
-    played = {}
+    played = {}   # nfl week -> (games final, games total, ids of the final ones)
     for w, grp in g.groupby("week"):
-        played[int(w)] = (int(grp["home_score"].notna().sum()), int(len(grp)))
+        fin = grp["home_score"].notna()
+        played[int(w)] = (int(fin.sum()), int(len(grp)), set(grp.loc[fin, "game_id"]))
 
     weeks = [r["ff_week"] for r in conn.execute(
         "SELECT DISTINCT ff_week FROM weekly_lineups WHERE season_id=? ORDER BY ff_week",
@@ -120,8 +121,13 @@ def run_current(conn, season_id: int) -> dict:
         for ff in weeks:
             if _is_finalized(conn, season_id, ff):
                 continue
-            n_final, n_games = played.get(scoring.nfl_week_for(conn, season_id, ff), (0, 0))
-            if n_games and n_final == n_games:
+            n_final, n_games, final_ids = played.get(
+                scoring.nfl_week_for(conn, season_id, ff), (0, 0, set()))
+            # Final means every score is posted AND every game's stats are in.
+            # The schedule alone runs hours ahead of the play-by-play, and
+            # finalizing is one-way: it eliminates a team and locks the week.
+            # Until the stats catch up the week keeps updating as in progress.
+            if n_games and n_final == n_games and final_ids <= nv.finished_games(year):
                 run_week(conn, season_id, ff, do_ingest=True, eliminate=True, carry=True)
                 conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,'1')",
                              (_final_key(season_id, ff),))

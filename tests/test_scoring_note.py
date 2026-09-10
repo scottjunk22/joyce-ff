@@ -24,9 +24,11 @@ def _fixed_schedule(monkeypatch, finals: int, games: int):
 
     from joyce_ff.league import scoring as sc
 
-    rows = [{"season": 2026, "week": 1, "home_team": f"H{i}", "away_team": f"A{i}",
-             "home_score": (13.0 if i < finals else None)} for i in range(games)]
+    rows = [{"season": 2026, "week": 1, "game_id": f"G{i}", "home_team": f"H{i}",
+             "away_team": f"A{i}", "home_score": (13.0 if i < finals else None)}
+            for i in range(games)]
     monkeypatch.setattr(nv, "load_games", lambda: pd.DataFrame(rows))
+    monkeypatch.setattr(nv, "finished_games", lambda season: {f"G{i}" for i in range(finals)})
     monkeypatch.setattr(sc, "nfl_week_for", lambda *a, **k: 1)
 
 
