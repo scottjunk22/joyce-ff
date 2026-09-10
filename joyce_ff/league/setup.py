@@ -85,10 +85,13 @@ def delete_season(conn, season_id: int) -> dict:
         cur = conn.execute(f"DELETE FROM {t} WHERE season_id=?", (season_id,))
         if cur.rowcount:
             counts[t] = cur.rowcount
-    # Season-scoped settings: draft clock, setup lock, finalized weeks, PIN window.
-    conn.execute("DELETE FROM settings WHERE key LIKE ? OR key LIKE ? OR key=? OR key=?",
+    # Season-scoped settings: draft clock, setup lock, finalized and in-progress
+    # weeks, PIN window, the last scoring note.
+    conn.execute("DELETE FROM settings WHERE key LIKE ? OR key LIKE ? OR key LIKE ? "
+                 "OR key=? OR key=? OR key=?",
                  (f"draft_cursor:{season_id}:%", f"week_final:{season_id}:%",
-                  f"setup_locked:{season_id}", f"pin_setup_open:{season_id}"))
+                  f"week_live:{season_id}:%", f"setup_locked:{season_id}",
+                  f"pin_setup_open:{season_id}", f"scoring_note:{season_id}"))
     conn.execute("DELETE FROM seasons WHERE id=?", (season_id,))
     conn.commit()
     return {"label": row["label"], "deleted": counts}

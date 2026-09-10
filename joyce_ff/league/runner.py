@@ -55,6 +55,9 @@ def run_week(conn, season_id: int, ff_week: int, *, do_ingest: bool = True,
         summary["lineups_carried"] = carry_forward_lineups(conn, season_id, ff_week)
     scoring.score_team_week(conn, season_id, ff_week)
     if eliminate:
+        # Eliminating is what a FINAL run does, so this week's totals are now
+        # results — let standings and the payout count them.
+        st.clear_live(conn, season_id, ff_week)
         summary["eliminated_team_ids"] = st.run_elimination(conn, season_id, ff_week)
     conn.execute("UPDATE seasons SET current_ff_week=MAX(current_ff_week, ?) WHERE id=?",
                  (ff_week, season_id))
@@ -125,6 +128,7 @@ def run_current(conn, season_id: int) -> dict:
                 conn.commit()
                 scored.append(ff)
             elif n_final:
+                st.mark_live(conn, season_id, ff)
                 run_week(conn, season_id, ff, do_ingest=True, eliminate=False, carry=False)
                 live.append(ff)
     except nv.NotPublishedYet as e:

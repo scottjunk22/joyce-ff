@@ -60,9 +60,40 @@ def _blank(team) -> dict:
             "pf": 0.0, "pa": 0.0}
 
 
+# --- weeks still being played ---------------------------------------------
+# The hourly runner scores a week while its NFL games are still going, so the
+# scoreboard climbs through the weekend. Those running totals are not results:
+# a team up 40-12 at 4pm Sunday hasn't won anything. Such weeks are flagged
+# IN PROGRESS until they're final, and everything that decides outcomes —
+# records, PF/PA, seeds, the payout — skips them.
+#
+# The flag marks in-progress weeks rather than finished ones on purpose: weeks
+# scored before this existed, or by the run-week command, carry no flag and
+# keep counting exactly as they always have.
+
+def _live_key(season_id: int, ff_week: int) -> str:
+    return f"week_live:{season_id}:{ff_week}"
+
+
+def mark_live(conn, season_id: int, ff_week: int) -> None:
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES (?,'1')",
+                 (_live_key(season_id, ff_week),))
+
+
+def clear_live(conn, season_id: int, ff_week: int) -> None:
+    conn.execute("DELETE FROM settings WHERE key=?", (_live_key(season_id, ff_week),))
+
+
+def live_weeks(conn, season_id: int) -> set[int]:
+    prefix = f"week_live:{season_id}:"
+    return {int(r["key"][len(prefix):]) for r in conn.execute(
+        "SELECT key FROM settings WHERE key LIKE ?", (prefix + "%",))}
+
+
 def compute_standings(conn, season_id: int, through_week: int | None = None) -> dict:
     """Return {'BLUE': [ranked team dicts], 'RED': [...]} with records, PF/PA,
-    and playoff seed (1-based). Only games where both teams have a score count.
+    and playoff seed (1-based). Only games where both teams have a score count,
+    and never a week that is still being played.
     """
     teams = conn.execute(
         "SELECT t.id, t.name, c.code conf FROM teams t "
@@ -74,10 +105,13 @@ def compute_standings(conn, season_id: int, through_week: int | None = None) -> 
                           "WHERE season_id=? AND computed_points IS NOT NULL", (season_id,)):
         scores[(r["team_id"], r["ff_week"])] = r["computed_points"]
 
+    live = live_weeks(conn, season_id)
     results = []  # (winner_id, loser_id) for H2H, ties excluded
     q = "SELECT ff_week, kind, home_team_id, away_team_id FROM matchups WHERE season_id=? AND away_team_id IS NOT NULL"
     for m in conn.execute(q, (season_id,)):
         if through_week is not None and m["ff_week"] > through_week:
+            continue
+        if m["ff_week"] in live:
             continue
         h, a = m["home_team_id"], m["away_team_id"]
         hs, as_ = scores.get((h, m["ff_week"])), scores.get((a, m["ff_week"]))
@@ -157,7 +191,10 @@ def final_payout(conn, season_id: int, final_week: int = FINAL_WEEK) -> dict | N
     """Elimination-pool payout after the final week. The lowest scorer(s) are
     already eliminated for that week (run_elimination); among the survivors the
     top score splits $100 and every other survivor gets $10. Returns None until
-    the final week is scored."""
+    the final week is scored — and while it's still being played, since a
+    running total mid-Sunday would show someone winning $100 they may not."""
+    if final_week in live_weeks(conn, season_id):
+        return None
     rows = conn.execute(
         "SELECT t.id, t.name, t.alive, tw.computed_points pts "
         "FROM teams t JOIN team_week_scores tw ON tw.season_id=t.season_id "
