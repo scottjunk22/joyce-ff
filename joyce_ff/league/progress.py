@@ -218,6 +218,7 @@ def statuses(conn, season_id: int, ff_week: int,
     for tid, s in out.items():
         s["has_lineup"] = s["starters"] >= 9
         s["adjusted"] = tid in adjusted
+        s["settled"] = settled
         if settled:
             s["to_play"], s["done"] = 0, True
         else:

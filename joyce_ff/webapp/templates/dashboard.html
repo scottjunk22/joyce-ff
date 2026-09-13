@@ -340,25 +340,29 @@ $('mb').addEventListener('click',e=>{if(e.target===$('mb'))closeM();});
 
 async function boxScore(homeId,awayId){
   const [h,a]=await Promise.all([fetch(`/api/team/${homeId}/detail?week=${VIEW}&season=${SEASON}`).then(r=>r.json()),fetch(`/api/team/${awayId}/detail?week=${VIEW}&season=${SEASON}`).then(r=>r.json())]);
-  const tot=t=> (t.adjusted && t.team_total!=null) ? t.team_total : t.box.reduce((s,x)=>s+(x.points||0),0);
+  const counts=x=>!x.state||x.state==='final'||x.state==='bye';   // a number that won't change
+  const tot=t=> (t.adjusted && t.team_total!=null) ? t.team_total
+    : t.box.reduce((s,x)=>s+(counts(x)?(x.points||0):0),0);
   const th=tot(h), ta=tot(a);
   const hw=th>ta, aw=ta>th;                       // strict: a tie highlights neither
   const tie=th===ta && (th>0||ta>0);
   const bdLines=x=>(x.breakdown||[]).map(it=>`<div class="bdline"><span>${it[0]}</span><span class="p">+${+it[1]}</span></div>`).join('');
   /* Every starter who isn't finished gets a tag; a row with none is final,
-     even at 0 points. Points not final yet (in progress / game over) show
-     dimmer. Nothing here is live: points only change when nflverse publishes
-     a stats update, so an in-progress 0 is normal. */
+     even at 0 points. His points show as a dash until his game locks: a
+     mid-game stats update can hold half a game, and a number a manager sees
+     must never go on to change. A bye player shows 0 — he has no game, so 0
+     is what he'll score. Same rule for the column total and the breakdown
+     (counts() is defined above tot, which needs it first). */
   const kick=iso=>new Date(iso).toLocaleString([],{timeZone:'America/Chicago',weekday:'short',hour:'numeric',minute:'2-digit'});
   const stTag=x=>({playing:' <span class="tag-when">in progress</span>',
       over:' <span class="tag-when">game over · scoring soon</span>',
       upcoming:` <span class="tag-when">${x.kickoff?kick(x.kickoff):'upcoming'}</span>`,
       bye:' <span class="tag-bye">BYE</span>',
       nogame:' <span class="tag-when">no game</span>'})[x.state]||'';
-  const entry=x=>{const has=(x.breakdown||[]).length, moving=x.state==='playing'||x.state==='over';
+  const entry=x=>{const has=counts(x)&&(x.breakdown||[]).length;
     return `<div class="srow ${has?'bdrow':''}" ${has?'onclick="toggleBd(this)"':''}><span class="slot">${x.roster_slot}</span>`
       +`<span class="nm">${has?'<span class="ci">▸</span>':''}${x.display}${x.is_rental?' <span class="tag-open">OPEN</span>':''}${stTag(x)}</span>`
-      +`<span class="pts${moving?' prov':''}">${(x.points||0).toFixed(0)}</span></div>`
+      +`<span class="pts${counts(x)?'':' prov'}">${counts(x)?(x.points||0).toFixed(0):'–'}</span></div>`
       +(has?`<div class="bd" style="display:none">${bdLines(x)}</div>`:'');};
   const col=(t,cls,won)=>`<div class="boxcol ${cls} ${won?'won':''}"><div class="bh"><span>${t.name}${crownFor(t.titles)}</span><span class="tot">${tot(t).toFixed(0)}</span></div>`
     +t.box.map(entry).join('')

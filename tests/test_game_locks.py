@@ -24,9 +24,9 @@ from joyce_ff.league import standings as st
 ET = progress.ET
 
 
-def _mini_season(names=("Aces", "Bees", "Cats")):
+def _mini_season(names=("Aces", "Bees", "Cats"), path=":memory:"):
     """A season with only these teams (all alive), FF week 1 = NFL week 1."""
-    conn = schema.connect(":memory:")
+    conn = schema.connect(path)
     schema.init_db(conn)
     schema.migrate(conn)
     conn.execute("INSERT INTO seasons(year,label,current_ff_week,ff_start_nfl_week) "
@@ -473,3 +473,32 @@ def test_the_hourly_run_records_each_weeks_games(lg, monkeypatch):
         "SELECT game_id, kickoff, final FROM nfl_week_games WHERE ff_week=6")}
     assert got == {"G_A": ("2026-10-25T13:00:00-04:00", 1),
                    "G_B": ("2026-10-26T20:15:00-04:00", 0)}
+
+
+def test_an_in_progress_card_shows_final_points_only(tmp_path):
+    """A mid-game stats update can hold half a game. The card must not show it:
+    the Bees' 4 starters still playing have points stored, but only their 5
+    finished starters count toward what the card displays."""
+    import json
+
+    from joyce_ff.webapp import create_app
+
+    path = str(tmp_path / "league.sqlite")
+    conn, sid, (a, b, _) = _mini_season(path=path)
+    conn.execute("INSERT INTO matchups(season_id,ff_week,kind,home_team_id,away_team_id) "
+                 "VALUES (?,1,'CONFERENCE',?,?)", (sid, a, b))
+    _starters(conn, sid, a, "AAA", 3)                              # 27, all final
+    _starters(conn, sid, b, "BBB", 5, later="LATE", n_later=4)      # 25 final + 4 playing
+    conn.execute("UPDATE asset_week_scores SET points=4 WHERE asset_ref IN "
+                 "(SELECT gsis_id FROM nfl_players WHERE nfl_team_abbr='LATE')")   # partial file
+    scoring.score_team_week(conn, sid, 1)
+    _in_progress(conn, sid)
+    _lock(conn, sid, "AAA")
+    _lock(conn, sid, "BBB")
+    conn.close()
+
+    c = create_app(path).test_client()
+    card = json.loads(c.get("/api/state?week=1").data)["scoreboard"][0]
+    assert card["home"]["points"] == 27
+    assert card["away"]["points"] == 25                 # not the stored 41
+    assert not card["away"]["done"]

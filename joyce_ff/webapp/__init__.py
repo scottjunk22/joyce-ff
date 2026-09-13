@@ -506,7 +506,14 @@ def create_app(db_path: str | None = None) -> Flask:
         def side(tid, name):
             s_ = stat.get(tid, {})
             cf, cn = carried.get(tid, (None, None))
-            return {"id": tid, "name": name, "points": scores.get(tid),
+            # While a week is being played, a card shows FINAL points only — the
+            # starters whose games are locked. A partial number from a mid-game
+            # stats update is never shown, so no total a manager sees goes on to
+            # change. Settled weeks and commissioner overrides show as stored.
+            pts = scores.get(tid)
+            if s_ and not s_["settled"] and not s_["adjusted"]:
+                pts = s_["floor"]
+            return {"id": tid, "name": name, "points": pts,
                     "to_play": s_.get("to_play", 0), "done": bool(s_.get("done")),
                     "lineup_set": bool(s_.get("has_lineup")),
                     "carried_from": cf, "carry_note": cn,
