@@ -545,7 +545,7 @@ async function submitTx(){
 
 let COMMISH_PC='';
 function commishModal(){ openM(`<h3>🛠 Commissioner <span class="sub">Steve &amp; Scott</span></h3>
-   <div class="pass"><span>Commissioner passcode:</span><input type="password" id="cpc" placeholder="your passcode" value="${COMMISH_PC}"><button class="btn" onclick="commishUnlock()">Sign in</button><button class="btn" onclick="runCurrent()">▶ Score current week(s)</button></div>
+   <div class="pass"><span>Commissioner passcode:</span><input type="password" id="cpc" placeholder="your passcode" value="${COMMISH_PC}"><button class="btn" onclick="commishUnlock()">Sign in</button></div>
    <div id="commBody"><div class="sub">Sign in to edit team names and numbers, manage PINs, correct a week's score, and record payments. Score/balance shown are for the week selected up top (${VIEW!=null?'Week '+VIEW:'current'}).</div></div>`); }
 function commishUnlock(){ COMMISH_PC=$('cpc').value; renderCommish(); }
 /* Read the passcode box at the moment we act. It used to be captured only by
@@ -608,10 +608,14 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
       +`<b style="color:var(--bad)">Delete season</b> <span class="sub">— removes ${STATE.season.label} and everything in it: teams, rosters, lineups, scores, transactions. Cannot be undone.</span>`
       +`<div style="margin-top:6px"><button class="chip" style="border-color:var(--bad);color:var(--bad)" onclick="deleteSeason()">Delete this season…</button></div></div>`:'')
     +`</div>`;
+  // Scoring sits inside the dashboard, not on the sign-in line: once signed in
+  // the passcode is remembered, so this is one click.
+  const scoreBar=`<div class="lsum"><b>Scores</b> <button class="chip" onclick="runCurrent()">▶ Score current week</button>
+    <div class="sub" style="margin-top:4px">Scores update on their own every hour. Press this to pull in the latest right now.</div></div>`;
   const actBar=`<div class="lsum"><b>Acting for a manager</b>
     <div class="sub" style="margin-top:4px">Open the team on the main page and use ⚙ lineup or ⇄＋ trade exactly as a manager would — enter <b>your commissioner passcode</b> where it asks for the PIN. You can also set past weeks and start players whose game has already kicked off.</div>
     <div id="auditBox"></div></div>`;
-  $('commBody').innerHTML=lsum+pinBar+actBar+lockBar
+  $('commBody').innerHTML=scoreBar+lsum+pinBar+actBar+lockBar
     +table(byNum(STATE.standings.BLUE),'BLUE CONFERENCE','var(--blue)')
     +table(byNum(STATE.standings.RED),'RED CONFERENCE','var(--red)')
     +txSection+seasonBar;
@@ -716,10 +720,13 @@ async function deleteSeason(){
   if(typed===null) return;
   const j=await apost('/api/admin/season/delete',{season_id:SEASON, confirm_label:typed});
   if(j){ alert(`Deleted ${j.label}.`); location.reload(); } }
+/* Plain-English result: what happened to which week, not internal labels. */
 async function runCurrent(){ const j=await apost('/api/admin/run-current',{}); if(!j)return;
-  const p=[]; if(j.scored_weeks&&j.scored_weeks.length)p.push('finalized: '+j.scored_weeks.join(', '));
-  if(j.live_weeks&&j.live_weeks.length)p.push('live (still playing): '+j.live_weeks.join(', '));
-  if(j.note) p.push(p.length?'\n'+j.note:j.note);
-  alert(p.join('\n')||'Nothing to score yet — no NFL games final for a week with lineups.'); load(VIEW, SEASON); }
+  const wk=a=>a.length>1?`Weeks ${a.join(', ')} are`:`Week ${a[0]} is`;
+  const p=[], done=j.scored_weeks||[], going=j.live_weeks||[];
+  if(done.length) p.push(`${wk(done)} final. Every game is in, so the results and the elimination are set.`);
+  if(going.length) p.push(`${wk(going)} up to date. Some games are still to be played, so scores will keep filling in as they finish.`);
+  if(j.note) p.push(j.note);
+  alert(p.join('\n\n')||'Nothing to update right now.'); load(VIEW, SEASON); }
 load();
 </script></body></html>
