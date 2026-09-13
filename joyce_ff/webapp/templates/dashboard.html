@@ -117,7 +117,6 @@
  .bd{background:var(--panel2)}.bdline{display:flex;justify-content:space-between;padding:3px 10px 3px 28px;font-size:12px;color:var(--dim)}.bdline .p{color:var(--good);font-variant-numeric:tabular-nums;font-weight:700}
  .byestrip{font-size:12px;color:var(--dim);margin:0 0 10px}.byestrip .bt{border:1px solid var(--warn);color:var(--warn);border-radius:5px;padding:0 5px;margin:0 1px;font-size:11px;font-weight:600}
  .tag-bye{font-size:10px;color:var(--warn);border:1px solid var(--warn);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
- .tag-live{font-size:10px;color:var(--good);margin-left:4px;font-weight:700;white-space:nowrap}
  .tag-when{font-size:10px;color:var(--dim);margin-left:4px;white-space:nowrap}
  .srow .pts.prov{color:var(--dim);font-weight:600}
  .tag-open{font-size:10px;color:var(--blue);border:1px solid var(--blue);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
@@ -347,9 +346,11 @@ async function boxScore(homeId,awayId){
   const tie=th===ta && (th>0||ta>0);
   const bdLines=x=>(x.breakdown||[]).map(it=>`<div class="bdline"><span>${it[0]}</span><span class="p">+${+it[1]}</span></div>`).join('');
   /* Every starter who isn't finished gets a tag; a row with none is final,
-     even at 0 points. Points still moving (playing / game over) show dimmer. */
+     even at 0 points. Points not final yet (in progress / game over) show
+     dimmer. Nothing here is live: points only change when nflverse publishes
+     a stats update, so an in-progress 0 is normal. */
   const kick=iso=>new Date(iso).toLocaleString([],{timeZone:'America/Chicago',weekday:'short',hour:'numeric',minute:'2-digit'});
-  const stTag=x=>({playing:' <span class="tag-live">● playing</span>',
+  const stTag=x=>({playing:' <span class="tag-when">in progress</span>',
       over:' <span class="tag-when">game over · scoring soon</span>',
       upcoming:` <span class="tag-when">${x.kickoff?kick(x.kickoff):'upcoming'}</span>`,
       bye:' <span class="tag-bye">BYE</span>',
