@@ -294,7 +294,7 @@ function renderScores(){
       return (isCur && !done && !t.lineup_set)?`<span class="noflag">${TRI} no lineup</span>`:'';
     };
     const row=(t,win)=>`<div class="r ${win?'win':''}"><span class="nm">${t.name}${crown(t.id)}</span>${flag(t)}${tp(t)}${t.adjusted?'<span class="adj" title="commissioner-adjusted">adj</span>':''}<span class="s">${f(t.points)}</span></div>`;
-    return `<div class="game" onclick="boxScore(${g.home.id},${g.away.id})">${row(g.home,hw)}${row(g.away,aw)}
+    return `<div class="game" onclick="boxScore(${g.home.id},${g.away.id},${done?1:0})">${row(g.home,hw)}${row(g.away,aw)}
       <div class="meta"><span class="${done?'final':''}">${done?'Final':g.kind.toLowerCase()} · Week ${VIEW}</span><span class="boxlink">box score ›</span></div></div>`;
   }).join('') || '<span class="sub">No games this week.</span>';
 }
@@ -338,14 +338,16 @@ function openM(h){ $('mbody').innerHTML=h; $('mb').classList.add('show'); }
 function closeM(){ $('mb').classList.remove('show'); }
 $('mb').addEventListener('click',e=>{if(e.target===$('mb'))closeM();});
 
-async function boxScore(homeId,awayId){
+/* final: the card's own verdict (both teams done). The box score only calls a
+   winner — or a tie — when the card does; mid-game, being ahead isn't winning. */
+async function boxScore(homeId,awayId,final){
   const [h,a]=await Promise.all([fetch(`/api/team/${homeId}/detail?week=${VIEW}&season=${SEASON}`).then(r=>r.json()),fetch(`/api/team/${awayId}/detail?week=${VIEW}&season=${SEASON}`).then(r=>r.json())]);
   const counts=x=>!x.state||x.state==='final'||x.state==='bye';   // a number that won't change
   const tot=t=> (t.adjusted && t.team_total!=null) ? t.team_total
     : t.box.reduce((s,x)=>s+(counts(x)?(x.points||0):0),0);
   const th=tot(h), ta=tot(a);
-  const hw=th>ta, aw=ta>th;                       // strict: a tie highlights neither
-  const tie=th===ta && (th>0||ta>0);
+  const hw=!!final&&th>ta, aw=!!final&&ta>th;      // strict: a tie highlights neither
+  const tie=!!final&&th===ta && (th>0||ta>0);
   const bdLines=x=>(x.breakdown||[]).map(it=>`<div class="bdline"><span>${it[0]}</span><span class="p">+${+it[1]}</span></div>`).join('');
   /* Every starter who isn't finished gets a tag; a row with none is final,
      even at 0 points. His points show as a dash until his game locks: a
