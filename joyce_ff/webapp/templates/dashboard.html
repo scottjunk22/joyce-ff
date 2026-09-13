@@ -118,6 +118,7 @@
  .byestrip{font-size:12px;color:var(--dim);margin:0 0 10px}.byestrip .bt{border:1px solid var(--warn);color:var(--warn);border-radius:5px;padding:0 5px;margin:0 1px;font-size:11px;font-weight:600}
  .tag-bye{font-size:10px;color:var(--warn);border:1px solid var(--warn);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
  .tag-when{font-size:10px;color:var(--dim);margin-left:4px;white-space:nowrap}
+ .tag-when.now{color:var(--bright);font-weight:600}   /* the only live state: brighter, not a new color */
  .srow .pts.prov{color:var(--dim);font-weight:600}
  .tag-open{font-size:10px;color:var(--blue);border:1px solid var(--blue);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
  /* trade/open */
@@ -356,7 +357,7 @@ async function boxScore(homeId,awayId,final){
      is what he'll score. Same rule for the column total and the breakdown
      (counts() is defined above tot, which needs it first). */
   const kick=iso=>new Date(iso).toLocaleString([],{timeZone:'America/Chicago',weekday:'short',hour:'numeric',minute:'2-digit'});
-  const stTag=x=>({playing:' <span class="tag-when">in progress</span>',
+  const stTag=x=>({playing:' <span class="tag-when now">in progress</span>',
       over:' <span class="tag-when">game over · scoring soon</span>',
       upcoming:` <span class="tag-when">${x.kickoff?kick(x.kickoff):'upcoming'}</span>`,
       bye:' <span class="tag-bye">BYE</span>',
