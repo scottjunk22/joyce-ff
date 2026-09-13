@@ -212,6 +212,22 @@ CREATE TABLE IF NOT EXISTS nfl_game_locks (
     UNIQUE(season_id, ff_week, game_id)
 );
 
+-- The NFL games behind each FF week, as of the hourly runner's last read of the
+-- schedule: kickoff (ISO, US Eastern) and whether the final score is posted.
+-- Lets the site say "playing", "game over", or a kickoff time without reading
+-- the schedule on every page load.
+CREATE TABLE IF NOT EXISTS nfl_week_games (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    season_id  INTEGER NOT NULL REFERENCES seasons(id),
+    ff_week    INTEGER NOT NULL,
+    game_id    TEXT NOT NULL,
+    home_team  TEXT NOT NULL,
+    away_team  TEXT NOT NULL,
+    kickoff    TEXT,
+    final      INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(season_id, ff_week, game_id)
+);
+
 -- Per-team weekly total: our computed score + the site's posted score.
 CREATE TABLE IF NOT EXISTS team_week_scores (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -345,6 +361,12 @@ def migrate(conn: sqlite3.Connection) -> None:
                  "season_id INTEGER NOT NULL REFERENCES seasons(id), ff_week INTEGER NOT NULL, "
                  "game_id TEXT NOT NULL, home_team TEXT NOT NULL, away_team TEXT NOT NULL, "
                  "locked_at TEXT NOT NULL, UNIQUE(season_id, ff_week, game_id))")
+    conn.execute("CREATE TABLE IF NOT EXISTS nfl_week_games ("
+                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                 "season_id INTEGER NOT NULL REFERENCES seasons(id), ff_week INTEGER NOT NULL, "
+                 "game_id TEXT NOT NULL, home_team TEXT NOT NULL, away_team TEXT NOT NULL, "
+                 "kickoff TEXT, final INTEGER NOT NULL DEFAULT 0, "
+                 "UNIQUE(season_id, ff_week, game_id))")
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
                     "AND name='weekly_lineups'").fetchone():
         lcols = {r["name"] for r in conn.execute("PRAGMA table_info(weekly_lineups)")}

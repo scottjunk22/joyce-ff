@@ -84,12 +84,18 @@ def run_current(conn, season_id: int, now: _dt.datetime | None = None) -> dict:
     year = conn.execute("SELECT year FROM seasons WHERE id=?", (season_id,)).fetchone()["year"]
     g = nv.load_games()
     g = g[g["season"] == year]
-    played, kicks = {}, {}   # nfl week -> (final, total, final ids) / (first, last kickoff)
+    import pandas as pd
+
+    # nfl week -> (final, total, final ids) / (first, last kickoff) / its games
+    played, kicks, slate = {}, {}, {}
     for w, grp in g.groupby("week"):
         fin = grp["home_score"].notna()
         played[int(w)] = (int(fin.sum()), int(len(grp)), set(grp.loc[fin, "game_id"]))
-        kos = [k for k in (_kickoff(r.get("gameday"), r.get("gametime"))
-                           for r in grp.to_dict("records")) if k]
+        slate[int(w)] = [(r.get("game_id"), r["home_team"], r["away_team"],
+                          _kickoff(r.get("gameday"), r.get("gametime")),
+                          pd.notna(r["home_score"]))
+                         for r in grp.to_dict("records")]
+        kos = [game[3] for game in slate[int(w)] if game[3]]
         if kos:
             kicks[int(w)] = (min(kos), max(kos))
 
@@ -99,7 +105,10 @@ def run_current(conn, season_id: int, now: _dt.datetime | None = None) -> dict:
     active = set()
     for r in conn.execute("SELECT DISTINCT ff_week FROM matchups WHERE season_id=?",
                           (season_id,)).fetchall():
-        k = kicks.get(scoring.nfl_week_for(conn, season_id, r["ff_week"]))
+        nflw = scoring.nfl_week_for(conn, season_id, r["ff_week"])
+        if nflw in slate:
+            progress.store_week_games(conn, season_id, r["ff_week"], slate[nflw])
+        k = kicks.get(nflw)
         if k:
             progress.store_kickoffs(conn, season_id, r["ff_week"], *k)
             if k[0] <= now <= k[1] + ACTIVE_GRACE:

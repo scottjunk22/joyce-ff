@@ -416,3 +416,60 @@ def test_lineups_carry_only_for_the_week_being_played(lg, monkeypatch):
     assert week6() == 0
     runner.run_current(conn, sid, now=kickoff + dt.timedelta(minutes=5))
     assert week6() == 9
+
+
+# --- where each starter's game stands (box-score tags) -------------------------
+
+def test_every_unfinished_starter_is_tagged_and_zero_is_not_ambiguous():
+    """TallBears at 0 points with 6 to play: the box score has to say which six."""
+    conn, sid, (a, _, _) = _mini_season()
+    _starters(conn, sid, a, "FIN", 0, later="LIV", n_later=5)      # 4 finished with 0 pts
+    conn.execute("UPDATE nfl_players SET nfl_team_abbr='UPC' WHERE gsis_id=?", (f"p{a}_6",))
+    conn.execute("UPDATE nfl_players SET nfl_team_abbr='OVR' WHERE gsis_id=?", (f"p{a}_7",))
+    conn.execute("UPDATE nfl_players SET nfl_team_abbr='BYE' WHERE gsis_id=?", (f"p{a}_8",))
+    conn.execute("INSERT INTO nfl_teams(season_id,abbr,name,bye_ff_week) VALUES (?,'BYE','Bye',1)",
+                 (sid,))
+    now = dt.datetime(2026, 9, 13, 16, 0, tzinfo=ET)
+    progress.store_week_games(conn, sid, 1, [
+        ("G1", "FIN", "X1", now - dt.timedelta(hours=4), True),
+        ("G2", "LIV", "X2", now - dt.timedelta(minutes=30), False),
+        ("G3", "UPC", "X3", now + dt.timedelta(hours=3), False),
+        ("G4", "OVR", "X4", now - dt.timedelta(hours=3), True)])
+    progress.mark_live(conn, sid, 1)
+    _lock(conn, sid, "FIN")
+    states = progress.starter_states(conn, sid, 1, a, now=now)
+    by = {}
+    for (_, ref), s in states.items():
+        by.setdefault(s["state"], []).append(ref)
+    assert len(by["final"]) == 4                 # untagged, even though they scored 0
+    assert len(by["playing"]) == 2 and by["upcoming"] == [f"p{a}_6"]
+    assert by["over"] == [f"p{a}_7"] and by["bye"] == [f"p{a}_8"]
+    upc = states[("R", f"p{a}_6")]
+    assert upc["kickoff"] == (now + dt.timedelta(hours=3)).isoformat()
+
+
+def test_a_settled_week_tags_nobody():
+    conn, sid, (a, _, _) = _mini_season()
+    _starters(conn, sid, a, "AAA", 3)
+    scoring.score_team_week(conn, sid, 1)
+    progress.mark_finalized(conn, sid, 1)
+    assert {s["state"] for s in progress.starter_states(conn, sid, 1, a).values()} == {"final"}
+
+
+def test_the_hourly_run_records_each_weeks_games(lg, monkeypatch):
+    conn, sid, otb = lg
+    conn.execute("INSERT INTO matchups(season_id,ff_week,kind,home_team_id) VALUES (?,6,'BYE',?)",
+                 (sid, otb))
+    conn.commit()
+    games = pd.DataFrame([
+        {"season": 2026, "week": 8, "game_id": "G_A", "home_team": "T7", "away_team": "T8",
+         "home_score": 20.0, "gameday": "2026-10-25", "gametime": "13:00"},
+        {"season": 2026, "week": 8, "game_id": "G_B", "home_team": "T1", "away_team": "T2",
+         "home_score": float("nan"), "gameday": "2026-10-26", "gametime": "20:15"}])
+    monkeypatch.setattr(nv, "load_games", lambda: games)
+    monkeypatch.setattr(nv, "finished_games", lambda season: set())
+    runner.run_current(conn, sid, now=dt.datetime(2026, 10, 1, tzinfo=ET))
+    got = {r["game_id"]: (r["kickoff"], r["final"]) for r in conn.execute(
+        "SELECT game_id, kickoff, final FROM nfl_week_games WHERE ff_week=6")}
+    assert got == {"G_A": ("2026-10-25T13:00:00-04:00", 1),
+                   "G_B": ("2026-10-26T20:15:00-04:00", 0)}

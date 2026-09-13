@@ -110,7 +110,74 @@ def bye_teams(conn, season_id: int, ff_week: int) -> set[str]:
         "SELECT abbr FROM nfl_teams WHERE season_id=? AND bye_ff_week=?", (season_id, ff_week))}
 
 
+def store_week_games(conn, season_id: int, ff_week: int, games) -> None:
+    """Record the week's games as the schedule has them now: iterable of
+    (game_id, home, away, kickoff datetime or None, final score posted)."""
+    conn.execute("DELETE FROM nfl_week_games WHERE season_id=? AND ff_week=?",
+                 (season_id, ff_week))
+    conn.executemany(
+        "INSERT INTO nfl_week_games(season_id,ff_week,game_id,home_team,away_team,kickoff,final) "
+        "VALUES (?,?,?,?,?,?,?)",
+        [(season_id, ff_week, gid, home, away, ko.isoformat() if ko else None, int(bool(fin)))
+         for gid, home, away, ko, fin in games])
+
+
 # --- teams --------------------------------------------------------------------
+
+def _settled(conn, season_id: int, ff_week: int) -> bool:
+    """Finalized, or scored before in-progress tracking existed and not flagged."""
+    scored = conn.execute("SELECT 1 FROM team_week_scores WHERE season_id=? AND ff_week=? "
+                          "AND computed_points IS NOT NULL LIMIT 1",
+                          (season_id, ff_week)).fetchone()
+    return is_finalized(conn, season_id, ff_week) or (
+        scored is not None and ff_week not in live_weeks(conn, season_id))
+
+
+def starter_states(conn, season_id: int, ff_week: int, team_id: int,
+                   now: _dt.datetime | None = None) -> dict[tuple[str, str], dict]:
+    """{(roster_slot, asset_ref): {"state", "kickoff"}} for one team's starters.
+
+    state: final     — his game's stats are locked (or the week is settled);
+           playing   — his game has kicked off, not over yet;
+           over      — final score posted, stats not locked yet ("scoring soon");
+           upcoming  — hasn't kicked off (kickoff is its ISO time, if known);
+           bye       — his NFL team has no game this week;
+           nogame    — he isn't on an NFL team we know of.
+    Every starter who isn't final has a state other than "final", so a row the
+    site leaves untagged is finished — including one that scored 0."""
+    now = now or _dt.datetime.now(ET)
+    settled = _settled(conn, season_id, ff_week)
+    locked = locked_teams(conn, season_id, ff_week)
+    byes = bye_teams(conn, season_id, ff_week)
+    games: dict[str, tuple] = {}
+    for g in conn.execute("SELECT home_team, away_team, kickoff, final FROM nfl_week_games "
+                          "WHERE season_id=? AND ff_week=?", (season_id, ff_week)):
+        ko = _dt.datetime.fromisoformat(g["kickoff"]) if g["kickoff"] else None
+        for t in (g["home_team"], g["away_team"]):
+            games[t] = (ko, bool(g["final"]))
+
+    out = {}
+    for r in conn.execute(
+            "SELECT l.roster_slot, l.asset_ref, "
+            "CASE WHEN l.asset_kind='TEAM_UNIT' THEN l.asset_ref ELSE p.nfl_team_abbr END nfl "
+            "FROM weekly_lineups l "
+            "LEFT JOIN nfl_players p ON p.season_id=l.season_id AND p.gsis_id=l.asset_ref "
+            "WHERE l.season_id=? AND l.ff_week=? AND l.team_id=?",
+            (season_id, ff_week, team_id)):
+        ko = None
+        if settled or r["nfl"] in locked:
+            state = "final"
+        elif r["nfl"] is None:
+            state = "nogame"
+        elif r["nfl"] in byes:
+            state = "bye"
+        else:
+            ko, fin = games.get(r["nfl"], (None, False))
+            state = "over" if fin else ("playing" if ko and now >= ko else "upcoming")
+        out[(r["roster_slot"], r["asset_ref"])] = {
+            "state": state, "kickoff": ko.isoformat() if ko and state == "upcoming" else None}
+    return out
+
 
 def statuses(conn, season_id: int, ff_week: int,
              now: _dt.datetime | None = None) -> dict[int, dict]:
@@ -120,11 +187,7 @@ def statuses(conn, season_id: int, ff_week: int,
     isn't locked yet), open (starters with no game — on bye), floor (points
     locked in), adjusted (commissioner-overridden total), done."""
     now = now or _dt.datetime.now(ET)
-    live = ff_week in live_weeks(conn, season_id)
-    scored = conn.execute("SELECT 1 FROM team_week_scores WHERE season_id=? AND ff_week=? "
-                          "AND computed_points IS NOT NULL LIMIT 1",
-                          (season_id, ff_week)).fetchone()
-    settled = is_finalized(conn, season_id, ff_week) or (scored is not None and not live)
+    settled = _settled(conn, season_id, ff_week)
     locked = locked_teams(conn, season_id, ff_week)
     byes = bye_teams(conn, season_id, ff_week)
     _, last = kickoffs(conn, season_id, ff_week)

@@ -614,9 +614,16 @@ def create_app(db_path: str | None = None) -> Flask:
         tw = conn.execute("SELECT computed_points, adjusted FROM team_week_scores "
                           "WHERE season_id=? AND team_id=? AND ff_week=?",
                           (sid, team_id, wk)).fetchone()
+        # Tag each starter with where his game stands, so the box score can mark
+        # everyone who isn't finished — a 0 on its own can't tell you that.
+        box = scoring.box_score(conn, sid, wk, team_id)
+        states = progress.starter_states(conn, sid, wk, team_id)
+        for x in box:
+            st_ = states.get((x["roster_slot"], x["asset_ref"]), {})
+            x["state"], x["kickoff"] = st_.get("state"), st_.get("kickoff")
         return jsonify(name=row["name"], managers=row["manager_names"],
                        roster=roster, fees=fees, history=hist, payments=pays, opens=opens,
-                       box=scoring.box_score(conn, sid, wk, team_id),
+                       box=box,
                        adjusted=bool(tw and tw["adjusted"]),
                        titles=titles.for_season(conn, sid).get(team_id),
                        team_total=(tw["computed_points"] if tw else None))
