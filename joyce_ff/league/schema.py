@@ -209,7 +209,25 @@ CREATE TABLE IF NOT EXISTS nfl_game_locks (
     home_team  TEXT NOT NULL,
     away_team  TEXT NOT NULL,
     locked_at  TEXT NOT NULL,
+    source     TEXT,                   -- 'espn' or 'nflverse': whose box score stands
     UNIQUE(season_id, ff_week, game_id)
+);
+
+-- A locked line that the other source later reported differently. Nothing is
+-- changed: the commissioner scores from the box score as it stood. It's listed
+-- in the commissioner tab so he can adjust by hand if he wants to.
+CREATE TABLE IF NOT EXISTS stat_checks (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    season_id      INTEGER NOT NULL REFERENCES seasons(id),
+    ff_week        INTEGER NOT NULL,
+    asset_kind     TEXT NOT NULL,
+    asset_ref      TEXT NOT NULL,
+    unit_type      TEXT NOT NULL DEFAULT '',
+    locked_points  REAL NOT NULL,
+    other_points   REAL NOT NULL,
+    source         TEXT NOT NULL,      -- who reported other_points
+    noted_at       TEXT NOT NULL,
+    UNIQUE(season_id, ff_week, asset_kind, asset_ref, unit_type)
 );
 
 -- The NFL games behind each FF week, as of the hourly runner's last read of the
@@ -361,6 +379,16 @@ def migrate(conn: sqlite3.Connection) -> None:
                  "season_id INTEGER NOT NULL REFERENCES seasons(id), ff_week INTEGER NOT NULL, "
                  "game_id TEXT NOT NULL, home_team TEXT NOT NULL, away_team TEXT NOT NULL, "
                  "locked_at TEXT NOT NULL, UNIQUE(season_id, ff_week, game_id))")
+    kcols = {r["name"] for r in conn.execute("PRAGMA table_info(nfl_game_locks)")}
+    if "source" not in kcols:
+        conn.execute("ALTER TABLE nfl_game_locks ADD COLUMN source TEXT")
+    conn.execute("CREATE TABLE IF NOT EXISTS stat_checks ("
+                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                 "season_id INTEGER NOT NULL REFERENCES seasons(id), ff_week INTEGER NOT NULL, "
+                 "asset_kind TEXT NOT NULL, asset_ref TEXT NOT NULL, "
+                 "unit_type TEXT NOT NULL DEFAULT '', locked_points REAL NOT NULL, "
+                 "other_points REAL NOT NULL, source TEXT NOT NULL, noted_at TEXT NOT NULL, "
+                 "UNIQUE(season_id, ff_week, asset_kind, asset_ref, unit_type))")
     conn.execute("CREATE TABLE IF NOT EXISTS nfl_week_games ("
                  "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                  "season_id INTEGER NOT NULL REFERENCES seasons(id), ff_week INTEGER NOT NULL, "

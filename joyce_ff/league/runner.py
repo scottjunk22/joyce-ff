@@ -33,10 +33,11 @@ def carry_forward_lineups(conn, season_id: int, ff_week: int) -> int:
 
 
 def run_week(conn, season_id: int, ff_week: int, *, do_ingest: bool = True,
-             eliminate: bool = True, carry: bool = True) -> dict:
+             eliminate: bool = True, carry: bool = True, sources=None) -> dict:
     summary: dict = {"ff_week": ff_week}
     if do_ingest:
-        summary["assets_scored"] = scoring.ingest_asset_scores_from_nflverse(conn, season_id, ff_week)
+        summary["assets_scored"] = scoring.ingest_week(conn, season_id, ff_week,
+                                                       sources or scoring.SOURCES)
     if carry:
         summary["lineups_carried"] = carry_forward_lineups(conn, season_id, ff_week)
     scoring.score_team_week(conn, season_id, ff_week)
@@ -58,23 +59,28 @@ def _is_finalized(conn, season_id: int, ff_week: int) -> bool:
     return progress.is_finalized(conn, season_id, ff_week)
 
 
-def run_current(conn, season_id: int, now: _dt.datetime | None = None) -> dict:
+def run_current(conn, season_id: int, now: _dt.datetime | None = None,
+                sources=None) -> dict:
     """Bring every FF week up to date with the NFL games played so far.
 
     Designed for an hourly schedule on the host. A week's lifecycle:
       * first game kicks off -> any team without a lineup gets last week's,
                                 carried forward the way the commissioner would
                                 (carry.py). From then on it's their lineup.
-      * games in progress    -> score what's in. Each NFL game locks the first
-                                time its stats are complete and its points never
-                                move again. A matchup whose starters are all
-                                locked is final and goes on the records, and the
-                                week's elimination is called as soon as it's
-                                certain (standings.try_early_elimination).
+      * games in progress    -> score what's in (ESPN first, nflverse as backup;
+                                scoring.ingest_week). Each NFL game locks the
+                                first time a source has it complete, and its
+                                points never move again. A matchup whose
+                                starters are all locked is final and goes on the
+                                records, and the week's elimination is called as
+                                soon as it's certain.
       * every game locked    -> the final run: the elimination if it hasn't
                                 been called yet, the week marked finalized, and
                                 later runs skip it.
       * not started          -> skipped.
+
+    `sources` narrows which feeds are read: the always-on checker passes
+    ("espn",) to stay light; the hourly job reads both.
     """
     from ..data_sources import nflverse as nv
     from . import carry
@@ -90,7 +96,7 @@ def run_current(conn, season_id: int, now: _dt.datetime | None = None) -> dict:
     played, kicks, slate = {}, {}, {}
     for w, grp in g.groupby("week"):
         fin = grp["home_score"].notna()
-        played[int(w)] = (int(fin.sum()), int(len(grp)), set(grp.loc[fin, "game_id"]))
+        played[int(w)] = (int(fin.sum()), int(len(grp)), set(grp["game_id"]))
         slate[int(w)] = [(r.get("game_id"), r["home_team"], r["away_team"],
                           _kickoff(r.get("gameday"), r.get("gametime")),
                           pd.notna(r["home_score"]))
@@ -128,19 +134,22 @@ def run_current(conn, season_id: int, now: _dt.datetime | None = None) -> dict:
             if not conn.execute("SELECT 1 FROM weekly_lineups WHERE season_id=? AND ff_week=? "
                                 "LIMIT 1", (season_id, ff)).fetchone():
                 continue
-            n_final, n_games, final_ids = played.get(
+            n_final, n_games, all_ids = played.get(
                 scoring.nfl_week_for(conn, season_id, ff), (0, 0, set()))
-            # Final means every score is posted AND every game's stats are in.
-            # The schedule alone runs hours ahead of the play-by-play, and
-            # finalizing is one-way: it eliminates a team and locks the week.
-            if n_games and n_final == n_games and final_ids <= nv.finished_games(year):
-                run_week(conn, season_id, ff, do_ingest=True, eliminate=True, carry=True)
+            if ff not in active and not n_final:
+                continue                                  # nothing has kicked off
+            scoring.ingest_week(conn, season_id, ff, sources or scoring.SOURCES, now=now)
+            # Final means every one of the week's games is locked — its stats
+            # complete in some source. Finalizing is one-way: it eliminates a
+            # team and closes the week.
+            if n_games and all_ids <= progress.locked_game_ids(conn, season_id, ff):
+                run_week(conn, season_id, ff, do_ingest=False, eliminate=True, carry=True)
                 progress.mark_finalized(conn, season_id, ff)
                 conn.commit()
                 scored.append(ff)
-            elif n_final:
+            else:
                 st.mark_live(conn, season_id, ff)
-                run_week(conn, season_id, ff, do_ingest=True, eliminate=False, carry=False)
+                run_week(conn, season_id, ff, do_ingest=False, eliminate=False, carry=False)
                 st.try_early_elimination(conn, season_id, ff, now=now)
                 live.append(ff)
     except nv.NotPublishedYet as e:

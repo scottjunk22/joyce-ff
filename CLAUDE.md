@@ -69,6 +69,14 @@ from any other project on this machine.
 - Timestamp all data in the UI so staleness is visible.
 - NFL stats come from nflverse (same official numbers as nfl.com, packaged
   for programmatic use); cached to SQLite.
+- WEEKLY SCORING reads ESPN's public game feed first (joyce_ff/data_sources/
+  espn.py): complete within minutes of the final whistle, where nflverse's
+  scheduled updates run hours late, get skipped, or fail. nflverse is the
+  backup and the later cross-check. A game locks from whichever source first
+  has it complete; ESPN locks only after 10 minutes at Final and only if every
+  scoring play is classified and every player with stats is matched. ESPN is
+  unofficial — it rejects a descriptive User-Agent (use plain "Mozilla/5.0").
+  The draft board / projections stay on nflverse history.
 
 ## Open questions status (commissioner = Scott's dad)
 Answered: Q1 (team units ✓), Q2 (R=WR+TE, no limits ✓), Q3 (no bench/IR ✓),

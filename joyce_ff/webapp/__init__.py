@@ -469,7 +469,7 @@ def create_app(db_path: str | None = None) -> Flask:
             return jsonify(season=None, standings={"BLUE": [], "RED": []}, scoreboard=[],
                            fees={}, pool={"alive": [], "eliminated": []},
                            transactions={"BLUE": [], "RED": []}, lineups=None,
-                           byes=[], payout=None, titles={},
+                           byes=[], payout=None, titles={}, stat_checks=[],
                            champion=_latest_champion())
         sid = s["id"]
         wk = int(request.args.get("week") or s["current_ff_week"])
@@ -585,6 +585,12 @@ def create_app(db_path: str | None = None) -> Flask:
                        champion=_latest_champion(),
                        titles=titles.for_season(conn, sid),
                        scoring_note=runner.scoring_note(conn, sid),
+                       stat_checks=[dict(r) for r in conn.execute(
+                           "SELECT s.ff_week w, s.locked_points, s.other_points, s.source, "
+                           "COALESCE(p.name, s.asset_ref || ' ' || s.unit_type) name "
+                           "FROM stat_checks s LEFT JOIN nfl_players p ON p.season_id=s.season_id "
+                           "AND p.gsis_id=s.asset_ref WHERE s.season_id=? "
+                           "ORDER BY s.ff_week DESC, name", (sid,))],
                        payout=st.final_payout(conn, sid))
 
     @app.get("/api/team/<int:team_id>/detail")

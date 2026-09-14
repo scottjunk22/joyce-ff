@@ -208,8 +208,29 @@ def player_week_stats(pbp: pd.DataFrame) -> pd.DataFrame:
                 return_tds=("return_touchdown", "sum"))
            .reset_index().rename(columns={"td_player_id": "player_id"}))
 
+    # Yards after a lateral. Official NFL stats credit them to the player who
+    # caught the lateral — as receiving yards after a completed pass, rushing
+    # yards after a run — but play-by-play keeps them in separate columns, so
+    # without these a pass-and-lateral player is short (Shakir, 2026 Wk 1: 40
+    # read, 50 official).
+    laterals = []
+    for id_col, name_col, y_col, field in (
+            ("lateral_receiver_player_id", "lateral_receiver_player_name",
+             "lateral_receiving_yards", "receiving_yards"),
+            ("lateral_rusher_player_id", "lateral_rusher_player_name",
+             "lateral_rushing_yards", "rushing_yards")):
+        if id_col not in p.columns or y_col not in p.columns:
+            continue
+        lp = p[p[id_col].notna()]
+        laterals.append(
+            (lp.groupby(["week", id_col], dropna=True)
+               .agg(team=("posteam", "last"),
+                    name=(name_col if name_col in p.columns else id_col, "last"),
+                    **{f"lateral_{field}": (y_col, "sum")})
+               .reset_index().rename(columns={id_col: "player_id"})))
+
     out = rush
-    for frag in (rec, pas, ret):
+    for frag in (rec, pas, ret, *laterals):
         out = out.merge(frag, on=["week", "player_id"], how="outer",
                         suffixes=("", "_y"))
         # prefer a non-null name/team
@@ -224,6 +245,10 @@ def player_week_stats(pbp: pd.DataFrame) -> pd.DataFrame:
         if c not in out.columns:
             out[c] = 0
     out[numeric] = out[numeric].fillna(0)
+    for field in ("receiving_yards", "rushing_yards"):
+        col = f"lateral_{field}"
+        if col in out.columns:
+            out[field] = out[field] + out.pop(col).fillna(0)
     return out
 
 

@@ -615,10 +615,17 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
   // the passcode is remembered, so this is one click.
   const scoreBar=`<div class="lsum"><b>Scores</b> <button class="chip" onclick="runCurrent()">▶ Score current week</button>
     <div class="sub" style="margin-top:4px">Scores update on their own every hour. Press this to pull in the latest right now.</div></div>`;
+  // Scores lock from ESPN within minutes; when nflverse later reports a started
+  // player differently, it's listed here. Nothing changes on its own.
+  const SC=STATE.stat_checks||[];
+  const checkBar=SC.length?`<div class="lsum" style="border-color:var(--warn)"><b>⚠ Stat check</b>`
+    +`<div class="sub" style="margin-top:4px">A second stat source later scored ${SC.length===1?'this starter':'these starters'} differently. Scores stay as they were posted; use “set” on a team's score below if you want to adjust.</div>`
+    +SC.map(c=>`<div class="frow"><span><span class="wk">W${c.w}</span> ${c.name}</span><span>posted ${(+c.locked_points).toFixed(0)} · ${c.source} ${(+c.other_points).toFixed(0)}</span></div>`).join('')
+    +`</div>`:'';
   const actBar=`<div class="lsum"><b>Acting for a manager</b>
     <div class="sub" style="margin-top:4px">Open the team on the main page and use ⚙ lineup or ⇄＋ trade exactly as a manager would — enter <b>your commissioner passcode</b> where it asks for the PIN. You can also set past weeks and start players whose game has already kicked off.</div>
     <div id="auditBox"></div></div>`;
-  $('commBody').innerHTML=scoreBar+lsum+pinBar+actBar+lockBar
+  $('commBody').innerHTML=scoreBar+checkBar+lsum+pinBar+actBar+lockBar
     +table(byNum(STATE.standings.BLUE),'BLUE CONFERENCE','var(--blue)')
     +table(byNum(STATE.standings.RED),'RED CONFERENCE','var(--red)')
     +txSection+seasonBar;

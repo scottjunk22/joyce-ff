@@ -404,7 +404,7 @@ def test_lineups_carry_only_for_the_week_being_played(lg, monkeypatch):
                            "away_team": "T8", "home_score": float("nan"),
                            "gameday": "2026-10-25", "gametime": "13:00"}])
     monkeypatch.setattr(nv, "load_games", lambda: games)
-    monkeypatch.setattr(nv, "finished_games", lambda season: set())
+    monkeypatch.setattr(scoring, "ingest_week", lambda *a, **k: {})
 
     def week6():
         return conn.execute("SELECT COUNT(*) c FROM weekly_lineups WHERE team_id=? "

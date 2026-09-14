@@ -69,7 +69,8 @@ def prepare_season(conn, season_id: int, year: int) -> None:
 
 # Every table that hangs off a season, children first so foreign keys hold.
 SEASON_TABLES = ("roster_entries", "weekly_lineups", "transactions", "payments",
-                 "asset_week_scores", "nfl_game_locks", "nfl_week_games", "team_week_scores", "matchups",
+                 "asset_week_scores", "nfl_game_locks", "nfl_week_games", "stat_checks",
+                 "team_week_scores", "matchups",
                  "teams", "nfl_teams", "nfl_players")
 
 
@@ -88,9 +89,10 @@ def delete_season(conn, season_id: int) -> dict:
     # Season-scoped settings: draft clock, setup lock, finalized and in-progress
     # weeks, kickoff times, PIN window, the last scoring note.
     conn.execute("DELETE FROM settings WHERE key LIKE ? OR key LIKE ? OR key LIKE ? "
-                 "OR key LIKE ? OR key=? OR key=? OR key=?",
+                 "OR key LIKE ? OR key LIKE ? OR key=? OR key=? OR key=?",
                  (f"draft_cursor:{season_id}:%", f"week_final:{season_id}:%",
                   f"week_live:{season_id}:%", f"kickoffs:{season_id}:%",
+                  f"espn_final_seen:{season_id}:%",
                   f"setup_locked:{season_id}", f"pin_setup_open:{season_id}",
                   f"scoring_note:{season_id}"))
     conn.execute("DELETE FROM seasons WHERE id=?", (season_id,))

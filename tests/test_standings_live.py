@@ -85,7 +85,6 @@ def _wired(tmp_path, monkeypatch):
     conn.execute("INSERT INTO weekly_lineups(season_id,team_id,ff_week,roster_slot,asset_kind,asset_ref) "
                  "VALUES (?,?,1,'QB','TEAM','SEA')", (sid, a))
     conn.commit()
-    monkeypatch.setattr(sc, "ingest_asset_scores_from_nflverse", lambda *_, **__: 0)
     monkeypatch.setattr(sc, "score_team_week", lambda *_, **__: None)
     monkeypatch.setattr(sc, "nfl_week_for", lambda *_, **__: 1)
 
@@ -93,9 +92,18 @@ def _wired(tmp_path, monkeypatch):
         rows = [{"season": 2026, "week": 1, "game_id": f"G{i}", "home_team": f"H{i}",
                  "away_team": f"A{i}", "home_score": (13.0 if i < finals else None)}
                 for i in range(games)]
-        done = {f"G{i}" for i in range(finals if in_pbp is None else in_pbp)}
+        done = [i for i in range(finals if in_pbp is None else in_pbp)]
+
+        def ingest(conn_, sid_, ff, *_, **__):     # a source with these games complete locks them
+            for i in done:
+                conn_.execute("INSERT OR IGNORE INTO nfl_game_locks(season_id,ff_week,game_id,"
+                              "home_team,away_team,locked_at,source) VALUES (?,?,?,?,?,'t','test')",
+                              (sid_, ff, f"G{i}", f"H{i}", f"A{i}"))
+            conn_.commit()
+            return {}
+
         monkeypatch.setattr(nv, "load_games", lambda: pd.DataFrame(rows))
-        monkeypatch.setattr(nv, "finished_games", lambda season: done)
+        monkeypatch.setattr(sc, "ingest_week", ingest)
 
     return conn, sid, a, b, schedule
 

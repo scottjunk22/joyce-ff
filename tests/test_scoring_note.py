@@ -27,8 +27,17 @@ def _fixed_schedule(monkeypatch, finals: int, games: int):
     rows = [{"season": 2026, "week": 1, "game_id": f"G{i}", "home_team": f"H{i}",
              "away_team": f"A{i}", "home_score": (13.0 if i < finals else None)}
             for i in range(games)]
+
+    def ingest(conn, sid, ff, *_, **__):           # every final game's stats are complete
+        for i in range(finals):
+            conn.execute("INSERT OR IGNORE INTO nfl_game_locks(season_id,ff_week,game_id,home_team,"
+                         "away_team,locked_at,source) VALUES (?,?,?,?,?,'t','test')",
+                         (sid, ff, f"G{i}", f"H{i}", f"A{i}"))
+        conn.commit()
+        return {}
+
     monkeypatch.setattr(nv, "load_games", lambda: pd.DataFrame(rows))
-    monkeypatch.setattr(nv, "finished_games", lambda season: {f"G{i}" for i in range(finals)})
+    monkeypatch.setattr(sc, "ingest_week", ingest)
     monkeypatch.setattr(sc, "nfl_week_for", lambda *a, **k: 1)
 
 
@@ -64,9 +73,10 @@ def test_unpublished_play_by_play_is_reported_not_swallowed(tmp_path, monkeypatc
     # One game final out of sixteen — the opening Wednesday night, exactly when
     # the schedule has a score and the play-by-play file doesn't exist yet.
     _fixed_schedule(monkeypatch, finals=1, games=16)
+    from joyce_ff.league import scoring as sc
+
     boom = nv.NotPublishedYet("nflverse hasn't published 2026 play-by-play yet.")
-    monkeypatch.setattr(runner, "run_week",
-                        lambda *a, **k: (_ for _ in ()).throw(boom))
+    monkeypatch.setattr(sc, "ingest_week", lambda *a, **k: (_ for _ in ()).throw(boom))
 
     r = runner.run_current(conn, sid)
     assert "play-by-play" in r["note"]

@@ -105,6 +105,29 @@ def locked_teams(conn, season_id: int, ff_week: int) -> set[str]:
     return out
 
 
+def locked_game_ids(conn, season_id: int, ff_week: int) -> set[str]:
+    return {r["game_id"] for r in conn.execute(
+        "SELECT game_id FROM nfl_game_locks WHERE season_id=? AND ff_week=?", (season_id, ff_week))}
+
+
+def games_to_watch(conn, season_id: int, now: _dt.datetime | None = None,
+                   window: _dt.timedelta = _dt.timedelta(hours=8)) -> bool:
+    """Is any game kicked off within the last `window` and not locked yet?
+    The always-on checker only calls ESPN when this is true, so it sleeps
+    through the week. A game still unlocked after the window (ESPN couldn't
+    settle it) is left to the hourly run and nflverse."""
+    now = now or _dt.datetime.now(ET)
+    for r in conn.execute(
+            "SELECT g.ff_week, g.kickoff FROM nfl_week_games g "
+            "LEFT JOIN nfl_game_locks k ON k.season_id=g.season_id AND k.ff_week=g.ff_week "
+            "AND k.game_id=g.game_id WHERE g.season_id=? AND k.id IS NULL "
+            "AND g.kickoff IS NOT NULL", (season_id,)):
+        ko = _dt.datetime.fromisoformat(r["kickoff"])
+        if ko <= now <= ko + window and not is_finalized(conn, season_id, r["ff_week"]):
+            return True
+    return False
+
+
 def bye_teams(conn, season_id: int, ff_week: int) -> set[str]:
     return {r["abbr"] for r in conn.execute(
         "SELECT abbr FROM nfl_teams WHERE season_id=? AND bye_ff_week=?", (season_id, ff_week))}

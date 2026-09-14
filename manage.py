@@ -187,32 +187,41 @@ def cmd_run_week(argv: list[str]) -> int:
     return 0
 
 
-def cmd_run_current(_argv: list[str]) -> int:
-    """The hourly job. Scores the league, and the practice universe too when it
-    exists — a rehearsal is only a rehearsal if it runs on the same clock."""
-    from datetime import datetime, timezone
+def _league_databases():
+    """The league, plus the practice universe when it exists — a rehearsal is
+    only a rehearsal if it runs on the same clock."""
     from pathlib import Path
 
-    from joyce_ff.league import connect, schema
-    from joyce_ff.league.runner import run_current
+    from joyce_ff.league import schema
 
     main = Path(schema.DEFAULT_DB_PATH)
     dbs = [("league", main)]
     practice = main.with_name("league_dark.sqlite")      # same rule as the web app
     if practice.exists():
         dbs.append(("practice", practice))
+    return dbs
+
+
+def _score_databases(command: str, sources=None, only_while_games_on=False) -> int:
+    from datetime import datetime, timezone
+
+    from joyce_ff.league import connect, progress, schema
+    from joyce_ff.league.runner import run_current
 
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     failed = 0
-    for label, path in dbs:
+    for label, path in _league_databases():
         conn = connect(path)
         try:
             schema.migrate(conn)              # the CLI doesn't migrate on connect
             row = conn.execute("SELECT id FROM seasons ORDER BY year DESC LIMIT 1").fetchone()
             if row is None:
-                print(f"[{stamp}] run-current ({label}): no season yet")
+                if not only_while_games_on:
+                    print(f"[{stamp}] {command} ({label}): no season yet")
                 continue
-            r = run_current(conn, row["id"])
+            if only_while_games_on and not progress.games_to_watch(conn, row["id"]):
+                continue
+            r = run_current(conn, row["id"], sources=sources)
             parts = []
             if r["scored"]:
                 parts.append(f"finalized {r['scored']}")
@@ -220,13 +229,33 @@ def cmd_run_current(_argv: list[str]) -> int:
                 parts.append(f"live-updated {r['live']}")
             if r.get("note"):
                 parts.append(r["note"])
-            print(f"[{stamp}] run-current ({label}): {'; '.join(parts) or 'nothing to score yet'}")
+            print(f"[{stamp}] {command} ({label}): {'; '.join(parts) or 'nothing to score yet'}",
+                  flush=True)
         except Exception as e:              # one database failing mustn't stop the other
             failed += 1
-            print(f"[{stamp}] run-current ({label}) FAILED: {type(e).__name__}: {e}")
+            print(f"[{stamp}] {command} ({label}) FAILED: {type(e).__name__}: {e}", flush=True)
         finally:
             conn.close()
-    return 1 if failed else 0
+    return failed
+
+
+def cmd_run_current(_argv: list[str]) -> int:
+    """The hourly job: ESPN and nflverse, for the league and the practice site."""
+    return 1 if _score_databases("run-current") else 0
+
+
+def cmd_live(argv: list[str]) -> int:
+    """The always-on checker: every few minutes, while any game is kicked off
+    and not yet locked, read ESPN and score — so a game is final on the site
+    within minutes of the whistle. Sleeps the rest of the week. nflverse stays
+    with the hourly job, which keeps this light."""
+    import time
+
+    every = int(argv[argv.index("--every") + 1]) if "--every" in argv else 300
+    print(f"live: checking ESPN every {every}s while games are on", flush=True)
+    while True:
+        _score_databases("live", sources=("espn",), only_while_games_on=True)
+        time.sleep(every)
 
 
 def cmd_sync(_argv: list[str]) -> int:
@@ -263,6 +292,7 @@ COMMANDS = {
     "demo-seed": cmd_demo_seed,
     "run-week": cmd_run_week,
     "run-current": cmd_run_current,
+    "live": cmd_live,
     "serve": cmd_serve,
     "sync": cmd_sync,
     "run": cmd_run,
