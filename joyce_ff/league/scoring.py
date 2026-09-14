@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
+from . import display
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -371,7 +373,7 @@ def box_score(conn, season_id: int, ff_week: int, team_id: int) -> list[dict]:
     out = []
     for r in rows:
         d = dict(r)
-        d["display"] = d.pop("player_name") or f"{d['asset_ref']} {d['unit_type'] or ''}".strip()
+        d["display"] = d.pop("player_name") or display.unit(d["asset_ref"], d["unit_type"])
         d["breakdown"] = json.loads(d.pop("breakdown_json") or "[]")
         out.append(d)
     return out

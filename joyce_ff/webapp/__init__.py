@@ -18,7 +18,7 @@ from pathlib import Path
 
 from flask import Flask, g, jsonify, redirect, render_template, request
 
-from ..league import auth, progress, repo, runner, schema, scoring, titles
+from ..league import auth, display, progress, repo, runner, schema, scoring, titles
 from ..scoring import rules
 from ..league import standings as st
 
@@ -418,7 +418,7 @@ def create_app(db_path: str | None = None) -> Flask:
             r = conn.execute("SELECT name FROM nfl_players WHERE season_id=? AND gsis_id=?",
                              (sid, ref)).fetchone()
             return r["name"] if r else ref
-        return f"{ref} {unit or ''}".strip()
+        return display.unit(ref, unit)
 
     def _asset_team(conn, sid, kind, ref):
         if kind == "TEAM_UNIT":
@@ -433,7 +433,7 @@ def create_app(db_path: str | None = None) -> Flask:
         def side(kind, ref):
             d = {"name": _dname(conn, sid, kind, ref), "kind": kind}
             if kind == "PLAYER":
-                d["team"] = _asset_team(conn, sid, kind, ref)
+                d["team"] = display.team(_asset_team(conn, sid, kind, ref))
             return d
         return {"pos": pos, "out": side(ok, oref), "in": side(ik, iref)}
 
@@ -544,9 +544,8 @@ def create_app(db_path: str | None = None) -> Flask:
                 pool["eliminated"].append({"name": r["name"], "eliminated_ff_week": r["e"]})
             else:
                 pool["alive"].append({"name": r["name"]})
-        byes = [r["abbr"] for r in conn.execute(
-            "SELECT abbr FROM nfl_teams WHERE season_id=? AND bye_ff_week=? ORDER BY abbr",
-            (sid, wk))]
+        byes = sorted(display.team(r["abbr"]) for r in conn.execute(
+            "SELECT abbr FROM nfl_teams WHERE season_id=? AND bye_ff_week=?", (sid, wk)))
         weeks = [r["w"] for r in conn.execute(
             "SELECT DISTINCT ff_week w FROM team_week_scores WHERE season_id=? ORDER BY ff_week", (sid,))] or [wk]
         last = conn.execute("SELECT MAX(computed_at) c FROM team_week_scores WHERE season_id=?", (sid,)).fetchone()["c"]
@@ -585,12 +584,15 @@ def create_app(db_path: str | None = None) -> Flask:
                        champion=_latest_champion(),
                        titles=titles.for_season(conn, sid),
                        scoring_note=runner.scoring_note(conn, sid),
-                       stat_checks=[dict(r) for r in conn.execute(
+                       stat_checks=[{"w": r["w"], "locked_points": r["locked_points"],
+                                     "other_points": r["other_points"], "source": r["source"],
+                                     "name": r["pname"] or display.unit(r["asset_ref"], r["unit_type"])}
+                                    for r in conn.execute(
                            "SELECT s.ff_week w, s.locked_points, s.other_points, s.source, "
-                           "COALESCE(p.name, s.asset_ref || ' ' || s.unit_type) name "
+                           "s.asset_ref, s.unit_type, p.name pname "
                            "FROM stat_checks s LEFT JOIN nfl_players p ON p.season_id=s.season_id "
                            "AND p.gsis_id=s.asset_ref WHERE s.season_id=? "
-                           "ORDER BY s.ff_week DESC, name", (sid,))],
+                           "ORDER BY s.ff_week DESC, s.asset_ref", (sid,))],
                        payout=st.final_payout(conn, sid))
 
     @app.get("/api/team/<int:team_id>/detail")
@@ -608,7 +610,7 @@ def create_app(db_path: str | None = None) -> Flask:
             roster.append({"slot": e["roster_slot"],
                            "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"], e["unit_type"]),
                            "asset_ref": e["asset_ref"], "kind": e["asset_kind"],
-                           "team": team, "bye": team in byes})
+                           "team": display.team(team), "bye": team in byes})
         fees = _account(conn, sid, team_id)
         hist = [{"week": t["ff_week"], "type": t["type"], "fee": t["fee_cents"],
                  **_tx_parts(conn, sid, t["position"], t["out_asset_kind"], t["out_asset_ref"],
@@ -652,7 +654,9 @@ def create_app(db_path: str | None = None) -> Flask:
         if pos in repo.INDIVIDUAL_POS:
             data = repo.available_players(conn, s["id"], conf["conference_id"], pos)
         else:
-            data = repo.available_units(conn, s["id"], conf["conference_id"], pos)
+            # "abbr" stays the stored code — it's what a trade sends back.
+            data = [{**u, "name": display.team(u["name"])}
+                    for u in repo.available_units(conn, s["id"], conf["conference_id"], pos)]
         return jsonify(position=pos, available=data)
 
     # ---- write API (passcode-gated) ----

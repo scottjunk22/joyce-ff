@@ -297,21 +297,25 @@ function playerTable(){
     return `<tr class="${brk}"><td>${i+1}</td><td><span class="tier">T${r.tier??'—'}</span></td>
       ${isOverall?`<td class="l"><span class="postag ${ptClass(r.slot)}">${r.slot}</span></td>`:''}
       <td class="l"><span class="nm">${r.name}</span>${flags}</td>
-      <td class="l">${r.team?`<span class="tm">${r.team}</span>`:'<span class="sub">—</span>'}</td>
+      <td class="l">${r.team?`<span class="tm">${TM(r.team)}</span>`:'<span class="sub">—</span>'}</td>
       <td>${fmt(r.proj)}</td>${vorCell(r.vor,mx)}<td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td>
       ${bustCell(r.bust)}<td>${r.games25??0}</td>${SOS().available?sosCell(r.sos):''}${curCells}</tr>`;
   }).join('')||'<tr><td class="l sub" colspan="13" style="padding:14px">no matches</td></tr>';
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
+/* Stored codes follow the NFL schedule, which calls the Rams "LA" — easy to
+   confuse with the Chargers' "LAC". People see "LAR". Display only: anything
+   sent back to the server (a draft pick) keeps the stored code. */
+const TM=t=>t==='LA'?'LAR':t;
 function unitTable(){
-  let list=sortRows(rows()); if(q) list=list.filter(r=>r.team.toLowerCase().includes(q.toLowerCase()));
+  let list=sortRows(rows()); if(q) list=list.filter(r=>TM(r.team).toLowerCase().includes(q.toLowerCase()));
   const mx=maxVor(list);
   const C=CUR(), yy=String(C.year).slice(2);
   const curHead=C.available?`${th('cur_ppg',`'${yy} P/G`)}${th('cur_g',`'${yy} G`)}`:'';
   const head=`<tr><th title="${TIP.rank}">#</th>${th('team','Team unit','l')}${th('proj','Proj/g')}${th('vor','VOR')}${th('floor','Flr')}${th('ceil','Ceil')}${th('bust','Bust%')}${th('games25','G25')}${curHead}</tr>`;
   const body=list.map((r,i)=>{
     const curCells=C.available?`<td class="cur">${fmt(r.cur_ppg)}</td><td class="cur">${r.cur_g??'<span class="sub">—</span>'}</td>`:'';
-    return `<tr><td>${i+1}</td><td class="l"><span class="postag ${ptClass(tab)}">${r.team}</span></td>
+    return `<tr><td>${i+1}</td><td class="l"><span class="postag ${ptClass(tab)}">${TM(r.team)}</span></td>
       <td>${fmt(r.proj)}</td>${vorCell(r.vor,mx)}<td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td>
       ${bustCell(r.bust)}<td>${r.games25??0}</td>${curCells}</tr>`;}).join('');
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
@@ -354,9 +358,9 @@ function draftList(){
   let rws;
   if(dtab==='overall') rws=BOARD.overall.filter(r=> r.id? !dp.has(r.id) : !du.has(`${r.team}|${r.position}`));
   else if(UNIT_TABS.has(dtab)) rws=(BOARD.units[dtab]||[]).filter(r=>!du.has(`${r.team}|${dtab}`))
-        .map(r=>({...r,slot:dtab,position:dtab,name:`${r.team} ${dtab}`,id:null}));
+        .map(r=>({...r,slot:dtab,position:dtab,name:`${TM(r.team)} ${dtab}`,id:null}));
   else rws=BOARD.players.filter(r=>r.slot===dtab && !dp.has(r.id));
-  if(dq){ const s=dq.toLowerCase(); rws=rws.filter(r=>(r.name||'').toLowerCase().includes(s)||(r.team||'').toLowerCase().includes(s)); }
+  if(dq){ const s=dq.toLowerCase(); rws=rws.filter(r=>(r.name||'').toLowerCase().includes(s)||TM(r.team||'').toLowerCase().includes(s)); }
   rws=rws.slice(0,80);
   if(!rws.length) return '<div class="drow"><span class="sub">none available</span></div>';
   return rws.map(r=>{
@@ -364,7 +368,7 @@ function draftList(){
     return `<div class="drow"><span class="tier">T${r.tier??'—'}</span>`
       +`<span class="postag ${ptClass(a.slot)}">${a.slot}</span>`
       +`<span style="flex:1;min-width:0"><span class="nm">${r.name}</span>`
-      +(a.kind==='PLAYER'&&r.team?` <span class="tm">${r.team}</span>`:'')+`</span>`
+      +(a.kind==='PLAYER'&&r.team?` <span class="tm">${TM(r.team)}</span>`:'')+`</span>`
       +`<span class="vor ${v==null||v<0.3?'lo':''}">${v==null?'—':(v>0?'+':'')+(+v).toFixed(2)}</span>`
       +`<button class="draftbtn" onclick="draftPick('${a.kind}','${a.ref}','${a.slot}')">${DASSIGN==null?'draft →':'add →'}</button></div>`;
   }).join('');
