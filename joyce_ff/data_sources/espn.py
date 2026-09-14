@@ -23,7 +23,12 @@ import re
 import urllib.request
 from dataclasses import dataclass, field
 
-BASE = "https://site.api.espn.com/apis/site/v2/sports/football/nfl"
+# Two hosts serve the same feed. From PythonAnywhere, ESPN's edge (Akamai)
+# refuses site.api.espn.com with a 403 while site.web.api.espn.com answers;
+# both return identical data (checked on the scoreboard and four box scores,
+# 2026-09-14). Try them in order so one being blocked isn't an outage.
+HOSTS = ("site.web.api.espn.com", "site.api.espn.com")
+PATH = "/apis/site/v2/sports/football/nfl"
 # Plain on purpose: ESPN's edge rejects (403) a user agent with a descriptive
 # suffix — "Mozilla/5.0 (private fantasy league scoring)" was refused, plain
 # "Mozilla/5.0" accepted (2026-09-13).
@@ -59,6 +64,17 @@ def _get(url: str, timeout: int = 30) -> dict:
         raise Unavailable(f"ESPN request failed: {e}") from e
 
 
+def _fetch(path: str) -> dict:
+    """`path` from the first ESPN host that answers."""
+    errors = []
+    for host in HOSTS:
+        try:
+            return _get(f"https://{host}{PATH}/{path}")
+        except Unavailable as e:
+            errors.append(f"{host}: {e}")
+    raise Unavailable("; ".join(errors))
+
+
 @dataclass
 class Event:
     event_id: str
@@ -71,7 +87,7 @@ class Event:
 
 def week_events(year: int, nfl_week: int, seasontype: int = 2) -> list[Event]:
     """Every game ESPN lists for a regular-season NFL week."""
-    sb = _get(f"{BASE}/scoreboard?seasontype={seasontype}&week={nfl_week}&dates={year}")
+    sb = _fetch(f"scoreboard?seasontype={seasontype}&week={nfl_week}&dates={year}")
     out = []
     try:
         for e in sb["events"]:
@@ -99,7 +115,7 @@ def _num(v) -> float:
 
 
 def game_lines(event_id: str) -> GameLines:
-    s = _get(f"{BASE}/summary?event={event_id}")
+    s = _fetch(f"summary?event={event_id}")
     try:
         return _parse(s)
     except (KeyError, IndexError, TypeError, ValueError, AttributeError) as e:

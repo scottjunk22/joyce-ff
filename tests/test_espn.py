@@ -114,6 +114,24 @@ def test_a_scoring_play_it_cannot_classify_is_flagged(monkeypatch):
     assert espn.game_lines("900").unknown_scoring == ["Penalty"]
 
 
+def test_a_blocked_host_falls_back_to_the_other(monkeypatch):
+    """From PythonAnywhere one ESPN host 403s while the other answers."""
+    seen = []
+
+    def get(url, timeout=30):
+        seen.append(url.split("/")[2])
+        if url.split("/")[2] == espn.HOSTS[0]:
+            raise espn.Unavailable("HTTP Error 403: Forbidden")
+        return _scoreboard()
+
+    monkeypatch.setattr(espn, "_get", get)
+    assert espn.week_events(2026, 1)[0].home == "HOU"
+    assert seen == list(espn.HOSTS)
+    monkeypatch.setattr(espn, "_get", lambda url, timeout=30: (_ for _ in ()).throw(espn.Unavailable("403")))
+    with pytest.raises(espn.Unavailable):
+        espn.week_events(2026, 1)
+
+
 def test_a_changed_feed_fails_loudly_rather_than_half_parsing(monkeypatch):
     monkeypatch.setattr(espn, "_get", lambda url, timeout=30: {"boxscore": {}})
     with pytest.raises(espn.Unavailable):
