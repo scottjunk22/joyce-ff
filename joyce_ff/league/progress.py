@@ -116,7 +116,11 @@ def games_to_watch(conn, season_id: int, now: _dt.datetime | None = None,
     The always-on checker only calls ESPN when this is true, so it sleeps
     through the week. A game still unlocked after the window (ESPN couldn't
     settle it) is left to the hourly run and nflverse."""
+    from . import settle
+
     now = now or _dt.datetime.now(ET)
+    if settle.follow_up_pending(conn, season_id, now):     # a 30-minute copy still to take
+        return True
     for r in conn.execute(
             "SELECT g.ff_week, g.kickoff FROM nfl_week_games g "
             "LEFT JOIN nfl_game_locks k ON k.season_id=g.season_id AND k.ff_week=g.ff_week "

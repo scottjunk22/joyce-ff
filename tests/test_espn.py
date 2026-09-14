@@ -291,3 +291,32 @@ def test_lateral_yards_count_as_official_stats_do():
     out = nv.player_week_stats(pbp).set_index("player_id")
     assert out.loc["shakir", "receiving_yards"] == 29 and out.loc["shakir", "receptions"] == 1
     assert out.loc["coleman", "receiving_yards"] == 1
+
+
+# --- does ESPN change a box score after Final? (settle.py) -----------------------
+
+def test_copies_are_kept_at_final_lock_and_30_minutes_and_changes_are_reported(season, monkeypatch):
+    from joyce_ff.league import settle
+
+    conn, sid = season
+    _feed(monkeypatch)
+    t0 = dt.datetime(2026, 9, 14, 22, 0, tzinfo=ET)
+    scoring.ingest_espn_week(conn, sid, 1, now=t0)                                # first Final
+    scoring.ingest_espn_week(conn, sid, 1, now=t0 + dt.timedelta(minutes=11))     # lock
+    stages = [r["stage"] for r in conn.execute("SELECT stage FROM espn_snapshots ORDER BY id")]
+    assert stages == ["final", "lock"]
+    locked = t0 + dt.timedelta(minutes=11)
+    assert settle.follow_up_pending(conn, sid, locked + dt.timedelta(minutes=5))
+    assert progress.games_to_watch(conn, sid, now=locked + dt.timedelta(minutes=5))   # stays awake
+
+    assert settle.run_follow_ups(conn, sid, locked + dt.timedelta(minutes=20)) == 0    # not yet
+    changed = _summary()
+    changed["boxscore"]["players"][0]["statistics"][1]["athletes"][0]["stats"][1] = "91"   # 88 -> 91 yds
+    _feed(monkeypatch, summary=changed)
+    assert settle.run_follow_ups(conn, sid, locked + dt.timedelta(minutes=31)) == 1
+    assert not settle.follow_up_pending(conn, sid, locked + dt.timedelta(minutes=32))
+
+    report = settle.report(conn, sid)
+    assert any("final -> lock" in l and "no changes" in l for l in report)
+    assert any("lock -> plus30" in l and "1 CHANGED" in l for l in report)
+    assert any("Runner Back: rushing_yards 88 -> 91" in l for l in report)

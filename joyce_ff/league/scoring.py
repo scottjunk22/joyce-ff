@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from . import display
+from . import display, settle
 
 
 def _now() -> str:
@@ -256,6 +256,7 @@ def ingest_espn_week(conn, season_id: int, ff_week: int, now=None) -> int:
     by_name = None                              # loaded only if an ESPN id isn't on file
     n = 0
     for ev in events:
+        gid = ids.get(frozenset((ev.home, ev.away)), ev.game_id)
         if ev.home in frozen and ev.away in frozen:
             continue
         g = espn.game_lines(ev.event_id)
@@ -297,18 +298,19 @@ def ingest_espn_week(conn, season_id: int, ff_week: int, now=None) -> int:
             n += 4
         if not ev.completed:
             continue
+        settle.snapshot(conn, season_id, ff_week, gid, ev.event_id, "final", g, now)
         if g.unknown_scoring or unmatched:
             print(f"  ESPN: not locking {ev.away} @ {ev.home} — "
                   + "; ".join([f"unrecognised scoring play {k!r}" for k in g.unknown_scoring]
                               + [f"no player match for {m}" for m in unmatched])
                   + " (nflverse will settle it)")
             continue
-        if _final_long_enough(conn, season_id, ids.get(frozenset((ev.home, ev.away)), ev.game_id), now):
+        if _final_long_enough(conn, season_id, gid, now):
             conn.execute(
                 "INSERT OR IGNORE INTO nfl_game_locks(season_id,ff_week,game_id,home_team,away_team,"
                 "locked_at,source) VALUES (?,?,?,?,?,?,'espn')",
-                (season_id, ff_week, ids.get(frozenset((ev.home, ev.away)), ev.game_id),
-                 ev.home, ev.away, _now()))
+                (season_id, ff_week, gid, ev.home, ev.away, _now()))
+            settle.snapshot(conn, season_id, ff_week, gid, ev.event_id, "lock", g, now)
     conn.commit()
     return n
 

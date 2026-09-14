@@ -244,6 +244,25 @@ def cmd_run_current(_argv: list[str]) -> int:
     return 1 if _score_databases("run-current") else 0
 
 
+def cmd_settle_report(_argv: list[str]) -> int:
+    """Does ESPN change a box score after Final? Compares each game's copies
+    taken at first Final, at lock, and 30 minutes after (league/settle.py)."""
+    from joyce_ff.league import connect, schema, settle
+
+    for label, path in _league_databases():
+        conn = connect(path)
+        try:
+            schema.migrate(conn)
+            row = conn.execute("SELECT id FROM seasons ORDER BY year DESC LIMIT 1").fetchone()
+            lines = settle.report(conn, row["id"]) if row else []
+            print(f"== {label}: {len(lines) and 'games recorded' or 'nothing recorded yet'}")
+            for line in lines:
+                print(line)
+        finally:
+            conn.close()
+    return 0
+
+
 def cmd_live(argv: list[str]) -> int:
     """The always-on checker: every few minutes, while any game is kicked off
     and not yet locked, read ESPN and score — so a game is final on the site
@@ -293,6 +312,7 @@ COMMANDS = {
     "run-week": cmd_run_week,
     "run-current": cmd_run_current,
     "live": cmd_live,
+    "settle-report": cmd_settle_report,
     "serve": cmd_serve,
     "sync": cmd_sync,
     "run": cmd_run,

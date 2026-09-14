@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import datetime as _dt
 
-from . import progress, scoring
+from . import progress, scoring, settle
 from . import standings as st
 
 # How long after its last kickoff a week still counts as the one being played:
@@ -152,6 +152,13 @@ def run_current(conn, season_id: int, now: _dt.datetime | None = None,
                 run_week(conn, season_id, ff, do_ingest=False, eliminate=False, carry=False)
                 st.try_early_elimination(conn, season_id, ff, now=now)
                 live.append(ff)
+        if "espn" in (sources or scoring.SOURCES):
+            # Record-keeping for the post-Final settle question (settle.py).
+            # It must never stop scoring, so a failure is only reported.
+            try:
+                settle.run_follow_ups(conn, season_id, now)
+            except Exception as e:
+                print(f"  settle follow-up skipped: {type(e).__name__}: {e}")
     except nv.NotPublishedYet as e:
         # Games have finished but the stats behind them don't exist yet. An
         # empty scoreboard here would look exactly like a scoreboard of zeros,

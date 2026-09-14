@@ -213,6 +213,21 @@ CREATE TABLE IF NOT EXISTS nfl_game_locks (
     UNIQUE(season_id, ff_week, game_id)
 );
 
+-- Copies of a game's ESPN stat lines at first Final, at lock, and 30 minutes
+-- after, to learn whether ESPN still changes a box score after Final
+-- (league/settle.py). Record-keeping only; scoring never reads it.
+CREATE TABLE IF NOT EXISTS espn_snapshots (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    season_id  INTEGER NOT NULL REFERENCES seasons(id),
+    ff_week    INTEGER NOT NULL,
+    game_id    TEXT NOT NULL,
+    event_id   TEXT NOT NULL,
+    stage      TEXT NOT NULL,          -- final / lock / plus30
+    taken_at   TEXT NOT NULL,
+    lines      TEXT NOT NULL,          -- the parsed stat lines, JSON
+    UNIQUE(season_id, game_id, stage)
+);
+
 -- A locked line that the other source later reported differently. Nothing is
 -- changed: the commissioner scores from the box score as it stood. It's listed
 -- in the commissioner tab so he can adjust by hand if he wants to.
@@ -382,6 +397,12 @@ def migrate(conn: sqlite3.Connection) -> None:
     kcols = {r["name"] for r in conn.execute("PRAGMA table_info(nfl_game_locks)")}
     if "source" not in kcols:
         conn.execute("ALTER TABLE nfl_game_locks ADD COLUMN source TEXT")
+    conn.execute("CREATE TABLE IF NOT EXISTS espn_snapshots ("
+                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                 "season_id INTEGER NOT NULL REFERENCES seasons(id), ff_week INTEGER NOT NULL, "
+                 "game_id TEXT NOT NULL, event_id TEXT NOT NULL, stage TEXT NOT NULL, "
+                 "taken_at TEXT NOT NULL, lines TEXT NOT NULL, "
+                 "UNIQUE(season_id, game_id, stage))")
     conn.execute("CREATE TABLE IF NOT EXISTS stat_checks ("
                  "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                  "season_id INTEGER NOT NULL REFERENCES seasons(id), ff_week INTEGER NOT NULL, "
