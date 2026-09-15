@@ -128,6 +128,13 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-15: TWO WEEK CLOCKS (commissioner). LINEUP week (lineups, trades,
+  Opens, lineups-in count; upcoming week added to the scoreboard dropdown)
+  moves at 6am CT the Tuesday after a week's last game. SCOREBOARD week (the
+  site's default view) moves at 6am CT on the day of the next week's first
+  kickoff (Thursday). Dropdown newest-first; Week left of Season. Code:
+  progress.lineup_week / scoreboard_week. Never use seasons.current_ff_week
+  directly for either.
 - 2026-09-14: TIED GAMES (commissioner). A matchup tied on points goes to the
   team whose STARTED DEF/ST (a rented one counts) allowed the fewest NET yards.
   A DEF/ST on bye not covered by an Open loses. Both on bye, or equal yards:
