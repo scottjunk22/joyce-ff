@@ -375,6 +375,16 @@ def test_a_covered_open_does_not_count_toward_the_flex(lg):
         _set(conn, sid, otb, 5, ["r1", "r2", "r3"], ["fa_r", "w3"])   # only w2 uncovered
 
 
+def test_set_lineups_flex_check_matches_what_submitting_accepts(lg):
+    """Set Lineup's green check uses repo.bye_flex: w1 and w2 on bye in week 5
+    allow the 3rd RB until an Open covers one of them."""
+    conn, sid, otb = lg
+    assert repo.bye_flex(conn, sid, otb, 5) == {"RB": True, "R": False}
+    assert repo.bye_flex(conn, sid, otb, 4) == {"RB": False, "R": False}
+    repo.do_open(conn, sid, otb, "R", "w1", "fa_r", 5)
+    assert repo.bye_flex(conn, sid, otb, 5) == {"RB": False, "R": False}
+
+
 def test_a_carried_player_whose_game_has_started_is_locked_in(lg):
     """P is locked in: the copy is the lineup that was in effect at his kickoff."""
     conn, sid, otb = lg

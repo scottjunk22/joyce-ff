@@ -409,6 +409,15 @@ def _bye_count(conn, season_id, team_id, slot, ff_week) -> int:
     return n
 
 
+def bye_flex(conn, season_id, team_id, ff_week) -> dict:
+    """Which bye-week flex this team may use this week — the same test set_lineup
+    applies, so Set Lineup's count agrees with what submitting will accept.
+    {"RB": a 3rd RB is allowed, "R": a 4th receiver is allowed}"""
+    least = rules.BYE_FLEX_MIN_ON_BYE
+    return {"RB": _bye_count(conn, season_id, team_id, "R", ff_week) >= least,
+            "R": _bye_count(conn, season_id, team_id, "RB", ff_week) >= least}
+
+
 def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
                locked_refs=None, submitted_by=None) -> None:
     """starters: list of {roster_slot, asset_ref}. Validates the 9-man lineup,

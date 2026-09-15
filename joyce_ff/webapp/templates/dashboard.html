@@ -474,7 +474,7 @@ async function lineupModal(id, wk){
   wk = wk || LW;
   const d=await (await fetch(`/api/team/${id}/detail?week=${wk}&season=${SEASON}`)).json();
   const items=d.roster.map(r=>({slot:r.slot,ref:r.asset_ref,name:r.name,game_state:r.game_state,game_at:r.game_at})); (d.opens||[]).forEach(o=>items.push({slot:o.position,ref:o.asset_ref,name:o.name+' (open)'}));
-  LU={team:id,week:wk,sel:new Set(),items};
+  LU={team:id,week:wk,sel:new Set(),items,flex:d.bye_flex||{}};
   // Key every selection by SLOT + REF. A team unit's ref is just the NFL club
   // (BAL), so a roster holding BAL's coach and BAL's QB room has two starters
   // sharing one ref — keyed by ref alone they collapse into one, the lineup
@@ -526,10 +526,30 @@ function renderLineup(){ const ord={'C':0,'K':1,'DEF/ST':2,'QB':3,'RB':4,'R':5},
   $('luRows').innerHTML=items.map(i=>{const key=LUKEY(i.slot,i.ref), on=LU.sel.has(key);
     return `<div class="srow"><span class="slot">${i.slot}</span><span class="nm">${i.name}${luGame(i)}</span><span class="st ${on?'start':'bench'}" ${clickable(i)?`onclick="toggleStart('${encodeURIComponent(key)}')"`:''}>${on?'START':'BENCH'}</span></div>`;}).join('');
   const c=s=>[...LU.sel].filter(k=>k.startsWith(s+'|')).length;
-  // Each slot as picked/needed — this is where a manager sees what a full lineup is.
-  const NEED=[['C',1],['K',1],['DEF/ST',1],['QB',1],['RB',2],['R',3]];
-  $('luHint').innerHTML=`Starting <b>${LU.sel.size}</b>/9 · `+NEED.map(([s,n])=>`${s} ${c(s)}/${n}`).join(' · ')
-    +` ${LU.sel.size===9?'✅':'— pick 9'}`;
+  $('luHint').innerHTML=lineupCheck(c);
+}
+/* The count under Set Lineup: a green check only for a lineup submitting will
+   accept (the same rules as repo.set_lineup, bye-week flex included), otherwise
+   what's wrong and how to fix it, in words. */
+function lineupCheck(c){
+  const n=LU.sel.size, rb=c('RB'), r=c('R'), F=LU.flex||{};
+  const ok=t=>`<span style="color:var(--good)">✅ ${t}</span>`, bad=t=>`<span style="color:var(--warn)">⚠ ${t}</span>`;
+  if(!n) return bad('0 of 9 — start C, K, DEF/ST, QB, 2 RB, 3 R');
+  const units=['C','K','DEF/ST','QB'].filter(u=>!c(u));
+  // The RB/R mix being aimed for: a flex once its extra player is picked, else 2 + 3.
+  const [tRB,tR]= rb>=3&&r<=2 ? [3,2] : r>=4&&rb<=1 ? [1,4] : [2,3];
+  if(n<9){ const fix=units.map(u=>`a ${u}`);
+    if(rb<tRB) fix.push(`${tRB-rb} more RB`); if(r<tR) fix.push(`${tR-r} more R`);
+    return bad(`${n} of 9 — start ${fix.join(', ')}`); }
+  if(n>9){ const pos= rb>tRB&&r>=tR ? ' RB' : r>tR&&rb>=tRB ? ' R' : '';
+    return bad(`${n} of 9 — bench ${n-9}${pos}`); }
+  if(units.length) return bad(`start a ${units.join(', a ')}`);
+  if(rb===2&&r===3) return ok('Lineup complete — 9 starters');
+  if(rb===3&&r===2) return F.RB ? ok('Lineup complete — 9 starters · bye-week flex')
+    : bad('3 RBs only when 2+ receivers are on bye — bench 1 RB, start 1 more R');
+  if(rb===1&&r===4) return F.R ? ok('Lineup complete — 9 starters · bye-week flex')
+    : bad('4 receivers only when 2+ RBs are on bye — bench 1 R, start 1 more RB');
+  return bad(`${rb} RB + ${r} R isn't allowed — start 2 RB, 3 R`);
 }
 function toggleStart(encKey){ const key=decodeURIComponent(encKey);
   const it=LU.items.find(i=>LUKEY(i.slot,i.ref)===key); if(!it) return;
