@@ -136,6 +136,13 @@ what the Phase-1 reconciliation is designed to arbitrate.
   submitted and "check lineup" live in the commissioner tab. The copy IS the
   official lineup; the commissioner doesn't re-submit. Set Lineup shows each
   player's game day/time. Code: progress.lineup_flags.
+  Also: a banner above the scoreboard, Tuesday 6am until each pre-Sunday
+  kickoff, one line per game ("SF @ LAR · Thu 7:15 PM — no lineup yet, with a
+  player in this game: A · B"), team names only, tap opens Set Lineup
+  (progress.early_lineup_alerts). "N to play" is hidden for everyone until
+  Sunday noon CT (progress.counts_visible). A copied lineup is never called
+  submitted: Set Lineup and the box score say "last week's lineup — not
+  submitted" (weekly_lineups.carried_from).
 - 2026-09-15: TWO WEEK CLOCKS (commissioner). LINEUP week (lineups, trades,
   Opens, lineups-in count; upcoming week added to the scoreboard dropdown)
   moves at 6am CT the Tuesday after a week's last game. SCOREBOARD week (the
