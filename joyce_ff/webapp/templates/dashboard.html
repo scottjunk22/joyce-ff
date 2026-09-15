@@ -114,6 +114,9 @@
  .cglance{background:var(--panel2);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
  .cglance .cn{font-size:20px;font-weight:700}.cglance .cl{font-size:13px;color:var(--dim)}
  .cok{color:var(--good);font-size:14px}
+ .cright,.clink{margin-left:auto}
+ .clink{background:none;border:0;color:var(--blue);font-size:13px;cursor:pointer;padding:0}
+ .ctbody{width:100%}.ctbody .nchips{margin-top:4px}
  .cbig{display:block;text-align:left;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px 14px;font-size:15px;font-weight:700;cursor:pointer;min-width:260px}
  .cbig span{display:block;font-size:12px;font-weight:400;color:var(--dim);margin-top:2px}
  .cfold{border-top:1px solid var(--line)}.cfold>summary{cursor:pointer;padding:10px 2px;font-size:14px;list-style-position:inside}
@@ -660,10 +663,9 @@ async function apost(url,body){ body.passcode=commishPC(); const r=await fetch(u
 function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothing to draw
   const L=STATE.lineups;
   // This week: lineups in, with the names one tap away.
-  const lsum = L ? `<div class="cglance"><span class="cn">${L.in} of ${L.total}</span><span class="cl">lineups in · Week ${L.week}</span>`
-    + (L.not_in.length ? `</div>`+cfold('lumiss',`show who's missing`,
-        `<div class="nchips">${L.not_in.map(t=>`<span class="nchip">${TRI} ${t.name}${t.carried?' <span class="sub">· using last week\'s</span>':''}</span>`).join('')}</div>`,'cmini')
-      : `<span class="cok">✓ all in</span></div>`) : '';
+  const lsum = L ? ctile('lumiss',`${L.in} of ${L.total}`,`lineups in · Week ${L.week}`,
+      L.not_in.length ? `<div class="nchips">${L.not_in.map(t=>`<span class="nchip">${TRI} ${t.name}${t.carried?' <span class="sub">· using last week\'s</span>':''}</span>`).join('')}</div>` : '',
+      '✓ all in') : '';
   const bal=c=>c<0?`<span style="color:var(--good)">cr $${(Math.abs(c)/100).toFixed(0)}</span>`:`$${(c/100).toFixed(0)}`;
   const scoreMap={}; (STATE.scoreboard||[]).forEach(g=>{scoreMap[g.home.id]=g.home.points;scoreMap[g.away.id]=g.away.points;});
   const LK=!!(STATE.season&&STATE.season.setup_locked), dis=LK?' disabled':'';
@@ -734,8 +736,8 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
       +`<div class="cd">${t.note}</div><div class="cbtns"><button class="btn" onclick="closeM();lineupModal(${t.id})">Set lineup</button></div></div>`)];
   const attention=`<div class="csec">Needs your attention</div>`
     +(att.length?att.join(''):`<div class="cclear">✓ Nothing needs your attention</div>`);
-  const pinGlance=noPin.length?`<div class="cglance"><span class="cn">${allT.length-noPin.length} of ${allT.length}</span><span class="cl">manager PINs set</span></div>`
-    +cfold('pinmiss',`show who's missing`,`<div class="nchips">${noPin.map(t=>`<span class="nchip">${TRI} ${t.name}${t.pin_reset?' <span class="sub">· reset, waiting for the manager</span>':''}</span>`).join('')}</div>`,'cmini'):'';
+  const pinGlance=noPin.length?ctile('pinmiss',`${allT.length-noPin.length} of ${allT.length}`,'manager PINs set',
+    `<div class="nchips">${noPin.map(t=>`<span class="nchip">${TRI} ${t.name}${t.pin_reset?' <span class="sub">· reset, waiting for the manager</span>':''}</span>`).join('')}</div>`):'';
   const thisWeek=`<div class="csec">This week</div>${lsum}${pinGlance}`
     +`<div class="cglance cchk"><div class="cl" style="width:100%">Scores double-checked against a second source (nflverse)</div><div id="checksBox" style="width:100%"><span class="sub">loading…</span></div></div>`;
   const tools=`<div class="csec">Tools</div><button class="cbig" onclick="weeklyPoints()">📋 Weekly points<span>Every player's points and who owned him</span></button>`;
@@ -755,6 +757,17 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
 /* A folded section. Which ones are open survives a redraw (every button press
    reloads the page data and redraws the tab). */
 const CFOLD=new Set();
+/* A This week tile: the count, its label, and on the right either "show who's
+   missing" (the names open inside the tile) or a green all-clear. */
+function ctile(id,num,label,body,okText=''){
+  const open=CFOLD.has(id);
+  return `<div class="cglance"><span class="cn">${num}</span><span class="cl">${label}</span>`
+    +(body?`<button class="clink" onclick="toggleTile('${id}',this)">${open?'hide ▾':'show who\'s missing ▸'}</button>`
+          +`<div class="ctbody" ${open?'':'hidden'}>${body}</div>`
+      :`<span class="cright cok">${okText}</span>`)+`</div>`; }
+function toggleTile(id,btn){ const body=btn.nextElementSibling, open=body.hidden;
+  body.hidden=!open; open?CFOLD.add(id):CFOLD.delete(id);
+  btn.textContent=open?'hide ▾':"show who's missing ▸"; }
 function cfold(id,title,body,cls=''){
   return `<details class="cfold ${cls}" ${CFOLD.has(id)?'open':''} ontoggle="this.open?CFOLD.add('${id}'):CFOLD.delete('${id}')">`
     +`<summary>${title}</summary><div class="cfbody">${body}</div></details>`; }
