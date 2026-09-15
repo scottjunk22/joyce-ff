@@ -100,6 +100,24 @@ def test_a_finished_game_locks_and_ignores_later_corrections(monkeypatch):
     assert _runner_points(conn, sid) == as_seen
 
 
+def test_a_rule_change_is_flagged_even_on_a_game_that_locked_from_nflverse(monkeypatch):
+    """Every locked game is re-compared, whichever source locked it: when a
+    SCORING RULE changes, an nflverse-locked line is just as stale and nothing
+    else would catch it (2026-09-16)."""
+    conn, sid, teams = _mini_season()
+    conn.execute("INSERT INTO weekly_lineups(season_id,team_id,ff_week,roster_slot,asset_kind,asset_ref) "
+                 "VALUES (?,?,1,'RB','PLAYER','p_rb')", (sid, teams[0]))
+    conn.commit()
+    _feed(monkeypatch, yards=120, finished=True)
+    scoring.ingest_asset_scores_from_nflverse(conn, sid, 1)     # locks from nflverse
+    assert [r["source"] for r in conn.execute("SELECT source FROM nfl_game_locks")] == ["nflverse"]
+    _feed(monkeypatch, yards=200, finished=True)                # as if the rule now scores more
+    scoring.ingest_asset_scores_from_nflverse(conn, sid, 1)
+    row = conn.execute("SELECT locked_points, other_points FROM stat_checks").fetchone()
+    assert (row["locked_points"], row["other_points"]) == (3, 7)
+    assert _runner_points(conn, sid) == 3                       # and nothing is rewritten
+
+
 def test_a_game_waits_for_its_final_score_before_locking(monkeypatch):
     """The coach's win and the defense's points allowed come from the final
     score, so play-by-play reaching END GAME isn't enough on its own."""

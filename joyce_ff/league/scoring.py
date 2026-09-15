@@ -88,14 +88,19 @@ def ingest_asset_scores_from_nflverse(conn, season_id: int, ff_week: int) -> int
     game_of = {}
     for g in games[(games["season"] == year) & (games["week"] == wk)].to_dict("records"):
         game_of[g["home_team"]] = game_of[g["away_team"]] = g["game_id"]
-    espn_locked = {r["game_id"] for r in conn.execute(
-        "SELECT game_id FROM nfl_game_locks WHERE season_id=? AND ff_week=? AND source='espn'",
+    locked_games = {r["game_id"] for r in conn.execute(
+        "SELECT game_id FROM nfl_game_locks WHERE season_id=? AND ff_week=?",
         (season_id, ff_week))}
     n = 0
 
     def keep(team, kind, ref, unit, b, yards=None):
-        """Write a line — or, for a game already locked from ESPN that nflverse
-        now has complete, compare against what stands and note any difference."""
+        """Write a line — or, for a locked game nflverse now has complete,
+        compare against what stands and note any difference.
+
+        EVERY locked game is compared, not just the ESPN-locked ones: a line
+        that locked from nflverse is equally out of date when a SCORING RULE
+        changes (the QB slot's running and catching, 2026-09-16), and nothing
+        else would ever catch it."""
         nonlocal n
         if team not in frozen:
             _upsert_asset(conn, season_id, ff_week, kind, ref, unit, b, yards)
@@ -103,7 +108,7 @@ def ingest_asset_scores_from_nflverse(conn, season_id: int, ff_week: int) -> int
             return
         if yards is not None and game_of.get(team) in finished:
             fill_yards_allowed(conn, season_id, ff_week, ref, yards)
-        if game_of.get(team) in espn_locked and game_of.get(team) in finished:
+        if game_of.get(team) in locked_games and game_of.get(team) in finished:
             _check_locked(conn, season_id, ff_week, kind, ref, unit, b.total, "nflverse")
 
     pw = nv.player_week_stats(pbp)
@@ -145,7 +150,7 @@ def ingest_asset_scores_from_nflverse(conn, season_id: int, ff_week: int) -> int
 
     # Every line of these games was just compared (differences went to
     # stat_checks), so they count as double-checked (league/score_checks.py).
-    for gid in espn_locked & set(finished):
+    for gid in locked_games & set(finished):
         conn.execute("UPDATE nfl_game_locks SET verified_at=? WHERE season_id=? AND ff_week=? "
                      "AND game_id=? AND verified_at IS NULL", (_now(), season_id, ff_week, gid))
     _lock_finished_games(conn, season_id, ff_week, finished, games, year, wk)

@@ -136,7 +136,10 @@ what the Phase-1 reconciliation is designed to arbitrate.
   the QB slot, not him. RBs/receivers already scored rushing + receiving +
   receptions together. Week 1 had 9 uncounted QB rushing TDs (BUF 2, CHI 2,
   BAL, CAR, KC, MIA, TB); ESPN and nflverse agree on all 32 QB slots under the
-  new rule. Existing ESPN-locked lines surface as stat checks for Change.
+  new rule. Locked lines surface as stat checks for Change — the nflverse
+  cross-check now re-compares EVERY locked game, not just ESPN-locked ones, so
+  a rule change reaches lines that locked from nflverse (most of practice
+  Week 1 locked with source NULL, before that column existed).
 - 2026-09-15: COMMISSIONER TAB LAYOUT (commissioner). Order: Needs your
   attention (ties, stat checks with Change/Keep buttons, check-lineup notes;
   else a green "nothing") -> This week (lineups count, PIN count only while a
