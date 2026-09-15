@@ -94,6 +94,78 @@ def kickoffs(conn, season_id: int, ff_week: int):
     return _dt.datetime.fromisoformat(first), _dt.datetime.fromisoformat(last)
 
 
+# --- which week the site is on --------------------------------------------------
+# Two different clocks (commissioner, 2026-09-15):
+#   * LINEUP WEEK — the week managers act on: set a lineup, trade, Open; the
+#     commissioner's "lineups in" count. Moves to the next week at 6am Central on
+#     the Tuesday after the week's last game, so there's time before Thursday.
+#   * SCOREBOARD WEEK — the week the site opens to. Stays on the week just played
+#     (its results, and the "no lineup" reminders once the next week is up) until
+#     6am Central on the day the next week's first game kicks off — Thursday.
+# Both come from the stored schedule kickoffs. A season whose last game is long
+# over, or whose kickoffs aren't known, keeps the plain stored current week.
+
+CT = ZoneInfo("America/Chicago")
+SEASON_OVER_AFTER = _dt.timedelta(days=30)
+
+
+def lineup_opens(last_kickoff: _dt.datetime) -> _dt.datetime:
+    """6am Central on the first Tuesday after a week's last kickoff (the day
+    after, in the rare week that ends on a Tuesday)."""
+    lk = last_kickoff.astimezone(CT)
+    day = lk.date() + _dt.timedelta(days=1)
+    while day.weekday() != 1:                          # Tuesday
+        day += _dt.timedelta(days=1)
+    at = _dt.datetime.combine(day, _dt.time(6), CT)
+    if at - lk > _dt.timedelta(days=3):
+        at = _dt.datetime.combine(lk.date() + _dt.timedelta(days=1), _dt.time(6), CT)
+    return at
+
+
+def scoreboard_switch(first_kickoff: _dt.datetime) -> _dt.datetime:
+    """6am Central on the day of a week's first kickoff."""
+    return _dt.datetime.combine(first_kickoff.astimezone(CT).date(), _dt.time(6), CT)
+
+
+def _week_clock(conn, season_id: int, now: _dt.datetime):
+    """(lineup week, scoreboard week) from the schedule, or None when it can't
+    be known (kickoffs not stored) or the season is over."""
+    weeks = [r["ff_week"] for r in conn.execute(
+        "SELECT DISTINCT ff_week FROM matchups WHERE season_id=? AND kind!='NO_PLAY' "
+        "ORDER BY ff_week", (season_id,))]
+    kicks = {w: kickoffs(conn, season_id, w) for w in weeks}
+    lasts = [k[1] for k in kicks.values() if k[1] is not None]
+    if not weeks or not lasts or now > max(lasts) + SEASON_OVER_AFTER:
+        return None
+    lineup = board = weeks[0]
+    for prev, week in zip(weeks, weeks[1:]):
+        last = kicks[prev][1]
+        if last is None or now < lineup_opens(last):
+            break
+        lineup = week
+        first = kicks[week][0]
+        if first is not None and now >= max(scoreboard_switch(first), lineup_opens(last)):
+            board = week
+    return lineup, board
+
+
+def _stored_week(conn, season_id: int) -> int:
+    r = conn.execute("SELECT current_ff_week FROM seasons WHERE id=?", (season_id,)).fetchone()
+    return max(1, r["current_ff_week"] if r else 1)
+
+
+def lineup_week(conn, season_id: int, now: _dt.datetime | None = None) -> int:
+    clock = _week_clock(conn, season_id, now or _dt.datetime.now(ET))
+    stored = _stored_week(conn, season_id)
+    return max(clock[0], stored) if clock else stored
+
+
+def scoreboard_week(conn, season_id: int, now: _dt.datetime | None = None) -> int:
+    clock = _week_clock(conn, season_id, now or _dt.datetime.now(ET))
+    stored = _stored_week(conn, season_id)
+    return max(clock[1], stored) if clock else stored
+
+
 # --- games --------------------------------------------------------------------
 
 def locked_teams(conn, season_id: int, ff_week: int) -> set[str]:

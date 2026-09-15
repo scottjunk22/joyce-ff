@@ -155,8 +155,8 @@
    <div class="hsub" id="ordinal"></div>
  </div>
  <div class="hctl">
-   <label class="sub">Season <select id="yr"></select></label>
    <label class="sub">Week <select id="wk"></select></label>
+   <label class="sub">Season <select id="yr"></select></label>
  </div>
 </header>
 <div class="champband" id="champband"></div>
@@ -190,7 +190,10 @@
 <div class="mb" id="mb"><div class="modal"><span class="x" onclick="closeM()">×</span><div id="mbody"></div></div></div>
 
 <script>
-let STATE=null, TEAMS={}, VIEW=null, CUR=null, SEASON=null;
+/* CUR = the scoreboard week the site opens on; LW = the lineup week managers
+   act on (lineups, trades, Opens). They move at different times — see the
+   server's progress.py. */
+let STATE=null, TEAMS={}, VIEW=null, CUR=null, LW=null, SEASON=null;
 /* Practice universe: served at /dark against a separate database. Rewriting
    /api/* here (rather than at every call site) keeps the two universes in sync
    automatically as endpoints are added. */
@@ -216,7 +219,7 @@ async function load(week, seasonId){
   const q=p.toString();
   STATE = await (await fetch('/api/state'+(q?'?'+q:''))).json();
   if(!STATE.season){ renderNoSeason(); return; }
-  SEASON = STATE.season.id; VIEW = STATE.season.week; CUR = STATE.season.current; TEAMS={};
+  SEASON = STATE.season.id; VIEW = STATE.season.week; CUR = STATE.season.current; LW = STATE.season.lineup_week || CUR; TEAMS={};
   for(const c of ['BLUE','RED']) STATE.standings[c].forEach(t=>TEAMS[t.team_id]=t);
   buildSeasonPicker(); buildWeekPicker(); renderScores(); renderByes(); renderStandings(); renderElim(); renderTx();
   renderChrome();
@@ -290,7 +293,7 @@ function renderScores(){
     const tb=g.tiebreak;
     const hw=done&&(hp>ap||!!(tb&&tb.winner===g.home.id)), aw=done&&(ap>hp||!!(tb&&tb.winner===g.away.id));
     const f=v=>v==null?'<span class="sub">—</span>':(+v).toFixed(0);
-    const isCur = VIEW===CUR;
+    const isCur = VIEW===LW;          // "no lineup" reminders are for the week lineups are due
     const tp=t=>t.to_play>0?`<span class="toplay">${t.to_play} to play</span>`:'';
     const flag=t=>{
       if(t.carry_note) return `<span class="noflag" title="${String(t.carry_note).replace(/"/g,'&quot;')}">${TRI} check lineup</span>`;
@@ -445,7 +448,7 @@ async function changePin(id){
 const LUKEY=(slot,ref)=>slot+'|'+ref;
 let LU={team:null,sel:new Set(),items:[]};
 async function lineupModal(id, wk){
-  wk = wk || CUR;
+  wk = wk || LW;
   const d=await (await fetch(`/api/team/${id}/detail?week=${wk}&season=${SEASON}`)).json();
   const items=d.roster.map(r=>({slot:r.slot,ref:r.asset_ref,name:r.name})); (d.opens||[]).forEach(o=>items.push({slot:o.position,ref:o.asset_ref,name:o.name+' (open)'}));
   LU={team:id,week:wk,sel:new Set(),items};
@@ -458,12 +461,14 @@ async function lineupModal(id, wk){
   else{['C','K','DEF/ST','QB'].forEach(s=>{const f=items.find(i=>i.slot===s);if(f)LU.sel.add(LUKEY(f.slot,f.ref));});
        items.filter(i=>i.slot==='RB').slice(0,2).forEach(i=>LU.sel.add(LUKEY(i.slot,i.ref)));
        items.filter(i=>i.slot==='R').slice(0,3).forEach(i=>LU.sel.add(LUKEY(i.slot,i.ref)));}
-  const banner = started.size
+  const banner = wk < LW
+    ? `<div class="lban ok">${CHK}<span>Week ${wk}: ${started.size?'the lineup that was started':'no lineup was set'} — view only.</span></div>`
+    : started.size
     ? `<div class="lban ok">${CHK}<span>Week ${wk} lineup is in. Players lock at their kickoff.</span></div>`
     : `<div class="lban warn">${TRI}<span>No lineup set for Week ${wk} — currently on last week's lineup. Submit below to confirm or change it.</span></div>`;
-  let wkOpts='';for(let w=1;w<=CUR;w++)wkOpts+=`<option value="${w}" ${w===wk?'selected':''}>${w}</option>`;
+  let wkOpts='';for(let w=LW;w>=1;w--)wkOpts+=`<option value="${w}" ${w===wk?'selected':''}>${w}</option>`;
   openM(`<h3>${d.name} — Set Lineup</h3>
-    <div style="margin:2px 0 8px"><label class="sub">Week <select id="luwk" onchange="lineupModal(${id},+this.value)">${wkOpts}</select></label> <span class="sub">· past weeks are commissioner-only</span></div>
+    <div style="margin:2px 0 8px"><label class="sub">Week <select id="luwk" onchange="lineupModal(${id},+this.value)">${wkOpts}</select></label> <span class="sub">· earlier weeks are view only (the commissioner can change them)</span></div>
     ${banner}
     <div class="sub">Start 9: C, K, DEF/ST, QB, 2 RB, 3 R. Players lock at their kickoff.</div>
     <div id="luRows" style="margin-top:10px"></div><div class="explain" id="luHint"></div>
@@ -494,7 +499,7 @@ async function submitLineup(){ const starters=[...LU.sel].map(k=>{const j=k.inde
 
 let TX={};
 async function txModal(id){
-  const d=await (await fetch(`/api/team/${id}/detail?week=${CUR}&season=${SEASON}`)).json();
+  const d=await (await fetch(`/api/team/${id}/detail?week=${LW}&season=${SEASON}`)).json();   // byes for the week being acted on
   TX={team:id,teamName:d.name,roster:d.roster,out:null,outPos:null,outName:'',outBye:false,
       in:null,inName:'',mode:'trade',avail:[],filter:'',step:'build',pc:''};
   openM('<div id="txbody"></div>'); renderTxBuild();
@@ -763,8 +768,8 @@ function wpOwners(r){
 }
 function renderWP(){
   const tabs=[['C','Coach'],['K','K'],['DEF/ST','DEF/ST'],['QB','QB'],['RB','RB'],['R','R']];
-  const last=Math.max(STATE.season.current||1, ...(STATE.season.weeks||[1]));
-  const weeks=Array.from({length:last},(_,i)=>i+1);
+  const last=Math.max(LW||1, STATE.season.current||1, ...(STATE.season.weeks||[1]));
+  const weeks=Array.from({length:last},(_,i)=>last-i);      // most recent first
   let rows=WP.rows.map((r,i)=>({...r,i})).filter(r=>r.slot===WP.tab);
   if(WP.q){ const s=WP.q.toLowerCase(); rows=rows.filter(r=>r.name.toLowerCase().includes(s)||r.team.toLowerCase().includes(s)||r.owners.some(o=>o.team.toLowerCase().includes(s))); }
   const pts=r=>r.points==null?-1:r.points;

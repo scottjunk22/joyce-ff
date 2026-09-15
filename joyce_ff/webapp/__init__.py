@@ -472,7 +472,10 @@ def create_app(db_path: str | None = None) -> Flask:
                            byes=[], payout=None, titles={}, stat_checks=[],
                            champion=_latest_champion())
         sid = s["id"]
-        wk = int(request.args.get("week") or s["current_ff_week"])
+        # The site opens on the SCOREBOARD week; managers act on the LINEUP week
+        # (see progress.py for when each moves).
+        board_wk, lineup_wk = progress.scoreboard_week(conn, sid), progress.lineup_week(conn, sid)
+        wk = int(request.args.get("week") or board_wk)
         stand = st.compute_standings(conn, sid, wk)
         # compute_standings returns records only; merge in per-team metadata the
         # UI needs (alive dimming, commissioner # / slot fields).
@@ -575,13 +578,16 @@ def create_app(db_path: str | None = None) -> Flask:
                 pool["alive"].append({"name": r["name"]})
         byes = sorted(display.team(r["abbr"]) for r in conn.execute(
             "SELECT abbr FROM nfl_teams WHERE season_id=? AND bye_ff_week=?", (sid, wk)))
-        weeks = [r["w"] for r in conn.execute(
-            "SELECT DISTINCT ff_week w FROM team_week_scores WHERE season_id=? ORDER BY ff_week", (sid,))] or [wk]
+        # Weeks with results, plus the upcoming week once its lineups open —
+        # most recent first.
+        weeks = sorted({r["w"] for r in conn.execute(
+            "SELECT DISTINCT ff_week w FROM team_week_scores WHERE season_id=?", (sid,))}
+            | {wk, lineup_wk}, reverse=True)
         last = conn.execute("SELECT MAX(computed_at) c FROM team_week_scores WHERE season_id=?", (sid,)).fetchone()["c"]
 
         # Lineup-submission status for the CURRENT week (independent of the
         # viewed week) — drives the straggler flags + commissioner summary.
-        cur = s["current_ff_week"]
+        cur = lineup_wk
         alive_ids = {r["id"] for r in conn.execute(
             "SELECT id FROM teams WHERE season_id=? AND alive=1", (sid,))}
         # A lineup carried forward doesn't count as "in": the manager didn't
@@ -602,7 +608,8 @@ def create_app(db_path: str | None = None) -> Flask:
                    "not_in": lin_notin}
 
         return jsonify(season={"id": sid, "year": s["year"], "label": s["label"], "week": wk,
-                               "current": s["current_ff_week"], "weeks": weeks, "last_updated": last,
+                               "current": board_wk, "lineup_week": lineup_wk,
+                               "weeks": weeks, "last_updated": last,
                                "ordinal": rules.season_ordinal(s["year"]),
                                "setup_locked": repo.is_setup_locked(conn, sid),
                                "pin_setup_open": auth.pin_setup_open(conn, sid),
@@ -630,7 +637,7 @@ def create_app(db_path: str | None = None) -> Flask:
         conn = db()
         s, _ = _season_sel()
         sid = s["id"]
-        wk = int(request.args.get("week") or s["current_ff_week"])
+        wk = int(request.args.get("week") or progress.scoreboard_week(conn, sid))
         row = conn.execute("SELECT name, manager_names FROM teams WHERE id=?", (team_id,)).fetchone()
         byes = {r["abbr"] for r in conn.execute(
             "SELECT abbr FROM nfl_teams WHERE season_id=? AND bye_ff_week=?", (sid, wk))}
@@ -702,7 +709,7 @@ def create_app(db_path: str | None = None) -> Flask:
         b = request.get_json(force=True)
         try:
             tx = repo.do_trade(db(), season()["id"], team_id, b["position"],
-                               b["out"], b["in"], _week(season()["current_ff_week"]),
+                               b["out"], b["in"], _week(progress.lineup_week(db(), season()["id"])),
                                actor=auth.commissioner_name(db(), _passcode()))
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
@@ -715,7 +722,7 @@ def create_app(db_path: str | None = None) -> Flask:
         b = request.get_json(force=True)
         try:
             tx = repo.do_open(db(), season()["id"], team_id, b["position"],
-                              b["out"], b["in"], _week(season()["current_ff_week"]),
+                              b["out"], b["in"], _week(progress.lineup_week(db(), season()["id"])),
                               actor=auth.commissioner_name(db(), _passcode()))
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
@@ -726,9 +733,11 @@ def create_app(db_path: str | None = None) -> Flask:
         if (bad := _guard(team_id)):
             return bad
         b = request.get_json(force=True)
-        s = season(); sid, wk = s["id"], _week(s["current_ff_week"])
+        s = season()
+        lineup_wk = progress.lineup_week(db(), s["id"])
+        sid, wk = s["id"], _week(lineup_wk)
         is_comm = auth.is_commissioner(db(), _passcode())
-        if wk != s["current_ff_week"] and not is_comm:
+        if wk != lineup_wk and not is_comm:
             return jsonify(error="only the commissioner can change another week's lineup"), 400
         try:
             from ..league.locks import locked_assets
@@ -1026,7 +1035,7 @@ def create_app(db_path: str | None = None) -> Flask:
         if s is None:
             return jsonify(error="No season yet."), 400
         sid = s["id"]
-        wk = int(body.get("week") or s["current_ff_week"])
+        wk = int(body.get("week") or progress.scoreboard_week(conn, sid))
         states = progress.team_game_states(conn, sid, wk)
 
         # Who held each asset THAT week: roster spans cover trades (a player

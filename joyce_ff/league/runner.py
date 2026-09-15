@@ -22,6 +22,9 @@ from . import standings as st
 # long enough to ride out nflverse running days late, short enough that a
 # finished season's empty weeks are never filled in after the fact.
 ACTIVE_GRACE = _dt.timedelta(days=7)
+# How long after a week's last kickoff the hourly job keeps checking nflverse
+# against what locked (the Stat check).
+CROSS_CHECK_AFTER_FINAL = _dt.timedelta(days=4)
 
 
 def carry_forward_lineups(conn, season_id: int, ff_week: int) -> int:
@@ -152,6 +155,23 @@ def run_current(conn, season_id: int, now: _dt.datetime | None = None,
                 run_week(conn, season_id, ff, do_ingest=False, eliminate=False, carry=False)
                 st.try_early_elimination(conn, season_id, ff, now=now)
                 live.append(ff)
+        if "nflverse" in (sources or scoring.SOURCES):
+            # Keep comparing nflverse against what locked for a few days after a
+            # week is final: its last game locks from ESPN — closing the week —
+            # hours before nflverse has it, so without this the Stat check would
+            # never see a week's late games. Only compares and fills blanks;
+            # nothing locked is rewritten.
+            for r in conn.execute("SELECT DISTINCT ff_week FROM matchups WHERE season_id=?",
+                                  (season_id,)).fetchall():
+                ff = r["ff_week"]
+                k = kicks.get(scoring.nfl_week_for(conn, season_id, ff))
+                if (k and progress.is_finalized(conn, season_id, ff)
+                        and k[1] <= now <= k[1] + CROSS_CHECK_AFTER_FINAL):
+                    try:
+                        scoring.ingest_asset_scores_from_nflverse(conn, season_id, ff)
+                    except Exception as e:
+                        conn.rollback()
+                        print(f"  nflverse cross-check for FF week {ff} skipped: {type(e).__name__}: {e}")
         if "espn" in (sources or scoring.SOURCES):
             # Record-keeping for the post-Final settle question (settle.py).
             # It must never stop scoring, so a failure is only reported.
