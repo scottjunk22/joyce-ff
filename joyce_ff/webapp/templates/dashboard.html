@@ -493,7 +493,7 @@ async function lineupModal(id, wk){
   const banner = wk < LW
     ? `<div class="lban ok">${CHK}<span>Week ${wk}: ${d.carried_from?'last week&#39;s lineup was used (none was submitted)':started.size?'the lineup that was started':'no lineup was set'} — view only.</span></div>`
     : d.carried_from && LN.sunday_morning
-    ? `<div class="lban warn">${TRI}<span>No lineup submitted for Week ${wk} — last week's lineup is being used. Players whose games have started are locked. Submit below to change the rest.</span></div>`
+    ? `<div class="lban warn">${TRI}<span>No lineup submitted for Week ${wk} — last week's lineup is in place. Players lock at their kickoff. Submit below to change the rest.</span></div>`
     : d.carried_from
     ? `<div class="lban info"><span>Last week's lineup is in place for Week ${wk}. You can change any player whose game hasn't started.</span></div>`
     : started.size

@@ -417,7 +417,7 @@ def lineup_flags(conn, season_id: int, ff_week: int,
         if tid in lineup:
             if morning <= now < noon:
                 out[tid] = {"kind": "carried", "text": "last week's lineup",
-                            "title": "No lineup submitted yet — last week's lineup is being used"}
+                            "title": "No lineup submitted yet — last week's lineup is in place"}
             continue
         if tid in early:
             players = early[tid]
