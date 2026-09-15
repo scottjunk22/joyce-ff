@@ -667,12 +667,16 @@ def create_app(db_path: str | None = None) -> Flask:
                  **_tx_parts(conn, sid, t["position"], t["out_asset_kind"], t["out_asset_ref"],
                              t["in_asset_kind"], t["in_asset_ref"])}
                 for t in repo.transaction_history(conn, team_id)]
-        opens = [{"asset_ref": t["in_asset_ref"], "position": t["position"],
-                  "name": _dname(conn, sid, t["in_asset_kind"], t["in_asset_ref"])}
-                 for t in conn.execute(
-                     "SELECT in_asset_ref, in_asset_kind, position FROM transactions "
-                     "WHERE season_id=? AND team_id=? AND ff_week=? AND type='OPEN' AND reversed=0",
-                     (sid, team_id, wk))]
+        opens = []
+        for t in conn.execute(
+                "SELECT in_asset_ref, in_asset_kind, out_asset_ref, position FROM transactions "
+                "WHERE season_id=? AND team_id=? AND ff_week=? AND type='OPEN' AND reversed=0",
+                (sid, team_id, wk)):
+            g = games.get(_asset_team(conn, sid, t["in_asset_kind"], t["in_asset_ref"])) or {}
+            opens.append({"asset_ref": t["in_asset_ref"], "position": t["position"],
+                          "covering": t["out_asset_ref"],
+                          "name": _dname(conn, sid, t["in_asset_kind"], t["in_asset_ref"]),
+                          "game_state": g.get("state"), "game_at": g.get("game_at")})
         pays = [{"amount_cents": p["amount_cents"], "note": p["note"], "at": p["applied_at"]}
                 for p in conn.execute(
                     "SELECT amount_cents, note, applied_at FROM payments WHERE team_id=? "

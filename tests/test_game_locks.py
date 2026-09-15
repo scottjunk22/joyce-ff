@@ -375,6 +375,30 @@ def test_a_covered_open_does_not_count_toward_the_flex(lg):
         _set(conn, sid, otb, 5, ["r1", "r2", "r3"], ["fa_r", "w3"])   # only w2 uncovered
 
 
+def test_an_open_bought_after_the_lineup_is_saved_swaps_in(lg):
+    """The bye player's start goes to the rental; no resubmitting."""
+    conn, sid, otb = lg
+    _set(conn, sid, otb, 5, ["r1", "r2"], ["w1", "w3", "w4"])     # w1 on bye
+    repo.do_open(conn, sid, otb, "R", "w1", "fa_r", 5)
+    rb, r, rows = _got(conn, sid, otb, 5)
+    assert (rb, r) == ({"r1", "r2"}, {"fa_r", "w3", "w4"})
+    assert [x["is_rental"] for x in rows if x["asset_ref"] == "fa_r"] == [1]
+    repo.reverse_transaction(conn, repo_last_open(conn, otb))       # and reversing it swaps back
+    assert _got(conn, sid, otb, 5)[:2] == ({"r1", "r2"}, {"w1", "w3", "w4"})
+
+
+def repo_last_open(conn, team_id):
+    return conn.execute("SELECT MAX(id) i FROM transactions WHERE team_id=? AND type='OPEN'",
+                        (team_id,)).fetchone()["i"]
+
+
+def test_an_open_leaves_a_lineup_that_benched_the_bye_player_alone(lg):
+    conn, sid, otb = lg
+    _set(conn, sid, otb, 5, ["r1", "r2"], ["w3", "w4", "w2"])
+    repo.do_open(conn, sid, otb, "R", "w1", "fa_r", 5)
+    assert _got(conn, sid, otb, 5)[:2] == ({"r1", "r2"}, {"w2", "w3", "w4"})
+
+
 def test_set_lineups_flex_check_matches_what_submitting_accepts(lg):
     """Set Lineup's green check uses repo.bye_flex: w1 and w2 on bye in week 5
     allow the 3rd RB until an Open covers one of them."""

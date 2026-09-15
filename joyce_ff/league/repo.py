@@ -164,8 +164,18 @@ def do_open(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
         raise RuleError("Open is only allowed to cover a player on his NFL bye that week")
     conf = _team_conf(conn, team_id)
     _assert_available(conn, season_id, conf, position, in_ref)
-    return _log_tx(conn, season_id, team_id, ff_week, "OPEN", position,
-                   out_ref, in_ref, _kind_for(position), entered_by=actor)
+    tx = _log_tx(conn, season_id, team_id, ff_week, "OPEN", position,
+                 out_ref, in_ref, _kind_for(position), entered_by=actor)
+    # A lineup already saved for the week that starts the bye player now starts
+    # the rental in his place (commissioner, 2026-09-15): an Open is only ever
+    # bought to start it, and the manager shouldn't have to resubmit.
+    conn.execute("UPDATE weekly_lineups SET asset_ref=?, asset_kind=?, unit_type=?, is_rental=1 "
+                 "WHERE season_id=? AND team_id=? AND ff_week=? AND roster_slot=? "
+                 "AND asset_ref=? AND is_rental=0",
+                 (in_ref, _kind_for(position), position if position in UNIT_POS else None,
+                  season_id, team_id, ff_week, position, out_ref))
+    conn.commit()
+    return tx
 
 
 DRAFT_SLOT_MAX = {"C": 1, "K": 1, "DEF/ST": 1, "QB": 1, "RB": 3, "R": 4}
@@ -341,10 +351,21 @@ def reverse_transaction(conn, tx_id) -> None:
         conn.execute("UPDATE roster_entries SET released_ff_week=NULL WHERE team_id=? AND "
                      "asset_ref=? AND released_ff_week=?",
                      (tx["team_id"], tx["out_asset_ref"], tx["ff_week"]))
-    else:  # OPEN — pull the rental out of that week's lineup if it was started
-        conn.execute("DELETE FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=? "
-                     "AND asset_ref=? AND is_rental=1",
-                     (tx["season_id"], tx["team_id"], tx["ff_week"], tx["in_asset_ref"]))
+    else:  # OPEN — the rental's start goes back to the player it covered
+        key = (tx["season_id"], tx["team_id"], tx["ff_week"])
+        back = conn.execute("SELECT 1 FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=? "
+                            "AND roster_slot=? AND asset_ref=?",
+                            (*key, tx["position"], tx["out_asset_ref"])).fetchone()
+        if back:   # he's already starting there, so the rental's row just goes
+            conn.execute("DELETE FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=? "
+                         "AND asset_ref=? AND is_rental=1", (*key, tx["in_asset_ref"]))
+        else:
+            conn.execute("UPDATE weekly_lineups SET asset_ref=?, asset_kind=?, unit_type=?, is_rental=0 "
+                         "WHERE season_id=? AND team_id=? AND ff_week=? AND roster_slot=? "
+                         "AND asset_ref=? AND is_rental=1",
+                         (tx["out_asset_ref"], tx["out_asset_kind"],
+                          tx["position"] if tx["position"] in UNIT_POS else None,
+                          *key, tx["position"], tx["in_asset_ref"]))
     conn.execute("UPDATE transactions SET reversed=1 WHERE id=?", (tx_id,))
     conn.commit()
 

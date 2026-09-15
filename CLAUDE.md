@@ -128,6 +128,12 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-15: OPENS IN LINEUPS (commissioner). Buying an Open swaps the rental
+  into an already-saved lineup that starts the bye player it covers (no
+  resubmit); reversing the Open swaps him back (repo.do_open /
+  reverse_transaction). Set Lineup pre-selects an Open over the player it
+  covers, shows it with the blue OPEN tag and its game time. Its bottom line is
+  green only for a lineup submitting accepts (repo.bye_flex mirrors set_lineup).
 - 2026-09-15: LINEUP LABELS (commissioner). Most managers submit Sunday
   morning, so cards only say: "⚠ Thu player" (team hasn't submitted and has an
   RB/R whose game is before Sunday; tap opens Set Lineup) until that kickoff;

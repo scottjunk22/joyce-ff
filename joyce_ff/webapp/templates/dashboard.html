@@ -473,7 +473,10 @@ let LU={team:null,sel:new Set(),items:[]};
 async function lineupModal(id, wk){
   wk = wk || LW;
   const d=await (await fetch(`/api/team/${id}/detail?week=${wk}&season=${SEASON}`)).json();
-  const items=d.roster.map(r=>({slot:r.slot,ref:r.asset_ref,name:r.name,game_state:r.game_state,game_at:r.game_at})); (d.opens||[]).forEach(o=>items.push({slot:o.position,ref:o.asset_ref,name:o.name+' (open)'}));
+  const items=d.roster.map(r=>({slot:r.slot,ref:r.asset_ref,name:r.name,game_state:r.game_state,game_at:r.game_at}));
+  (d.opens||[]).forEach(o=>items.push({slot:o.position,ref:o.asset_ref,name:o.name+' <span class="tag-open">OPEN</span>',
+    game_state:o.game_state,game_at:o.game_at,rental:true}));
+  const covered=new Set((d.opens||[]).map(o=>LUKEY(o.position,o.covering)));
   LU={team:id,week:wk,sel:new Set(),items,flex:d.bye_flex||{}};
   // Key every selection by SLOT + REF. A team unit's ref is just the NFL club
   // (BAL), so a roster holding BAL's coach and BAL's QB room has two starters
@@ -481,9 +484,11 @@ async function lineupModal(id, wk){
   // silently counts 8/9, and toggling one moves the other.
   const started=new Set((d.box||[]).map(x=>LUKEY(x.roster_slot,x.asset_ref)));
   if(started.size) items.forEach(i=>{if(started.has(LUKEY(i.slot,i.ref)))LU.sel.add(LUKEY(i.slot,i.ref));});
-  else{['C','K','DEF/ST','QB'].forEach(s=>{const f=items.find(i=>i.slot===s);if(f)LU.sel.add(LUKEY(f.slot,f.ref));});
-       items.filter(i=>i.slot==='RB').slice(0,2).forEach(i=>LU.sel.add(LUKEY(i.slot,i.ref)));
-       items.filter(i=>i.slot==='R').slice(0,3).forEach(i=>LU.sel.add(LUKEY(i.slot,i.ref)));}
+  else{ // No lineup yet: an Open starts ahead of the bye player it covers — it was bought to start.
+       const pool=s=>[...items.filter(i=>i.slot===s&&i.rental),
+                      ...items.filter(i=>i.slot===s&&!i.rental&&!covered.has(LUKEY(i.slot,i.ref)))];
+       [['C',1],['K',1],['DEF/ST',1],['QB',1],['RB',2],['R',3]].forEach(([s,n])=>
+         pool(s).slice(0,n).forEach(i=>LU.sel.add(LUKEY(i.slot,i.ref))));}
   // A copied lineup is never described as submitted. Most managers set theirs
   // Sunday morning, so the warnings are saved for when acting matters: a player
   // whose game is before Sunday, or a copied lineup from Sunday 8am.
