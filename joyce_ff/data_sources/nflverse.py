@@ -275,12 +275,22 @@ def player_week_stats(pbp: pd.DataFrame) -> pd.DataFrame:
 
 def qb_unit_week_stats(pbp: pd.DataFrame) -> pd.DataFrame:
     """Per (week, team) aggregated passing production -> QB slot, including
-    successful two-point conversion passes (1 pt each, commissioner)."""
+    successful two-point conversion passes (1 pt each, commissioner).
+
+    passing_yards is NET: gross passing yards minus yards lost on sacks, the
+    league's rule (commissioner, 2026-09-14). Play-by-play leaves passing_yards
+    empty on a sack and carries the loss in yards_gained, so it's added back
+    here. Matches ESPN's netPassingYards for every team in 2026 Week 1."""
     p = pbp[pbp["posteam"].notna()]
     out = (p.groupby(["week", "posteam"])
              .agg(passing_yards=("passing_yards", "sum"),
                   passing_tds=("pass_touchdown", "sum"))
              .reset_index().rename(columns={"posteam": "team"}))
+    if "sack" in p.columns and "yards_gained" in p.columns:
+        lost = (p[p["sack"] == 1].groupby(["week", "posteam"])["yards_gained"].sum()
+                  .reset_index(name="sack_yards").rename(columns={"posteam": "team"}))
+        out = out.merge(lost, on=["week", "team"], how="left")
+        out["passing_yards"] = (out["passing_yards"] + out.pop("sack_yards").fillna(0)).clip(lower=0)
     out["two_point_passes"] = 0
     if "two_point_conv_result" in p.columns and "play_type" in p.columns:
         tp = p[(p["two_point_conv_result"] == "success") & (p["play_type"] == "pass")]

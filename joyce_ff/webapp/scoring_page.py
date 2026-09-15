@@ -78,7 +78,8 @@ def build_cards() -> str:
               "On top of receiving yards."),
         _card("Passing yards — QB slot",
               _ladder(R.PASSING_YARD_TIERS, R.PASSING_YARD_EXTENSION),
-              "The whole team's passing, whoever throws it."),
+              "Net yards — yards lost on sacks are subtracted. The whole team's "
+              "passing, whoever throws it."),
         _card("Kicker", fg_rows + [("Extra point", _pt(R.EXTRA_POINT))]),
         _card("Coach", [("Each NFL win", _pt(R.COACH_WIN))],
               "A 14-win team's coach is worth 42 points across the season."),

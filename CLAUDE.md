@@ -128,6 +128,11 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-14: NET YARDS (commissioner). QB-slot passing yards are NET (gross
+  minus sack yards); both readers had used gross. DEF yards allowed was already
+  the opponent's net total yards. Week 1 impact: CIN QB 254 gross -> 245 net
+  (3 -> 0 pts), NO 410 -> 378 (6 -> 5). Board QB history follows after
+  `manage.py board-cache`.
 - 2026-09-14: TWO-POINT CONVERSIONS (commissioner). The player who scores a
   successful 2-pt conversion (catch or run) gets 2; the team whose QB THROWS
   one gets 1 on its QB slot — this is the rulebook's "Extra point pass = 1"

@@ -67,6 +67,8 @@ RECEIVING_YARD_TIERS = [
 ]
 RECEIVING_YARD_EXTENSION = {"step_from": 200, "step_yards": 25, "step_points": 1}
 
+# Passing yards are NET — sack yardage subtracted (commissioner, 2026-09-14).
+# Defense yards allowed is likewise the opponent's net total yards.
 # Passing yards: 250-299=3, 300-349=4, 350-399=5, 400-449=6, 450-499=7,
 #                then +1 for every additional 50 yds beyond 450 (Q4 confirmed).
 PASSING_YARD_TIERS = [

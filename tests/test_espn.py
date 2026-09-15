@@ -55,9 +55,11 @@ def _summary(scoring_plays=None, rb_espn_id="101"):
             ],
             "teams": [
                 {"team": {"abbreviation": "HOU"}, "statistics": [
-                    {"name": "totalYards", "displayValue": "381"}, {"name": "fumblesLost", "displayValue": "1"}]},
+                    {"name": "totalYards", "displayValue": "381"}, {"name": "fumblesLost", "displayValue": "1"},
+                    {"name": "netPassingYards", "displayValue": "239"}]},
                 {"team": {"abbreviation": "BUF"}, "statistics": [
-                    {"name": "totalYards", "displayValue": "409"}, {"name": "fumblesLost", "displayValue": "0"}]},
+                    {"name": "totalYards", "displayValue": "409"}, {"name": "fumblesLost", "displayValue": "0"},
+                    {"name": "netPassingYards", "displayValue": "290"}]},
             ]},
         "header": {"competitions": [{"competitors": [
             {"homeAway": "home", "team": {"abbreviation": "HOU"}, "score": "17"},
@@ -91,7 +93,7 @@ def test_the_reader_reduces_a_box_score_to_what_we_score(monkeypatch):
     rb = g.players["101"]
     assert (rb["team"], rb["rushing_yards"], rb["rushing_tds"]) == ("HOU", 88, 1)
     hou, buf = g.units["HOU"], g.units["BUF"]
-    assert hou["passing_yards"] == 250 and hou["fg_distances"] == [44] and hou["extra_points_made"] == 2
+    assert hou["passing_yards"] == 239 and hou["fg_distances"] == [44] and hou["extra_points_made"] == 2
     assert buf["sacks"] == 3 and buf["interceptions"] == 1 and buf["defensive_tds"] == 1
     assert buf["points_allowed"] == 17 and buf["yards_allowed"] == 381 and buf["fumble_recoveries"] == 1
     assert buf["won"] and not hou["won"]
@@ -388,3 +390,14 @@ def test_the_qb_unit_scores_one_point_per_two_point_pass():
     more = E.score_qb_unit_game(QBUnitGame(team="MIN", passing_yards=260, passing_tds=2,
                                            two_point_passes=1)).total
     assert more - base == 1
+
+
+def test_qb_passing_yards_are_net_of_sacks():
+    """Commissioner: net passing yards. Cincinnati, 2026 Wk 1: 254 gross, a
+    9-yard sack, 245 net — the difference between 3 points and 0."""
+    base = {"week": 1, "posteam": "CIN", "pass_touchdown": 0}
+    pbp = pd.DataFrame([
+        {**base, "passing_yards": 254, "sack": 0, "yards_gained": 254},
+        {**base, "passing_yards": None, "sack": 1, "yards_gained": -9},
+    ])
+    assert nv.qb_unit_week_stats(pbp).set_index("team").loc["CIN", "passing_yards"] == 245

@@ -164,7 +164,10 @@ def _parse(s: dict) -> GameLines:
     for ab in sides:
         b = blocks.get(ab, {})
         g.units[ab] = {
-            "passing_yards": sum(_num(st["YDS"]) for _, _, st in cat(b, "passing")),
+            # NET passing yards (sacks subtracted) — the league's rule. A
+            # passer's YDS in the box score is gross, so use the team's own
+            # net figure.
+            "passing_yards": max(0.0, _num(tstats[ab]["netPassingYards"])),
             "passing_tds": sum(_num(st["TD"]) for _, _, st in cat(b, "passing")),
             "fg_distances": [],
             "extra_points_made": sum(_num(st["XP"]) for _, _, st in cat(b, "kicking")),
