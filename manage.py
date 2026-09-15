@@ -244,6 +244,44 @@ def cmd_run_current(_argv: list[str]) -> int:
     return 1 if _score_databases("run-current") else 0
 
 
+def cmd_fill_def_yards(_argv: list[str]) -> int:
+    """One-time: record DEF/ST net yards allowed (the tied-game tiebreaker) for
+    games scored before yards were kept. Only fills blanks — no score changes."""
+    from joyce_ff.data_sources import nflverse as nv
+    from joyce_ff.league import connect, schema, scoring
+
+    for label, path in _league_databases():
+        conn = connect(path)
+        try:
+            schema.migrate(conn)
+            row = conn.execute("SELECT id, year FROM seasons ORDER BY year DESC LIMIT 1").fetchone()
+            if row is None:
+                continue
+            sid, year = row["id"], row["year"]
+            weeks = [r["ff_week"] for r in conn.execute(
+                "SELECT DISTINCT ff_week FROM asset_week_scores WHERE season_id=? "
+                "AND unit_type='DEF/ST' AND yards_allowed IS NULL ORDER BY ff_week", (sid,))]
+            if not weeks:
+                print(f"{label}: nothing to fill")
+                continue
+            pbp = nv.load_pbp(year)
+            pbp = pbp[pbp["season_type"].isin(["REG", "POST"])]
+            dd = nv.defense_unit_week_stats(pbp, nv.load_games(), year)
+            n = 0
+            for ff in weeks:
+                wk = scoring.nfl_week_for(conn, sid, ff)
+                for r in dd[dd["week"] == wk].itertuples():
+                    n += scoring.fill_yards_allowed(conn, sid, ff, r.team, r.yards_allowed)
+            conn.commit()
+            left = conn.execute("SELECT COUNT(*) c FROM asset_week_scores WHERE season_id=? AND "
+                                "unit_type='DEF/ST' AND yards_allowed IS NULL", (sid,)).fetchone()["c"]
+            print(f"{label}: filled yards allowed for {n} DEF/ST lines (weeks {weeks}); "
+                  f"{left} still blank")
+        finally:
+            conn.close()
+    return 0
+
+
 def cmd_settle_report(_argv: list[str]) -> int:
     """Does ESPN change a box score after Final? Compares each game's copies
     taken at first Final, at lock, and 30 minutes after (league/settle.py)."""
@@ -313,6 +351,7 @@ COMMANDS = {
     "run-current": cmd_run_current,
     "live": cmd_live,
     "settle-report": cmd_settle_report,
+    "fill-def-yards": cmd_fill_def_yards,
     "serve": cmd_serve,
     "sync": cmd_sync,
     "run": cmd_run,

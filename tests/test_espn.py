@@ -401,3 +401,13 @@ def test_qb_passing_yards_are_net_of_sacks():
         {**base, "passing_yards": None, "sack": 1, "yards_gained": -9},
     ])
     assert nv.qb_unit_week_stats(pbp).set_index("team").loc["CIN", "passing_yards"] == 245
+
+
+def test_espn_scoring_keeps_defense_yards_allowed(season, monkeypatch):
+    """The tied-game tiebreaker needs each DEF/ST's net yards allowed."""
+    conn, sid = season
+    _feed(monkeypatch)
+    scoring.ingest_espn_week(conn, sid, 1, now=dt.datetime(2026, 9, 13, 16, 0, tzinfo=ET))
+    got = {r["asset_ref"]: r["yards_allowed"] for r in conn.execute(
+        "SELECT asset_ref, yards_allowed FROM asset_week_scores WHERE unit_type='DEF/ST'")}
+    assert got == {"BUF": 381, "HOU": 409}

@@ -91,6 +91,7 @@
  .mb.show{display:flex}.modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:760px;width:100%;max-height:90vh;overflow:auto;padding:16px 18px}
  .modal h3{margin:0 0 3px}.modal .x{float:right;cursor:pointer;color:var(--dim);font-size:24px;line-height:1}
  .tielbl{color:var(--text);font-weight:700}
+ .tbnote{font-size:11px;color:var(--dim);margin-top:3px}
  .srow{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:5px 2px;font-size:13px}.srow .slot{min-width:52px;color:var(--dim);font-weight:700;font-size:11px}.srow .nm{flex:1}.srow .pts{font-weight:700}
  .team{font-size:10px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:0 5px;margin-left:3px;font-weight:600;white-space:nowrap}
  .poschip{font-size:10px;color:var(--text);background:var(--line);border-radius:5px;padding:1px 6px;font-weight:700;white-space:nowrap}
@@ -167,8 +168,8 @@
 
  <h2>Standings</h2>
  <div class="leagues">
-  <div class="lg blue"><div class="cap">BLUE CONFERENCE</div><div class="tblwrap"><table><thead><tr><th>#</th><th>Team</th><th>W-L-T</th><th>Conf</th><th>PF</th><th>PA</th></tr></thead><tbody id="blue"></tbody></table></div></div>
-  <div class="lg red"><div class="cap">RED CONFERENCE</div><div class="tblwrap"><table><thead><tr><th>#</th><th>Team</th><th>W-L-T</th><th>Conf</th><th>PF</th><th>PA</th></tr></thead><tbody id="red"></tbody></table></div></div>
+  <div class="lg blue"><div class="cap">BLUE CONFERENCE</div><div class="tblwrap"><table><thead><tr><th>#</th><th>Team</th><th>W-L</th><th>Conf</th><th>PF</th><th>PA</th></tr></thead><tbody id="blue"></tbody></table></div></div>
+  <div class="lg red"><div class="cap">RED CONFERENCE</div><div class="tblwrap"><table><thead><tr><th>#</th><th>Team</th><th>W-L</th><th>Conf</th><th>PF</th><th>PA</th></tr></thead><tbody id="red"></tbody></table></div></div>
  </div>
  <p class="sub">Click a team for its roster. Buttons: ⚙ lineup · ⇄＋ trade/open (each asks that team's PIN). <span style="color:var(--good);font-weight:700">Green</span> rank = top 8 → playoffs.</p>
 
@@ -285,7 +286,9 @@ function renderScores(){
        permanent and already on the records. Decided by the server. */
     const done = !!(g.home.done && g.away.done);
     const hp=g.home.points, ap=g.away.points;
-    const hw=done&&hp>ap, aw=done&&ap>hp;
+    /* A tie on points is broken by DEF/ST net yards allowed (server-decided). */
+    const tb=g.tiebreak;
+    const hw=done&&(hp>ap||!!(tb&&tb.winner===g.home.id)), aw=done&&(ap>hp||!!(tb&&tb.winner===g.away.id));
     const f=v=>v==null?'<span class="sub">—</span>':(+v).toFixed(0);
     const isCur = VIEW===CUR;
     const tp=t=>t.to_play>0?`<span class="toplay">${t.to_play} to play</span>`:'';
@@ -296,7 +299,7 @@ function renderScores(){
     };
     const row=(t,win)=>`<div class="r ${win?'win':''}"><span class="nm">${t.name}${crown(t.id)}</span>${flag(t)}${tp(t)}${t.adjusted?'<span class="adj" title="commissioner-adjusted">adj</span>':''}<span class="s">${f(t.points)}</span></div>`;
     return `<div class="game" onclick="boxScore(${g.home.id},${g.away.id},${done?1:0})">${row(g.home,hw)}${row(g.away,aw)}
-      <div class="meta"><span class="${done?'final':''}">${done?'Final':g.kind.toLowerCase()} · Week ${VIEW}</span><span class="boxlink">box score ›</span></div></div>`;
+      <div class="meta"><span class="${done?'final':''}">${done?'Final':g.kind.toLowerCase()} · Week ${VIEW}</span><span class="boxlink">box score ›</span></div>${tb?`<div class="tbnote">${tb.text}</div>`:''}</div>`;
   }).join('') || '<span class="sub">No games this week.</span>';
 }
 function renderByes(){
@@ -310,7 +313,7 @@ function teamRow(t){
     <td><span class="tname" onclick="roster(${t.team_id})">${t.name}</span>${crown(t.team_id)}
     <span class="acts"><span class="chip" onclick="event.stopPropagation();lineupModal(${t.team_id})">⚙</span>
     <span class="chip" onclick="event.stopPropagation();txModal(${t.team_id})">⇄＋</span></span></td>
-    <td>${t.wins}-${t.losses}-${t.ties}</td><td>${t.conf_wins}-${t.conf_losses}</td>
+    <td>${t.wins}-${t.losses}</td><td>${t.conf_wins}-${t.conf_losses}</td>
     <td>${t.pf.toFixed(0)}</td><td>${t.pa.toFixed(0)}</td></tr>`;
 }
 function renderStandings(){ $('blue').innerHTML=STATE.standings.BLUE.map(teamRow).join(''); $('red').innerHTML=STATE.standings.RED.map(teamRow).join(''); }
@@ -347,7 +350,8 @@ async function boxScore(homeId,awayId,final){
   const tot=t=> (t.adjusted && t.team_total!=null) ? t.team_total
     : t.box.reduce((s,x)=>s+(counts(x)?(x.points||0):0),0);
   const th=tot(h), ta=tot(a);
-  const hw=!!final&&th>ta, aw=!!final&&ta>th;      // strict: a tie highlights neither
+  const TB=((STATE.scoreboard||[]).find(x=>x.home.id===homeId&&x.away.id===awayId)||{}).tiebreak;
+  const hw=!!final&&(th>ta||!!(TB&&TB.winner===homeId)), aw=!!final&&(ta>th||!!(TB&&TB.winner===awayId));
   const tie=!!final&&th===ta && (th>0||ta>0);
   const bdLines=x=>(x.breakdown||[]).map(it=>`<div class="bdline"><span>${it[0]}</span><span class="p">+${+it[1]}</span></div>`).join('');
   /* Every starter who isn't finished gets a tag; a row with none is final,
@@ -371,7 +375,7 @@ async function boxScore(homeId,awayId,final){
     +t.box.map(entry).join('')
     +(t.adjusted?`<div class="bdline" style="color:var(--warn);padding-left:10px">⚠ commissioner-adjusted total; player lines are the raw scores</div>`:'')
     +`</div>`;
-  openM(`<h3>Box Score <span class="sub">· Week ${VIEW}</span>${tie?` <span class="sub">·</span> <span class="tielbl">Tie</span>`:''}</h3><div class="box" style="margin-top:8px">${col(h,'home',hw)}${col(a,'away',aw)}</div>`);
+  openM(`<h3>Box Score <span class="sub">· Week ${VIEW}</span>${tie?` <span class="sub">·</span> <span class="tielbl">${TB?TB.text:'Tie'}</span>`:''}</h3><div class="box" style="margin-top:8px">${col(h,'home',hw)}${col(a,'away',aw)}</div>`);
 }
 async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?week=${VIEW}&season=${SEASON}`)).json();
   const rows=d.roster.map(r=>`<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}${r.bye?` <span class="tag-bye">BYE</span>`:''}</span></div>`).join('');
@@ -622,10 +626,18 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
     +`<div class="sub" style="margin-top:4px">A second stat source later scored ${SC.length===1?'this starter':'these starters'} differently. Scores stay as they were posted; use “set” on a team's score below if you want to adjust.</div>`
     +SC.map(c=>`<div class="frow"><span><span class="wk">W${c.w}</span> ${c.name}</span><span>posted ${(+c.locked_points).toFixed(0)} · ${c.source} ${(+c.other_points).toFixed(0)}</span></div>`).join('')
     +`</div>`:'';
+  // Tied games the yards-allowed tiebreaker couldn't settle.
+  const TD=STATE.ties_to_decide||[];
+  const tieBar=TD.length?`<div class="lsum" style="border-color:var(--warn)"><b>⚖ Ties to decide</b>`
+    +`<div class="sub" style="margin-top:4px">The yards-allowed tiebreaker couldn't settle ${TD.length===1?'this game':'these games'}. Pick the winner — until then it doesn't count on either team's record.</div>`
+    +TD.map(t=>`<div class="frow"><span><span class="wk">W${t.week}</span> ${t.home} vs ${t.away} <span class="sub">— ${t.why}</span></span>`
+      +`<span style="display:flex;gap:5px;white-space:nowrap"><button class="chip" onclick="decideTie(${t.week},${t.home_id},${t.away_id},${t.home_id})">${t.home} wins</button>`
+      +`<button class="chip" onclick="decideTie(${t.week},${t.home_id},${t.away_id},${t.away_id})">${t.away} wins</button></span></div>`).join('')
+    +`</div>`:'';
   const actBar=`<div class="lsum"><b>Acting for a manager</b>
     <div class="sub" style="margin-top:4px">Open the team on the main page and use ⚙ lineup or ⇄＋ trade exactly as a manager would — enter <b>your commissioner passcode</b> where it asks for the PIN. You can also set past weeks and start players whose game has already kicked off.</div>
     <div id="auditBox"></div></div>`;
-  $('commBody').innerHTML=scoreBar+checkBar+lsum+pinBar+actBar+lockBar
+  $('commBody').innerHTML=scoreBar+tieBar+checkBar+lsum+pinBar+actBar+lockBar
     +table(byNum(STATE.standings.BLUE),'BLUE CONFERENCE','var(--blue)')
     +table(byNum(STATE.standings.RED),'RED CONFERENCE','var(--red)')
     +txSection+seasonBar;
@@ -777,6 +789,10 @@ function renderWP(){
     <div class="seg">${tabs.map(([k,l])=>`<button class="${WP.tab===k?'on':''}" onclick="WP.tab='${k}';WP.open=-1;renderWP()">${l}</button>`).join('')}</div>
     <div style="overflow-x:auto"><table class="feetable" style="width:100%"><thead><tr><th>Name</th><th>NFL</th><th style="text-align:right">Pts</th><th>Owned by</th></tr></thead><tbody>${body}</tbody></table></div>
     <div style="margin-top:10px"><button class="chip" onclick="commishModal();renderCommish()">← Back to Commissioner</button></div>`);
+}
+async function decideTie(week,home,away,winner){
+  const j=await apost('/api/admin/tiebreak',{season:SEASON,week,home,away,winner}); if(!j)return;
+  await load(VIEW,SEASON); commishModal(); renderCommish();
 }
 /* Plain-English result: what happened to which week, not internal labels. */
 async function runCurrent(){ const j=await apost('/api/admin/run-current',{}); if(!j)return;

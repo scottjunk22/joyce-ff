@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS asset_week_scores (
     unit_type      TEXT,
     points         REAL NOT NULL,
     breakdown_json TEXT,               -- itemized ScoreBreakdown
+    yards_allowed  INTEGER,            -- DEF/ST rows: net yards allowed (the game tiebreaker)
     computed_at    TEXT NOT NULL,
     -- unit_type MUST be in the key: one NFL team fields 4 distinct units
     -- (QB, K, DEF/ST, C). Players use '' (never NULL) so the dedup key holds.
@@ -226,6 +227,20 @@ CREATE TABLE IF NOT EXISTS espn_snapshots (
     taken_at   TEXT NOT NULL,
     lines      TEXT NOT NULL,          -- the parsed stat lines, JSON
     UNIQUE(season_id, game_id, stage)
+);
+
+-- The commissioner's ruling on a tied game the yards tiebreaker couldn't
+-- settle (both DEF/ST on bye, or equal yards allowed).
+CREATE TABLE IF NOT EXISTS tiebreak_decisions (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    season_id      INTEGER NOT NULL REFERENCES seasons(id),
+    ff_week        INTEGER NOT NULL,
+    home_team_id   INTEGER NOT NULL REFERENCES teams(id),
+    away_team_id   INTEGER NOT NULL REFERENCES teams(id),
+    winner_team_id INTEGER NOT NULL REFERENCES teams(id),
+    decided_by     TEXT,
+    decided_at     TEXT NOT NULL,
+    UNIQUE(season_id, ff_week, home_team_id, away_team_id)
 );
 
 -- A locked line that the other source later reported differently. Nothing is
@@ -397,6 +412,13 @@ def migrate(conn: sqlite3.Connection) -> None:
     kcols = {r["name"] for r in conn.execute("PRAGMA table_info(nfl_game_locks)")}
     if "source" not in kcols:
         conn.execute("ALTER TABLE nfl_game_locks ADD COLUMN source TEXT")
+    conn.execute("CREATE TABLE IF NOT EXISTS tiebreak_decisions ("
+                 "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                 "season_id INTEGER NOT NULL REFERENCES seasons(id), ff_week INTEGER NOT NULL, "
+                 "home_team_id INTEGER NOT NULL REFERENCES teams(id), "
+                 "away_team_id INTEGER NOT NULL REFERENCES teams(id), "
+                 "winner_team_id INTEGER NOT NULL REFERENCES teams(id), decided_by TEXT, "
+                 "decided_at TEXT NOT NULL, UNIQUE(season_id, ff_week, home_team_id, away_team_id))")
     conn.execute("CREATE TABLE IF NOT EXISTS espn_snapshots ("
                  "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                  "season_id INTEGER NOT NULL REFERENCES seasons(id), ff_week INTEGER NOT NULL, "
@@ -460,6 +482,15 @@ def migrate(conn: sqlite3.Connection) -> None:
                 "  asset_ref TEXT NOT NULL, unit_type TEXT, points REAL NOT NULL,\n"
                 "  breakdown_json TEXT, computed_at TEXT NOT NULL,\n"
                 "  UNIQUE(season_id, ff_week, asset_kind, asset_ref, unit_type));")
+            conn.commit()
+
+    # DEF/ST net yards allowed, kept for breaking tied games (tiebreak.py).
+    # After the rebuild above, which recreates the table without it.
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='asset_week_scores'").fetchone():
+        acols = {r["name"] for r in conn.execute("PRAGMA table_info(asset_week_scores)")}
+        if "yards_allowed" not in acols:
+            conn.execute("ALTER TABLE asset_week_scores ADD COLUMN yards_allowed INTEGER")
             conn.commit()
 
 

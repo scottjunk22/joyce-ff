@@ -83,6 +83,13 @@ def build_cards() -> str:
         _card("Kicker", fg_rows + [("Extra point", _pt(R.EXTRA_POINT))]),
         _card("Coach", [("Each NFL win", _pt(R.COACH_WIN))],
               "A 14-win team's coach is worth 42 points across the season."),
+        _card("Tied games", [
+            ("Your DEF/ST allowed fewer net yards", "Win"),
+            ("Your DEF/ST was on bye (not covered by an Open)", "Loss"),
+            ("Both on bye, or equal yards allowed", "Commissioner decides"),
+        ], "A game tied on points goes to the team whose starting DEF/ST allowed the fewest "
+           "net yards. This doesn't apply to the elimination pool: a tie for the week's lowest "
+           "score still eliminates everyone tied."),
         _card("Defense / Special teams", [
             ("Defensive or special-teams touchdown", _pt(R.DEF_TD)),
             ("Interception", _pt(R.DEF_INTERCEPTION)),

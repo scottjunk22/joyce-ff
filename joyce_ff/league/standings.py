@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from itertools import groupby
 
 from ..schedule import rotation
-from . import progress
+from . import progress, tiebreak
 # Re-exported: the runner and the tests reach these as standings.*.
 from .progress import clear_live, live_weeks, mark_live  # noqa: F401
 
@@ -104,10 +104,15 @@ def compute_standings(conn, season_id: int, through_week: int | None = None) -> 
         stats[h]["pf"] += hs; stats[h]["pa"] += as_
         stats[a]["pf"] += as_; stats[a]["pa"] += hs
         conf_game = m["kind"] == "CONFERENCE"
-        if hs == as_:
-            stats[h]["ties"] += 1; stats[a]["ties"] += 1
+        # A tie on points is broken by DEF/ST net yards allowed (tiebreak.py).
+        # One only the commissioner can settle stays off both records until he
+        # does — there are no ties in the W-L column.
+        w = (h if hs > as_ else a) if hs != as_ else tiebreak.decide(
+            conn, season_id, m["ff_week"], h, a)["winner"]
+        if w is None:
+            stats[h]["ties"] += 1; stats[a]["ties"] += 1       # undecided, not displayed
         else:
-            w, l = (h, a) if hs > as_ else (a, h)
+            l = a if w == h else h
             stats[w]["wins"] += 1; stats[l]["losses"] += 1
             if conf_game:
                 stats[w]["conf_wins"] += 1; stats[l]["conf_losses"] += 1

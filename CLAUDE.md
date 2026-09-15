@@ -128,6 +128,14 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-14: TIED GAMES (commissioner). A matchup tied on points goes to the
+  team whose STARTED DEF/ST (a rented one counts) allowed the fewest NET yards.
+  A DEF/ST on bye not covered by an Open loses. Both on bye, or equal yards:
+  commissioner's discretion (no further tiebreaker; "Ties to decide" in the
+  commissioner tab). Applies to every matchup incl. playoffs/Super Bowl. NOT to
+  the elimination pool (tie for lowest still eliminates all tied). Standings
+  show W-L only. Code: joyce_ff/league/tiebreak.py; DEF yards kept in
+  asset_week_scores.yards_allowed (`manage.py fill-def-yards` backfills).
 - 2026-09-14: NET YARDS (commissioner). QB-slot passing yards are NET (gross
   minus sack yards); both readers had used gross. DEF yards allowed was already
   the opponent's net total yards. Week 1 impact: CIN QB 254 gross -> 245 net

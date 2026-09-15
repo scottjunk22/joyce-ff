@@ -18,7 +18,7 @@ from pathlib import Path
 
 from flask import Flask, g, jsonify, redirect, render_template, request
 
-from ..league import auth, display, progress, repo, runner, schema, scoring, titles
+from ..league import auth, display, progress, repo, runner, schema, scoring, tiebreak, titles
 from ..scoring import rules
 from ..league import standings as st
 
@@ -523,8 +523,37 @@ def create_app(db_path: str | None = None) -> Flask:
             "SELECT m.kind, m.home_team_id h, m.away_team_id a, th.name hn, ta.name an "
             "FROM matchups m JOIN teams th ON th.id=m.home_team_id "
             "JOIN teams ta ON ta.id=m.away_team_id WHERE m.season_id=? AND m.ff_week=?", (sid, wk)):
-            board.append({"kind": m["kind"], "home": side(m["h"], m["hn"]),
-                          "away": side(m["a"], m["an"])})
+            home, away = side(m["h"], m["hn"]), side(m["a"], m["an"])
+            tb = None
+            if home["done"] and away["done"] and home["points"] is not None \
+                    and home["points"] == away["points"]:
+                tb = tiebreak.decide(conn, sid, wk, m["h"], m["a"])
+            board.append({"kind": m["kind"], "home": home, "away": away, "tiebreak": tb})
+
+        # Tied games only the commissioner can settle, across the season.
+        live_wks = progress.live_weeks(conn, sid)
+        week_done = {}
+        ties_to_decide = []
+        for r in conn.execute(
+                "SELECT m.ff_week w, m.home_team_id h, m.away_team_id a, th.name hn, ta.name an "
+                "FROM matchups m "
+                "JOIN team_week_scores hs ON hs.season_id=m.season_id AND hs.team_id=m.home_team_id "
+                "AND hs.ff_week=m.ff_week "
+                "JOIN team_week_scores aw ON aw.season_id=m.season_id AND aw.team_id=m.away_team_id "
+                "AND aw.ff_week=m.ff_week "
+                "JOIN teams th ON th.id=m.home_team_id JOIN teams ta ON ta.id=m.away_team_id "
+                "WHERE m.season_id=? AND hs.computed_points IS NOT NULL "
+                "AND hs.computed_points=aw.computed_points ORDER BY m.ff_week", (sid,)).fetchall():
+            if r["w"] in live_wks:
+                if r["w"] not in week_done:
+                    week_done[r["w"]] = progress.statuses(conn, sid, r["w"])
+                st_w = week_done[r["w"]]
+                if not (st_w.get(r["h"], {}).get("done") and st_w.get(r["a"], {}).get("done")):
+                    continue
+            d = tiebreak.decide(conn, sid, r["w"], r["h"], r["a"])
+            if d["needs_commissioner"]:
+                ties_to_decide.append({"week": r["w"], "home_id": r["h"], "home": r["hn"],
+                                       "away_id": r["a"], "away": r["an"], "why": d["text"]})
 
         tx = {"BLUE": [], "RED": []}
         for r in conn.execute(
@@ -584,6 +613,7 @@ def create_app(db_path: str | None = None) -> Flask:
                        champion=_latest_champion(),
                        titles=titles.for_season(conn, sid),
                        scoring_note=runner.scoring_note(conn, sid),
+                       ties_to_decide=ties_to_decide,
                        stat_checks=[{"w": r["w"], "locked_points": r["locked_points"],
                                      "other_points": r["other_points"], "source": r["source"],
                                      "name": r["pname"] or display.unit(r["asset_ref"], r["unit_type"])}
@@ -947,6 +977,34 @@ def create_app(db_path: str | None = None) -> Flask:
             "computed_points=excluded.computed_points, adjusted=1, computed_at=datetime('now')",
             (season()["id"], team_id, wk, pts))
         db().commit()
+        return jsonify(ok=True)
+
+    @app.post("/api/admin/tiebreak")
+    def admin_tiebreak():
+        """The commissioner settles a tied game the yards tiebreaker couldn't
+        (both DEF/ST on bye, or equal yards allowed)."""
+        if (bad := _commish()):
+            return bad
+        b = request.get_json(force=True)
+        s, err = _need_season()
+        if err:
+            return err
+        conn = db()
+        sid = int(b.get("season") or s["id"])
+        wk, home, away, winner = (int(b[k]) for k in ("week", "home", "away", "winner"))
+        if winner not in (home, away):
+            return jsonify(error="the winner must be one of the two teams"), 400
+        if not conn.execute("SELECT 1 FROM matchups WHERE season_id=? AND ff_week=? "
+                            "AND home_team_id=? AND away_team_id=?", (sid, wk, home, away)).fetchone():
+            return jsonify(error="no such game"), 404
+        conn.execute(
+            "INSERT INTO tiebreak_decisions(season_id,ff_week,home_team_id,away_team_id,"
+            "winner_team_id,decided_by,decided_at) VALUES (?,?,?,?,?,?,datetime('now')) "
+            "ON CONFLICT(season_id,ff_week,home_team_id,away_team_id) DO UPDATE SET "
+            "winner_team_id=excluded.winner_team_id, decided_by=excluded.decided_by, "
+            "decided_at=excluded.decided_at",
+            (sid, wk, home, away, winner, auth.commissioner_name(conn, _passcode())))
+        conn.commit()
         return jsonify(ok=True)
 
     @app.post("/api/admin/weekly-points")

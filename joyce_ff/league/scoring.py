@@ -28,16 +28,26 @@ def nfl_week_for(conn, season_id: int, ff_week: int) -> int:
     return ff_week + (start - 1)
 
 
-def _upsert_asset(conn, season_id, ff_week, kind, ref, unit, breakdown):
+def _upsert_asset(conn, season_id, ff_week, kind, ref, unit, breakdown, yards_allowed=None):
     # unit_type is part of the key (one NFL team = 4 units); players use ''.
+    # yards_allowed: DEF/ST only — net yards allowed, kept for the game tiebreaker.
     conn.execute(
         "INSERT INTO asset_week_scores(season_id,ff_week,asset_kind,asset_ref,unit_type,"
-        "points,breakdown_json,computed_at) VALUES (?,?,?,?,?,?,?,?) "
+        "points,breakdown_json,computed_at,yards_allowed) VALUES (?,?,?,?,?,?,?,?,?) "
         "ON CONFLICT(season_id,ff_week,asset_kind,asset_ref,unit_type) DO UPDATE SET "
         "points=excluded.points, breakdown_json=excluded.breakdown_json, "
-        "computed_at=excluded.computed_at",
+        "computed_at=excluded.computed_at, yards_allowed=excluded.yards_allowed",
         (season_id, ff_week, kind, ref, unit or "", breakdown.total,
-         json.dumps(breakdown.items), _now()))
+         json.dumps(breakdown.items), _now(), yards_allowed))
+
+
+def fill_yards_allowed(conn, season_id, ff_week, team, yards) -> int:
+    """Record a DEF/ST's net yards allowed where it's missing — for a game
+    locked before yards were kept. Never touches points."""
+    return conn.execute(
+        "UPDATE asset_week_scores SET yards_allowed=? WHERE season_id=? AND ff_week=? "
+        "AND asset_kind='TEAM_UNIT' AND asset_ref=? AND unit_type='DEF/ST' AND yards_allowed IS NULL",
+        (int(yards), season_id, ff_week, team)).rowcount
 
 
 def ingest_asset_scores_from_nflverse(conn, season_id: int, ff_week: int) -> int:
@@ -72,14 +82,17 @@ def ingest_asset_scores_from_nflverse(conn, season_id: int, ff_week: int) -> int
         (season_id, ff_week))}
     n = 0
 
-    def keep(team, kind, ref, unit, b):
+    def keep(team, kind, ref, unit, b, yards=None):
         """Write a line — or, for a game already locked from ESPN that nflverse
         now has complete, compare against what stands and note any difference."""
         nonlocal n
         if team not in frozen:
-            _upsert_asset(conn, season_id, ff_week, kind, ref, unit, b)
+            _upsert_asset(conn, season_id, ff_week, kind, ref, unit, b, yards)
             n += 1
-        elif game_of.get(team) in espn_locked and game_of.get(team) in finished:
+            return
+        if yards is not None and game_of.get(team) in finished:
+            fill_yards_allowed(conn, season_id, ff_week, ref, yards)
+        if game_of.get(team) in espn_locked and game_of.get(team) in finished:
             _check_locked(conn, season_id, ff_week, kind, ref, unit, b.total, "nflverse")
 
     pw = nv.player_week_stats(pbp)
@@ -108,7 +121,8 @@ def ingest_asset_scores_from_nflverse(conn, season_id: int, ff_week: int) -> int
             team=r.team, points_allowed=int(r.points_allowed), yards_allowed=int(r.yards_allowed),
             sacks=int(r.sacks), interceptions=int(r.interceptions),
             fumble_recoveries=int(r.fumble_recoveries), safeties=int(r.safeties),
-            defensive_tds=int(r.defensive_tds), special_teams_tds=int(r.special_teams_tds))))
+            defensive_tds=int(r.defensive_tds), special_teams_tds=int(r.special_teams_tds))),
+            yards=int(r.yards_allowed))
 
     cc = nv.coach_unit_week_stats(games, year)
     for _, r in cc[cc["week"] == wk].iterrows():
@@ -295,7 +309,8 @@ def ingest_espn_week(conn, season_id: int, ff_week: int, now=None) -> int:
                                 interceptions=i("interceptions"),
                                 fumble_recoveries=i("fumble_recoveries"), safeties=i("safeties"),
                                 defensive_tds=i("defensive_tds"),
-                                special_teams_tds=i("special_teams_tds"))))
+                                special_teams_tds=i("special_teams_tds"))),
+                yards_allowed=i("yards_allowed"))
             _upsert_asset(conn, season_id, ff_week, "TEAM_UNIT", ab, "C", E.score_coach_unit_game(
                 CoachUnitGame(team=ab, won=u["won"], tied=u["tied"])))
             n += 4
