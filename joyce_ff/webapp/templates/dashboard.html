@@ -613,7 +613,7 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
     +`</div>`;
   // Scoring sits inside the dashboard, not on the sign-in line: once signed in
   // the passcode is remembered, so this is one click.
-  const scoreBar=`<div class="lsum"><b>Scores</b> <button class="chip" onclick="runCurrent()">▶ Score current week</button>
+  const scoreBar=`<div class="lsum"><b>Scores</b> <button class="chip" onclick="runCurrent()">▶ Score current week</button> <button class="chip" onclick="weeklyPoints()">📋 Weekly points</button>
     <div class="sub" style="margin-top:4px">Scores update on their own every hour. Press this to pull in the latest right now.</div></div>`;
   // Scores lock from ESPN within minutes; when nflverse later reports a started
   // player differently, it's listed here. Nothing changes on its own.
@@ -730,6 +730,54 @@ async function deleteSeason(){
   if(typed===null) return;
   const j=await apost('/api/admin/season/delete',{season_id:SEASON, confirm_label:typed});
   if(j){ alert(`Deleted ${j.label}.`); location.reload(); } }
+/* Weekly points (commissioner): every team unit and every RB/receiver with a
+   stat line, for any week — so "how much did Indianapolis DEF/ST get?" has an
+   answer even when nobody owns them. Same display rule as the box score:
+   a dash until a player's game is final, 0 on a bye. */
+let WP={week:null,tab:'DEF/ST',sort:'points',q:'',rows:[],open:-1};
+async function weeklyPoints(){
+  WP.week = VIEW!=null ? VIEW : (STATE.season&&STATE.season.current) || 1;
+  WP.open=-1; await loadWP();
+}
+async function loadWP(){ const j=await apost('/api/admin/weekly-points',{week:WP.week,season:SEASON}); if(!j)return; WP.rows=j.rows||[]; renderWP(); }
+function wpWhen(r){ const k=iso=>new Date(iso).toLocaleString([],{timeZone:'America/Chicago',weekday:'short',hour:'numeric',minute:'2-digit'});
+  return ({playing:'<span class="tag-when now">in progress</span>', over:'<span class="tag-when">game over · scoring soon</span>',
+    upcoming:`<span class="tag-when">${r.kickoff?k(r.kickoff):'upcoming'}</span>`, bye:'<span class="tag-bye">BYE</span>',
+    nogame:'<span class="tag-when">no game</span>'})[r.state]||''; }
+function wpOwners(r){
+  if(!r.owners.length) return '<span class="sub">—</span>';
+  return r.owners.map(o=>`${o.team} <span class="sub">${o.conf==='BLUE'?'B':'R'}</span>`
+    +(o.open?` <span class="tag-open" title="Open for Week ${WP.week}, covering ${String(o.covering||'').replace(/"/g,'&quot;')}">OPEN</span>`:'')).join('<br>');
+}
+function renderWP(){
+  const tabs=[['C','Coach'],['K','K'],['DEF/ST','DEF/ST'],['QB','QB'],['RB','RB'],['R','R']];
+  const last=Math.max(STATE.season.current||1, ...(STATE.season.weeks||[1]));
+  const weeks=Array.from({length:last},(_,i)=>i+1);
+  let rows=WP.rows.map((r,i)=>({...r,i})).filter(r=>r.slot===WP.tab);
+  if(WP.q){ const s=WP.q.toLowerCase(); rows=rows.filter(r=>r.name.toLowerCase().includes(s)||r.team.toLowerCase().includes(s)||r.owners.some(o=>o.team.toLowerCase().includes(s))); }
+  const pts=r=>r.points==null?-1:r.points;
+  rows.sort(WP.sort==='name'?(a,b)=>a.name.localeCompare(b.name)
+    :WP.sort==='team'?(a,b)=>a.team.localeCompare(b.team)||a.name.localeCompare(b.name)
+    :(a,b)=>pts(b)-pts(a)||a.name.localeCompare(b.name));
+  const body=rows.map(r=>`<tr class="bdrow" onclick="WP.open=WP.open===${r.i}?-1:${r.i};renderWP()">`
+      +`<td>${r.breakdown.length?'<span class="ci">▸</span> ':''}${r.name} ${wpWhen(r)}</td><td>${r.team}</td>`
+      +`<td style="text-align:right;font-weight:700">${r.points==null?'<span class="sub">–</span>':(+r.points).toFixed(0)}</td><td>${wpOwners(r)}</td></tr>`
+      +(WP.open===r.i&&r.breakdown.length?`<tr><td colspan="4">${r.breakdown.map(b=>`<div class="bdline"><span>${b[0]}</span><span class="p">+${+b[1]}</span></div>`).join('')}</td></tr>`:'')).join('')
+    || '<tr><td colspan="4" class="sub" style="padding:10px">No one matches.</td></tr>';
+  openM(`<h3>📋 Weekly points <span class="sub">· commissioner only</span></h3>
+    <div class="sub" style="margin:4px 0 8px">Every team unit, and every RB and receiver who recorded a stat. “Owned by” is who held him that week; OPEN is a one-week rental.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+      <label class="sub">Week <select onchange="WP.week=+this.value;WP.open=-1;loadWP()">${weeks.map(w=>`<option ${w===WP.week?'selected':''}>${w}</option>`).join('')}</select></label>
+      <label class="sub">Sort <select onchange="WP.sort=this.value;renderWP()">
+        <option value="points" ${WP.sort==='points'?'selected':''}>Points</option>
+        <option value="name" ${WP.sort==='name'?'selected':''}>Name A–Z</option>
+        <option value="team" ${WP.sort==='team'?'selected':''}>NFL team</option></select></label>
+      <input id="wpq" placeholder="Search name, NFL team or owner" value="${WP.q.replace(/"/g,'&quot;')}" oninput="WP.q=this.value;renderWP();const e=$('wpq');e.focus();e.setSelectionRange(e.value.length,e.value.length)" style="flex:1;min-width:160px">
+    </div>
+    <div class="seg">${tabs.map(([k,l])=>`<button class="${WP.tab===k?'on':''}" onclick="WP.tab='${k}';WP.open=-1;renderWP()">${l}</button>`).join('')}</div>
+    <div style="overflow-x:auto"><table class="feetable" style="width:100%"><thead><tr><th>Name</th><th>NFL</th><th style="text-align:right">Pts</th><th>Owned by</th></tr></thead><tbody>${body}</tbody></table></div>
+    <div style="margin-top:10px"><button class="chip" onclick="commishModal();renderCommish()">← Back to Commissioner</button></div>`);
+}
 /* Plain-English result: what happened to which week, not internal labels. */
 async function runCurrent(){ const j=await apost('/api/admin/run-current',{}); if(!j)return;
   const wk=a=>a.length>1?`Weeks ${a.join(', ')} are`:`Week ${a[0]} is`;

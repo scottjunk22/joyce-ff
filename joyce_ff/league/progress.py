@@ -160,6 +160,45 @@ def _settled(conn, season_id: int, ff_week: int) -> bool:
         scored is not None and ff_week not in live_weeks(conn, season_id))
 
 
+def _game_context(conn, season_id: int, ff_week: int):
+    """(settled, locked teams, bye teams, {team: (kickoff, final score posted)})."""
+    games: dict[str, tuple] = {}
+    for g in conn.execute("SELECT home_team, away_team, kickoff, final FROM nfl_week_games "
+                          "WHERE season_id=? AND ff_week=?", (season_id, ff_week)):
+        ko = _dt.datetime.fromisoformat(g["kickoff"]) if g["kickoff"] else None
+        for t in (g["home_team"], g["away_team"]):
+            games[t] = (ko, bool(g["final"]))
+    return (_settled(conn, season_id, ff_week), locked_teams(conn, season_id, ff_week),
+            bye_teams(conn, season_id, ff_week), games)
+
+
+def _state_for(nfl, ctx, now) -> dict:
+    """Where one NFL team's game stands — the single rule behind every tag."""
+    settled, locked, byes, games = ctx
+    ko = None
+    if settled or nfl in locked:
+        state = "final"
+    elif nfl is None:
+        state = "nogame"
+    elif nfl in byes:
+        state = "bye"
+    else:
+        ko, fin = games.get(nfl, (None, False))
+        state = "over" if fin else ("playing" if ko and now >= ko else "upcoming")
+    return {"state": state, "kickoff": ko.isoformat() if ko and state == "upcoming" else None}
+
+
+def team_game_states(conn, season_id: int, ff_week: int,
+                     now: _dt.datetime | None = None) -> dict[str, dict]:
+    """{NFL team: {"state", "kickoff"}} for every NFL team this week (see
+    starter_states for what each state means)."""
+    now = now or _dt.datetime.now(ET)
+    ctx = _game_context(conn, season_id, ff_week)
+    teams = {r["abbr"] for r in conn.execute("SELECT abbr FROM nfl_teams WHERE season_id=?",
+                                             (season_id,))} | set(ctx[3]) | ctx[1]
+    return {t: _state_for(t, ctx, now) for t in teams}
+
+
 def starter_states(conn, season_id: int, ff_week: int, team_id: int,
                    now: _dt.datetime | None = None) -> dict[tuple[str, str], dict]:
     """{(roster_slot, asset_ref): {"state", "kickoff"}} for one team's starters.
@@ -173,37 +212,14 @@ def starter_states(conn, season_id: int, ff_week: int, team_id: int,
     Every starter who isn't final has a state other than "final", so a row the
     site leaves untagged is finished — including one that scored 0."""
     now = now or _dt.datetime.now(ET)
-    settled = _settled(conn, season_id, ff_week)
-    locked = locked_teams(conn, season_id, ff_week)
-    byes = bye_teams(conn, season_id, ff_week)
-    games: dict[str, tuple] = {}
-    for g in conn.execute("SELECT home_team, away_team, kickoff, final FROM nfl_week_games "
-                          "WHERE season_id=? AND ff_week=?", (season_id, ff_week)):
-        ko = _dt.datetime.fromisoformat(g["kickoff"]) if g["kickoff"] else None
-        for t in (g["home_team"], g["away_team"]):
-            games[t] = (ko, bool(g["final"]))
-
-    out = {}
-    for r in conn.execute(
-            "SELECT l.roster_slot, l.asset_ref, "
-            "CASE WHEN l.asset_kind='TEAM_UNIT' THEN l.asset_ref ELSE p.nfl_team_abbr END nfl "
-            "FROM weekly_lineups l "
-            "LEFT JOIN nfl_players p ON p.season_id=l.season_id AND p.gsis_id=l.asset_ref "
-            "WHERE l.season_id=? AND l.ff_week=? AND l.team_id=?",
-            (season_id, ff_week, team_id)):
-        ko = None
-        if settled or r["nfl"] in locked:
-            state = "final"
-        elif r["nfl"] is None:
-            state = "nogame"
-        elif r["nfl"] in byes:
-            state = "bye"
-        else:
-            ko, fin = games.get(r["nfl"], (None, False))
-            state = "over" if fin else ("playing" if ko and now >= ko else "upcoming")
-        out[(r["roster_slot"], r["asset_ref"])] = {
-            "state": state, "kickoff": ko.isoformat() if ko and state == "upcoming" else None}
-    return out
+    ctx = _game_context(conn, season_id, ff_week)
+    return {(r["roster_slot"], r["asset_ref"]): _state_for(r["nfl"], ctx, now) for r in conn.execute(
+        "SELECT l.roster_slot, l.asset_ref, "
+        "CASE WHEN l.asset_kind='TEAM_UNIT' THEN l.asset_ref ELSE p.nfl_team_abbr END nfl "
+        "FROM weekly_lineups l "
+        "LEFT JOIN nfl_players p ON p.season_id=l.season_id AND p.gsis_id=l.asset_ref "
+        "WHERE l.season_id=? AND l.ff_week=? AND l.team_id=?",
+        (season_id, ff_week, team_id))}
 
 
 def statuses(conn, season_id: int, ff_week: int,

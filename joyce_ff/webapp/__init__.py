@@ -949,6 +949,80 @@ def create_app(db_path: str | None = None) -> Flask:
         db().commit()
         return jsonify(ok=True)
 
+    @app.post("/api/admin/weekly-points")
+    def admin_weekly_points():
+        """Every team unit, and every RB/receiver with a stat line, for one
+        week: points and who owned (or rented) each. Commissioner only.
+
+        Looking back, not ahead — the same numbers a box score gives, nothing
+        projected. Commissioner-only all the same: a list of unowned players
+        who scored is exactly what a manager would study for pickups.
+        Points follow the box score's rule: shown once a player's game is final
+        (0 on a bye), a dash until then."""
+        if (bad := _commish()):
+            return bad
+        body = request.get_json(force=True)
+        conn = db()
+        s = (conn.execute("SELECT id, current_ff_week FROM seasons WHERE id=?",
+                          (int(body["season"]),)).fetchone() if body.get("season") else season())
+        if s is None:
+            return jsonify(error="No season yet."), 400
+        sid = s["id"]
+        wk = int(body.get("week") or s["current_ff_week"])
+        states = progress.team_game_states(conn, sid, wk)
+
+        # Who held each asset THAT week: roster spans cover trades (a player
+        # traded in week 5 belongs to the new team from week 5 on; reversed
+        # trades restore the old span), and Opens add that week's renters.
+        owners: dict[tuple, list] = {}
+
+        def key(kind, ref, slot):
+            return ("PLAYER", ref) if kind == "PLAYER" else ("TEAM_UNIT", ref, slot)
+
+        for r in conn.execute(
+                "SELECT re.asset_kind, re.asset_ref, re.roster_slot, t.name team, c.code conf "
+                "FROM roster_entries re JOIN teams t ON t.id=re.team_id "
+                "JOIN conferences c ON c.id=t.conference_id WHERE re.season_id=? "
+                "AND re.acquired_ff_week<=? AND (re.released_ff_week IS NULL OR re.released_ff_week>?) "
+                "ORDER BY c.code, t.name", (sid, wk, wk)):
+            owners.setdefault(key(r["asset_kind"], r["asset_ref"], r["roster_slot"]), []).append(
+                {"team": r["team"], "conf": r["conf"], "open": False})
+        for r in conn.execute(
+                "SELECT tr.position, tr.in_asset_kind, tr.in_asset_ref, tr.out_asset_kind, "
+                "tr.out_asset_ref, t.name team, c.code conf FROM transactions tr "
+                "JOIN teams t ON t.id=tr.team_id JOIN conferences c ON c.id=t.conference_id "
+                "WHERE tr.season_id=? AND tr.ff_week=? AND tr.type='OPEN' AND tr.reversed=0",
+                (sid, wk)):
+            owners.setdefault(key(r["in_asset_kind"], r["in_asset_ref"], r["position"]), []).append(
+                {"team": r["team"], "conf": r["conf"], "open": True,
+                 "covering": _dname(conn, sid, r["out_asset_kind"], r["out_asset_ref"], r["position"])})
+
+        scores = {(r["asset_kind"], r["asset_ref"], r["unit_type"] or ""): (r["points"], r["breakdown_json"])
+                  for r in conn.execute("SELECT asset_kind, asset_ref, unit_type, points, breakdown_json "
+                                        "FROM asset_week_scores WHERE season_id=? AND ff_week=?", (sid, wk))}
+        rows = []
+
+        def add(slot, kind, ref, unit, name, nfl):
+            st = states.get(nfl) or {"state": "nogame" if not nfl else "upcoming", "kickoff": None}
+            pts, bd = scores.get((kind, ref, unit), (None, None))
+            final = st["state"] in ("final", "bye")
+            rows.append({"slot": slot, "name": name, "team": display.team(nfl) or "",
+                         "state": st["state"], "kickoff": st["kickoff"],
+                         "points": float(pts or 0) if final else None,
+                         "breakdown": json.loads(bd or "[]") if final else [],
+                         "owners": owners.get(key(kind, ref, slot), [])})
+
+        for t in conn.execute("SELECT abbr FROM nfl_teams WHERE season_id=? ORDER BY abbr", (sid,)):
+            for unit in ("C", "K", "DEF/ST", "QB"):
+                add(unit, "TEAM_UNIT", t["abbr"], unit, display.unit(t["abbr"], unit), t["abbr"])
+        for r in conn.execute(
+                "SELECT a.asset_ref, p.name, p.position, p.nfl_team_abbr FROM asset_week_scores a "
+                "JOIN nfl_players p ON p.season_id=a.season_id AND p.gsis_id=a.asset_ref "
+                "WHERE a.season_id=? AND a.ff_week=? AND a.asset_kind='PLAYER'", (sid, wk)):
+            add("RB" if r["position"] == "RB" else "R", "PLAYER", r["asset_ref"], "",
+                r["name"], r["nfl_team_abbr"])
+        return jsonify(week=wk, rows=rows)
+
     @app.post("/api/admin/run-current")
     def admin_run_current():
         if (bad := _commish()):
