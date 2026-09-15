@@ -141,8 +141,9 @@ what the Phase-1 reconciliation is designed to arbitrate.
   player in this game: A · B"), team names only, tap opens Set Lineup
   (progress.early_lineup_alerts). "N to play" is hidden for everyone until
   Sunday noon CT (progress.counts_visible). A copied lineup is never called
-  submitted: Set Lineup and the box score say "last week's lineup — not
-  submitted" (weekly_lineups.carried_from). Set Lineup banner: no lineup +
+  submitted (weekly_lineups.carried_from). Box scores are public, so a copied
+  lineup's note ("last week's lineup", grey, BELOW the rows so slots line up
+  across teams) shows only from Sunday 8am CT on. Set Lineup banner: no lineup +
   pre-Sunday player -> amber, names him and his kickoff; no lineup otherwise ->
   grey "No lineup set for Week N yet." only (never say last week's lineup "is
   used" to a Sunday-only team); copied -> grey "in place, change any player whose

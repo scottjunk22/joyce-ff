@@ -51,7 +51,7 @@
  .carried{font-size:11px;color:var(--dim);white-space:nowrap;font-weight:600}
  .lflag{cursor:pointer;text-decoration:underline dotted}
  .earlyban{margin:0 0 10px}.elink{color:inherit;font-weight:700;text-decoration:underline;cursor:pointer}
- .cnote{font-size:11px;color:var(--dim);padding:3px 10px;border-bottom:1px solid var(--line)}
+ .cnote{font-size:11px;color:var(--dim);padding:4px 10px}
  .adj{font-size:9px;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:0 4px;white-space:nowrap}
  .game .r .s{font-variant-numeric:tabular-nums;font-weight:700;min-width:26px;text-align:right}
  .game .meta{color:var(--dim);font-size:11px;margin-top:5px;border-top:1px solid var(--line);padding-top:5px;display:flex;justify-content:space-between}
@@ -395,8 +395,10 @@ async function boxScore(homeId,awayId,final){
       +`<span class="pts${counts(x)?'':' prov'}">${counts(x)?(x.points||0).toFixed(0):'–'}</span></div>`
       +(has?`<div class="bd" style="display:none">${bdLines(x)}</div>`:'');};
   const col=(t,cls,won)=>`<div class="boxcol ${cls} ${won?'won':''}"><div class="bh"><span>${t.name}${crownFor(t.titles)}</span><span class="tot">${tot(t).toFixed(0)}</span></div>`
-    +(t.carried_from?`<div class="cnote">last week's lineup — not submitted</div>`:'')
     +t.box.map(entry).join('')
+    // Box scores are public: a copied lineup is noted only from Sunday 8am (with
+    // the card label), quietly, and below the rows so both teams' slots line up.
+    +(t.carried_from&&(t.lineup_notice||{}).sunday_morning?`<div class="cnote">last week's lineup</div>`:'')
     +(t.adjusted?`<div class="bdline" style="color:var(--warn);padding-left:10px">⚠ commissioner-adjusted total; player lines are the raw scores</div>`:'')
     +`</div>`;
   openM(`<h3>Box Score <span class="sub">· Week ${VIEW}</span>${tie?` <span class="sub">·</span> <span class="tielbl">${TB?TB.text:'Tie'}</span>`:''}</h3><div class="box" style="margin-top:8px">${col(h,'home',hw)}${col(a,'away',aw)}</div>`);
