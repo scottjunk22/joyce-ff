@@ -99,3 +99,26 @@ def test_from_sunday_noon_the_cards_carry_no_lineup_labels(week2):
 def test_a_team_with_nothing_to_copy_is_warned_sunday_morning(week2):
     _, _, flags, _ = week2
     assert flags(at(20, 9, 0))["Sunday"] == ("none", "no lineup")
+
+
+# --- the Thursday banner, the count, and copied lineups named as such ------------
+
+def test_the_banner_lists_teams_with_no_lineup_and_a_player_in_the_game(week2):
+    c, sid, _, _ = week2
+    alerts = progress.early_lineup_alerts(c, sid, 2, at(16, 12, 0))
+    assert [(a["game"], a["when"], [t["name"] for t in a["teams"]]) for a in alerts] == \
+        [("SF @ LAR", "Thu 7:15 PM", ["Thursday"])]
+
+
+def test_the_banner_is_gone_once_the_game_kicks_off_or_the_team_submits(week2):
+    c, sid, _, copy_lineups = week2
+    assert progress.early_lineup_alerts(c, sid, 2, at(17, 19, 16)) == []
+    copy_lineups()
+    assert progress.early_lineup_alerts(c, sid, 2, at(16, 12, 0)) == []
+
+
+def test_to_play_counts_wait_for_sunday_noon(week2):
+    c, sid, _, _ = week2
+    assert not progress.counts_visible(c, sid, 2, at(18, 20, 0))
+    assert not progress.counts_visible(c, sid, 2, at(20, 11, 59))
+    assert progress.counts_visible(c, sid, 2, at(20, 12, 0))

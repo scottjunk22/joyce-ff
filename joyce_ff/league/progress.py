@@ -278,6 +278,66 @@ def team_game_states(conn, season_id: int, ff_week: int,
     return out
 
 
+def _week_sunday(conn, season_id: int, ff_week: int):
+    """The Sunday of a week's NFL slate (Central), or None if kickoffs aren't known."""
+    first, _ = kickoffs(conn, season_id, ff_week)
+    if first is None:
+        return None
+    day = first.astimezone(CT).date()
+    while day.weekday() != 6:
+        day += _dt.timedelta(days=1)
+    return day
+
+
+def counts_visible(conn, season_id: int, ff_week: int, now: _dt.datetime | None = None) -> bool:
+    """Whether game cards show "N to play" yet: from noon Central on the week's
+    Sunday (commissioner, 2026-09-15). Before then nearly everyone's players are
+    still to play, and on a copied lineup the count reads as if the manager had
+    submitted one."""
+    sunday = _week_sunday(conn, season_id, ff_week)
+    if sunday is None:
+        return True
+    return (now or _dt.datetime.now(ET)) >= _dt.datetime.combine(sunday, _dt.time(12), CT)
+
+
+def early_lineup_alerts(conn, season_id: int, ff_week: int,
+                        now: _dt.datetime | None = None) -> list[dict]:
+    """The Thursday banner: for each game before Sunday that hasn't kicked off,
+    the teams with no lineup yet and an RB/receiver in that game.
+    [{"game": "SF @ LAR", "when": "Thu 7:15 PM", "teams": [{"id", "name"}]}]"""
+    from . import display
+
+    now = now or _dt.datetime.now(ET)
+    sunday = _week_sunday(conn, season_id, ff_week)
+    if sunday is None:
+        return []
+    games = sorted((_dt.datetime.fromisoformat(g["kickoff"]), g["away_team"], g["home_team"])
+                   for g in conn.execute("SELECT home_team, away_team, kickoff FROM nfl_week_games "
+                                         "WHERE season_id=? AND ff_week=? AND kickoff IS NOT NULL",
+                                         (season_id, ff_week)))
+    games = [g for g in games if g[0].astimezone(CT).date() < sunday and now < g[0]]
+    if not games:
+        return []
+    set_lineup = {r["team_id"] for r in conn.execute(
+        "SELECT DISTINCT team_id FROM weekly_lineups WHERE season_id=? AND ff_week=?",
+        (season_id, ff_week))}
+    names = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM teams WHERE season_id=?",
+                                                      (season_id,))}
+    players = [(r["team_id"], r["nfl_team_abbr"]) for r in conn.execute(
+        "SELECT re.team_id, p.nfl_team_abbr FROM roster_entries re "
+        "JOIN nfl_players p ON p.season_id=re.season_id AND p.gsis_id=re.asset_ref "
+        "WHERE re.season_id=? AND re.asset_kind='PLAYER' AND re.released_ff_week IS NULL",
+        (season_id,))]
+    out = []
+    for ko, away, home in games:
+        teams = sorted({t for t, nfl in players if nfl in (home, away) and t not in set_lineup},
+                       key=lambda t: names.get(t, ""))
+        if teams:
+            out.append({"game": f"{display.team(away)} @ {display.team(home)}", "when": _ct_label(ko),
+                        "teams": [{"id": t, "name": names.get(t, str(t))} for t in teams]})
+    return out
+
+
 def _ct_label(ko: _dt.datetime) -> str:
     t = ko.astimezone(CT)
     return f"{t.strftime('%a')} {t.hour % 12 or 12}:{t.minute:02d} {'AM' if t.hour < 12 else 'PM'}"
@@ -299,12 +359,9 @@ def lineup_flags(conn, season_id: int, ff_week: int,
     From Sunday noon the cards carry no lineup labels; who never submitted is
     in the commissioner tab."""
     now = now or _dt.datetime.now(ET)
-    first, _ = kickoffs(conn, season_id, ff_week)
-    if first is None:
+    sunday = _week_sunday(conn, season_id, ff_week)
+    if sunday is None:
         return {}
-    sunday = first.astimezone(CT).date()
-    while sunday.weekday() != 6:
-        sunday += _dt.timedelta(days=1)
     morning = _dt.datetime.combine(sunday, _dt.time(8), CT)
     noon = _dt.datetime.combine(sunday, _dt.time(12), CT)
 

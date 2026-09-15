@@ -50,6 +50,8 @@
  .noflag{font-size:11px;color:var(--warn);white-space:nowrap;display:inline-flex;align-items:center;gap:3px;font-weight:700}
  .carried{font-size:11px;color:var(--dim);white-space:nowrap;font-weight:600}
  .lflag{cursor:pointer;text-decoration:underline dotted}
+ .earlyban{margin:0 0 10px}.elink{color:inherit;font-weight:700;text-decoration:underline;cursor:pointer}
+ .cnote{font-size:11px;color:var(--dim);padding:3px 10px;border-bottom:1px solid var(--line)}
  .adj{font-size:9px;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:0 4px;white-space:nowrap}
  .game .r .s{font-variant-numeric:tabular-nums;font-weight:700;min-width:26px;text-align:right}
  .game .meta{color:var(--dim);font-size:11px;margin-top:5px;border-top:1px solid var(--line);padding-top:5px;display:flex;justify-content:space-between}
@@ -164,6 +166,7 @@
 <div class="wrap">
  <h2>Scoreboard <span class="sub" style="text-transform:none;letter-spacing:0" id="upd"></span></h2>
  <div class="snote" id="snote"></div>
+ <div id="early" hidden></div>
  <div class="byestrip" id="byes"></div>
  <div class="scores" id="scores"></div>
 
@@ -222,7 +225,7 @@ async function load(week, seasonId){
   if(!STATE.season){ renderNoSeason(); return; }
   SEASON = STATE.season.id; VIEW = STATE.season.week; CUR = STATE.season.current; LW = STATE.season.lineup_week || CUR; TEAMS={};
   for(const c of ['BLUE','RED']) STATE.standings[c].forEach(t=>TEAMS[t.team_id]=t);
-  buildSeasonPicker(); buildWeekPicker(); renderScores(); renderByes(); renderStandings(); renderElim(); renderTx();
+  buildSeasonPicker(); buildWeekPicker(); renderScores(); renderEarly(); renderByes(); renderStandings(); renderElim(); renderTx();
   renderChrome();
   $('seasonlbl').textContent = STATE.season.label;
   /* Why the scoreboard is empty, when it is. A blank scoreboard and a
@@ -284,6 +287,17 @@ function buildWeekPicker(){
   $('wk').innerHTML = STATE.season.weeks.map(w=>`<option value="${w}" ${w===VIEW?'selected':''}>${w}</option>`).join('');
   $('wk').onchange = e => load(+e.target.value, SEASON);
 }
+/* Thursday banner (Tuesday 6am until kickoff): for each game before Sunday,
+   the teams with no lineup yet and a player in it. Short on purpose - it's the
+   first thing everyone sees on a phone, and most aren't listed. Tapping a team
+   opens its Set Lineup, which has the player's kickoff and what happens if
+   nothing is submitted. */
+function renderEarly(){ const el=$('early'); if(!el) return;
+  const E=STATE.early_lineups||[];
+  el.innerHTML=E.map(e=>`<div class="lban warn earlyban">${TRI}<span><b>${e.game} · ${e.when}</b> — no lineup yet, with a player in this game: `
+    +e.teams.map(t=>`<a class="elink" onclick="lineupModal(${t.id})">${t.name}</a>`).join(' · ')+`</span></div>`).join('');
+  el.hidden=!E.length;
+}
 function renderScores(){
   $('scores').innerHTML = STATE.scoreboard.map(g=>{
     /* Final = both teams done: every starter's game locked, so the result is
@@ -294,7 +308,8 @@ function renderScores(){
     const tb=g.tiebreak;
     const hw=done&&(hp>ap||!!(tb&&tb.winner===g.home.id)), aw=done&&(ap>hp||!!(tb&&tb.winner===g.away.id));
     const f=v=>v==null?'<span class="sub">—</span>':(+v).toFixed(0);
-    const tp=t=>t.to_play>0?`<span class="toplay">${t.to_play} to play</span>`:'';
+    // "N to play" waits for noon Central on the week's Sunday (server-decided).
+    const tp=t=>STATE.season.to_play_visible!==false&&t.to_play>0?`<span class="toplay">${t.to_play} to play</span>`:'';
     /* Lineup labels, decided by the server by day and time (progress.lineup_flags):
        Tue–Thu "⚠ Thu player" only for a team that hasn't submitted and has a
        player whose game is before Sunday — tap it to set the lineup; Sunday
@@ -379,6 +394,7 @@ async function boxScore(homeId,awayId,final){
       +`<span class="pts${counts(x)?'':' prov'}">${counts(x)?(x.points||0).toFixed(0):'–'}</span></div>`
       +(has?`<div class="bd" style="display:none">${bdLines(x)}</div>`:'');};
   const col=(t,cls,won)=>`<div class="boxcol ${cls} ${won?'won':''}"><div class="bh"><span>${t.name}${crownFor(t.titles)}</span><span class="tot">${tot(t).toFixed(0)}</span></div>`
+    +(t.carried_from?`<div class="cnote">last week's lineup — not submitted</div>`:'')
     +t.box.map(entry).join('')
     +(t.adjusted?`<div class="bdline" style="color:var(--warn);padding-left:10px">⚠ commissioner-adjusted total; player lines are the raw scores</div>`:'')
     +`</div>`;
@@ -465,11 +481,14 @@ async function lineupModal(id, wk){
   else{['C','K','DEF/ST','QB'].forEach(s=>{const f=items.find(i=>i.slot===s);if(f)LU.sel.add(LUKEY(f.slot,f.ref));});
        items.filter(i=>i.slot==='RB').slice(0,2).forEach(i=>LU.sel.add(LUKEY(i.slot,i.ref)));
        items.filter(i=>i.slot==='R').slice(0,3).forEach(i=>LU.sel.add(LUKEY(i.slot,i.ref)));}
+  // A copied lineup is never described as submitted.
   const banner = wk < LW
-    ? `<div class="lban ok">${CHK}<span>Week ${wk}: ${started.size?'the lineup that was started':'no lineup was set'} — view only.</span></div>`
+    ? `<div class="lban ok">${CHK}<span>Week ${wk}: ${d.carried_from?'last week&#39;s lineup was used (none was submitted)':started.size?'the lineup that was started':'no lineup was set'} — view only.</span></div>`
+    : d.carried_from
+    ? `<div class="lban warn">${TRI}<span>No lineup submitted for Week ${wk} — last week's lineup is being used. Players whose games have started are locked. Submit below to change the rest.</span></div>`
     : started.size
     ? `<div class="lban ok">${CHK}<span>Week ${wk} lineup is in. Players lock at their kickoff.</span></div>`
-    : `<div class="lban warn">${TRI}<span>No lineup set for Week ${wk} — currently on last week's lineup. Submit below to confirm or change it.</span></div>`;
+    : `<div class="lban warn">${TRI}<span>No lineup set for Week ${wk} yet. If none is submitted by the week's first kickoff, last week's lineup is used.</span></div>`;
   let wkOpts='';for(let w=LW;w>=1;w--)wkOpts+=`<option value="${w}" ${w===wk?'selected':''}>${w}</option>`;
   openM(`<h3>${d.name} — Set Lineup</h3>
     <div style="margin:2px 0 8px"><label class="sub">Week <select id="luwk" onchange="lineupModal(${id},+this.value)">${wkOpts}</select></label> <span class="sub">· earlier weeks are view only (the commissioner can change them)</span></div>

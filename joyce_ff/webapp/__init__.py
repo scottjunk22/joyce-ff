@@ -616,6 +616,7 @@ def create_app(db_path: str | None = None) -> Flask:
 
         return jsonify(season={"id": sid, "year": s["year"], "label": s["label"], "week": wk,
                                "current": board_wk, "lineup_week": lineup_wk,
+                               "to_play_visible": progress.counts_visible(conn, sid, wk),
                                "weeks": weeks, "last_updated": last,
                                "ordinal": rules.season_ordinal(s["year"]),
                                "setup_locked": repo.is_setup_locked(conn, sid),
@@ -628,6 +629,7 @@ def create_app(db_path: str | None = None) -> Flask:
                        titles=titles.for_season(conn, sid),
                        scoring_note=runner.scoring_note(conn, sid),
                        ties_to_decide=ties_to_decide,
+                       early_lineups=progress.early_lineup_alerts(conn, sid, lineup_wk),
                        stat_checks=[{"w": r["w"], "locked_points": r["locked_points"],
                                      "other_points": r["other_points"], "source": r["source"],
                                      "name": r["pname"] or display.unit(r["asset_ref"], r["unit_type"])}
@@ -685,9 +687,11 @@ def create_app(db_path: str | None = None) -> Flask:
         for x in box:
             st_ = states.get((x["roster_slot"], x["asset_ref"]), {})
             x["state"], x["kickoff"] = st_.get("state"), st_.get("kickoff")
+        carried = conn.execute("SELECT MAX(carried_from) cf, MAX(carry_note) cn FROM weekly_lineups "
+                               "WHERE season_id=? AND ff_week=? AND team_id=?", (sid, wk, team_id)).fetchone()
         return jsonify(name=row["name"], managers=row["manager_names"],
                        roster=roster, fees=fees, history=hist, payments=pays, opens=opens,
-                       box=box,
+                       box=box, carried_from=carried["cf"], carry_note=carried["cn"],
                        adjusted=bool(tw and tw["adjusted"]),
                        titles=titles.for_season(conn, sid).get(team_id),
                        team_total=(tw["computed_points"] if tw else None))
