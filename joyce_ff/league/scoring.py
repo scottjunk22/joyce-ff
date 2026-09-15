@@ -50,6 +50,17 @@ def fill_yards_allowed(conn, season_id, ff_week, team, yards) -> int:
         (int(yards), season_id, ff_week, team)).rowcount
 
 
+def _qb_unit(QBUnitGame, team, passing_yards, two_point_passes, room: dict):
+    """The QB slot's game: every passing yard the team gained, plus what its QBs
+    did themselves (room: their combined rushing, receiving, TD passes...)."""
+    n = lambda k: room.get(k, 0) or 0
+    return QBUnitGame(team=team, passing_yards=passing_yards, two_point_passes=two_point_passes,
+                      passing_tds=int(n("passing_tds")), rushing_yards=n("rushing_yards"),
+                      rushing_tds=int(n("rushing_tds")), receiving_yards=n("receiving_yards"),
+                      receptions=int(n("receptions")), receiving_tds=int(n("receiving_tds")),
+                      two_point_conversions=int(n("two_point_conversions")))
+
+
 def ingest_asset_scores_from_nflverse(conn, season_id: int, ff_week: int) -> int:
     """Score every player + team unit for the NFL week behind this FF week and
     store them. Returns the number of asset lines written. Needs nflverse data.
@@ -96,18 +107,21 @@ def ingest_asset_scores_from_nflverse(conn, season_id: int, ff_week: int) -> int
             _check_locked(conn, season_id, ff_week, kind, ref, unit, b.total, "nflverse")
 
     pw = nv.player_week_stats(pbp)
-    for _, r in pw[pw["week"] == wk].iterrows():
+    pw = pw[pw["week"] == wk]
+    for _, r in pw.iterrows():
         keep(r["team"], "PLAYER", r["player_id"], None, E.score_player_game(PlayerGame(
             player=r["name"], team=r["team"], rushing_yards=r.rushing_yards,
             rushing_tds=r.rushing_tds, receiving_yards=r.receiving_yards,
             receptions=r.receptions, receiving_tds=r.receiving_tds, return_tds=r.return_tds,
-            two_point_conversions=int(r.get("two_point_conversions", 0) or 0))))
+            two_point_conversions=int(r.get("two_point_conversions", 0) or 0),
+            passing_tds=int(r.get("passing_tds", 0) or 0))))
 
+    room = {r["team"]: r for r in nv.qb_room_week_stats(pw, nv.qb_ids(year)).to_dict("records")}
     qb = nv.qb_unit_week_stats(pbp)
     for _, r in qb[qb["week"] == wk].iterrows():
-        keep(r.team, "TEAM_UNIT", r.team, "QB", E.score_qb_unit_game(QBUnitGame(
-            team=r.team, passing_yards=r.passing_yards, passing_tds=r.passing_tds,
-            two_point_passes=int(r.get("two_point_passes", 0) or 0))))
+        keep(r.team, "TEAM_UNIT", r.team, "QB", E.score_qb_unit_game(_qb_unit(
+            QBUnitGame, r.team, r.passing_yards, int(r.get("two_point_passes", 0) or 0),
+            room.get(r.team, {}))))
 
     kk = nv.kicker_unit_week_stats(pbp)
     for _, r in kk[kk["week"] == wk].iterrows():
@@ -187,7 +201,7 @@ SOURCES = ("espn", "nflverse")
 # box-score touch-ups after the final whistle land first.
 ESPN_SETTLE_MINUTES = 10
 _PLAYER_FIELDS = ("rushing_yards", "rushing_tds", "receptions", "receiving_yards",
-                  "receiving_tds", "return_tds", "two_point_conversions")
+                  "receiving_tds", "return_tds", "two_point_conversions", "passing_tds")
 
 
 def _espn_to_gsis(year: int) -> dict[str, str]:
@@ -274,6 +288,7 @@ def ingest_espn_week(conn, season_id: int, ff_week: int, now=None) -> int:
     ids = {frozenset((g["home_team"], g["away_team"])): g["game_id"]
            for g in games[(games["season"] == year) & (games["week"] == wk)].to_dict("records")}
     to_gsis = _espn_to_gsis(year)
+    qbs = nv.qb_ids(year)
     by_name = None                              # loaded only if an ESPN id isn't on file
     n = 0
     for ev in events:
@@ -282,6 +297,7 @@ def ingest_espn_week(conn, season_id: int, ff_week: int, now=None) -> int:
             continue
         g = espn.game_lines(ev.event_id)
         unmatched = []
+        room: dict[str, dict] = {}              # team -> its QBs' combined stats
         for aid, p in g.players.items():
             if p["team"] in frozen:
                 continue
@@ -294,17 +310,20 @@ def ingest_espn_week(conn, season_id: int, ff_week: int, now=None) -> int:
                 if any(p.get(f) for f in _PLAYER_FIELDS):
                     unmatched.append(p["name"])
                 continue
-            b = E.score_player_game(PlayerGame(player=p["name"], team=p["team"],
-                                               **{f: int(p.get(f, 0)) for f in _PLAYER_FIELDS}))
+            stats = {f: int(p.get(f, 0)) for f in _PLAYER_FIELDS}
+            b = E.score_player_game(PlayerGame(player=p["name"], team=p["team"], **stats))
             _upsert_asset(conn, season_id, ff_week, "PLAYER", gsis, None, b)
             n += 1
+            if gsis in qbs:
+                t = room.setdefault(p["team"], {})
+                for f in nv.QB_ROOM_FIELDS:
+                    t[f] = t.get(f, 0) + stats.get(f, 0)
         for ab, u in g.units.items():
             if ab in frozen:
                 continue
             i = lambda k: int(round(u[k]))
             _upsert_asset(conn, season_id, ff_week, "TEAM_UNIT", ab, "QB", E.score_qb_unit_game(
-                QBUnitGame(team=ab, passing_yards=i("passing_yards"), passing_tds=i("passing_tds"),
-                           two_point_passes=i("two_point_passes"))))
+                _qb_unit(QBUnitGame, ab, i("passing_yards"), i("two_point_passes"), room.get(ab, {}))))
             _upsert_asset(conn, season_id, ff_week, "TEAM_UNIT", ab, "K", E.score_kicker_unit_game(
                 KickerUnitGame(team=ab, field_goal_distances=tuple(u["fg_distances"]),
                                extra_points_made=i("extra_points_made"))))

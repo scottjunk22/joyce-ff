@@ -155,8 +155,9 @@ def season(monkeypatch):
     games = pd.DataFrame([{"season": 2026, "week": 1, "game_id": "2026_01_BUF_HOU",
                            "home_team": "HOU", "away_team": "BUF", "home_score": 17.0}])
     monkeypatch.setattr(nv, "load_games", lambda: games)
-    monkeypatch.setattr(scoring, "_espn_to_gsis", lambda year: {"101": "g_rb"})
+    monkeypatch.setattr(scoring, "_espn_to_gsis", lambda year: {"101": "g_rb", "201": "g_hqb", "202": "g_bqb"})
     monkeypatch.setattr(scoring, "_roster_by_name", lambda year: {})
+    monkeypatch.setattr(nv, "qb_ids", lambda year: {"g_hqb", "g_bqb"})
     return conn, sid
 
 
@@ -165,7 +166,8 @@ def test_a_player_without_an_espn_id_is_matched_by_name_and_team(season, monkeyp
     conn, sid = season
     monkeypatch.setattr(scoring, "_espn_to_gsis", lambda year: {})
     monkeypatch.setattr(scoring, "_gsis_by_name", lambda *a: None)
-    monkeypatch.setattr(scoring, "_roster_by_name", lambda year: {("runnerback", "HOU"): "g_rb"})
+    monkeypatch.setattr(scoring, "_roster_by_name", lambda year: {
+        ("runnerback", "HOU"): "g_rb", ("houqb", "HOU"): "g_hqb", ("bufqb", "BUF"): "g_bqb"})
     _feed(monkeypatch)
     t0 = dt.datetime(2026, 9, 13, 16, 0, tzinfo=ET)
     scoring.ingest_espn_week(conn, sid, 1, now=t0)
@@ -210,6 +212,26 @@ def test_a_game_it_does_not_fully_understand_is_left_for_nflverse(season, monkey
     scoring.ingest_espn_week(conn, sid, 1, now=t0)
     scoring.ingest_espn_week(conn, sid, 1, now=t0 + dt.timedelta(hours=1))
     assert _locks(conn) == []
+
+
+def test_the_qb_slot_scores_its_qbs_running_and_only_their_td_passes(season, monkeypatch):
+    """Commissioner 2026-09-16: HOU's QB runs for 80 and a TD; HOU's RB throws a
+    trick-play TD — his 3, not the QB slot's."""
+    conn, sid = season
+    s = _summary()
+    hou = s["boxscore"]["players"][0]["statistics"]
+    hou[1]["athletes"].append({"athlete": {"id": "201", "displayName": "Hou QB"},
+                               "stats": ["6", "80", "13.3", "1", "22"]})
+    hou[0]["athletes"].append({"athlete": {"id": "101", "displayName": "Runner Back"},
+                               "stats": ["1/1", "20", "20", "1", "0"]})
+    _feed(monkeypatch, summary=s)
+    scoring.ingest_espn_week(conn, sid, 1, now=dt.datetime(2026, 9, 13, 16, 0, tzinfo=ET))
+    pts = lambda ref, unit="": conn.execute(
+        "SELECT points FROM asset_week_scores WHERE asset_ref=? AND unit_type=?", (ref, unit)).fetchone()["points"]
+    # 239 net pass yds (0) + QB's own TD pass (3) + 80 QB rush yds (2) + QB rush TD (6)
+    assert pts("HOU", "QB") == 11
+    # 88 rush yds (2) + rush TD (6) + TD pass thrown (3)
+    assert pts("g_rb") == 11
 
 
 def test_a_locked_game_is_not_rewritten(season, monkeypatch):

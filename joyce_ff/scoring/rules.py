@@ -200,11 +200,11 @@ ROSTERED_R_LEAGUEWIDE = NUM_TEAMS * DRAFTED_ROSTER["R"]     # 88
 # ---------------------------------------------------------------------------
 
 ASSUMPTIONS = {
-    # A1: Does the QB team-unit slot receive 6 pts when the QB RUSHES for a TD?
-    # The QB unit clearly gets passing yards + 3 per passing TD. Whether a
-    # QB's rushing TD credits the QB slot (vs. crediting no one, since QBs are
-    # not rostered individually) is unconfirmed. Default: NO.
-    "QB_UNIT_GETS_RUSH_TD": False,
+    # A1 (QB rushing TD) was CONFIRMED by the commissioner 2026-09-16 and is no
+    # longer a toggle: the QB slot scores its QBs' combined rushing yards,
+    # receiving yards, receptions, rushing/receiving TDs and conversions like
+    # any player; TD passes only when a QB threw them (an RB/receiver who
+    # throws one gets the 3 himself); every passing yard still goes to the slot.
 
     # A2: Coach scoring on an NFL TIE (rare). Default: a tie is not a win -> 0.
     "COACH_TIE_IS_HALF_WIN": False,

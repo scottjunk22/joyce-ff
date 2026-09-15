@@ -142,11 +142,10 @@ def score_player_game(g: PlayerGame, assumptions: dict | None = None) -> ScoreBr
     b.add(_pl(g.two_point_conversions, "2-pt conversion"),
           g.two_point_conversions * rules.TWO_POINT_CONVERSION)
 
-    # A player who threw a TD (trick play) earns the passer credit too.
+    # A player who threw a TD (trick play) earns the passer's 3. His passing
+    # YARDS don't score for him: all passing yards go to the QB slot.
     if g.passing_tds:
         b.add(_pl(g.passing_tds, "TD pass", "TD passes"), g.passing_tds * rules.TD_PASS_TO_PASSER)
-    if g.passing_yards:
-        b.add(f"{_n(g.passing_yards)} pass yds", passing_yard_points(g.passing_yards))
 
     return b
 
@@ -162,8 +161,14 @@ def score_qb_unit_game(g: QBUnitGame, assumptions: dict | None = None) -> ScoreB
         b.add(_pl(g.two_point_passes, "2-pt conversion pass"),
               g.two_point_passes * rules.EXTRA_POINT_PASS)
 
-    if a.get("QB_UNIT_GETS_RUSH_TD", False):
-        b.add(_pl(g.qb_rushing_tds, "QB rush TD"), g.qb_rushing_tds * rules.TD_ANY)
+    # The QBs' running and catching, scored like any player's (combined).
+    b.add(f"{_n(g.rushing_yards)} QB rush yds", rushing_yard_points(g.rushing_yards))
+    b.add(f"{_n(g.receiving_yards)} QB rec yds", receiving_yard_points(g.receiving_yards))
+    b.add(_pl(g.receptions, "QB reception"), reception_points(g.receptions))
+    tds = g.rushing_tds + g.receiving_tds
+    b.add(_pl(tds, "QB TD"), tds * rules.TD_ANY)
+    b.add(_pl(g.two_point_conversions, "QB 2-pt conversion"),
+          g.two_point_conversions * rules.TWO_POINT_CONVERSION)
 
     return b
 

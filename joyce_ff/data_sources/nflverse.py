@@ -273,6 +273,27 @@ def player_week_stats(pbp: pd.DataFrame) -> pd.DataFrame:
 # Team-unit per-game aggregation
 # ---------------------------------------------------------------------------
 
+# What a team's QBs do besides passing yards, added up for the QB slot
+# (commissioner, 2026-09-16) — plus their TD passes, the only ones the slot gets.
+QB_ROOM_FIELDS = ("rushing_yards", "rushing_tds", "receiving_yards", "receptions",
+                  "receiving_tds", "two_point_conversions", "passing_tds")
+
+
+def qb_ids(season: int) -> set[str]:
+    """gsis ids of the season's quarterbacks, by roster position."""
+    r = load_roster(season)
+    if "position" not in r.columns:
+        return set()
+    return set(r.loc[r["position"] == "QB", "gsis_id"].dropna())
+
+
+def qb_room_week_stats(pw: pd.DataFrame, qbs: set[str]) -> pd.DataFrame:
+    """Per (week, team): the QBs' combined QB_ROOM_FIELDS, from player_week_stats."""
+    q = pw[pw["player_id"].isin(qbs)]
+    cols = [c for c in QB_ROOM_FIELDS if c in q.columns]
+    return q.groupby(["week", "team"])[cols].sum().reset_index()
+
+
 def qb_unit_week_stats(pbp: pd.DataFrame) -> pd.DataFrame:
     """Per (week, team) aggregated passing production -> QB slot, including
     successful two-point conversion passes (1 pt each, commissioner).

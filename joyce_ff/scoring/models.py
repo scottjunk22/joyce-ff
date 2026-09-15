@@ -73,25 +73,36 @@ class PlayerGame:
 
 @dataclass(frozen=True)
 class QBUnitGame:
-    """A team's aggregated passing production for one game -> QB slot.
+    """A team's QB room for one game -> QB slot.
 
-    'All pass yds go to QB': if a team uses two QBs, their passing yards and
-    TDs aggregate here into the one slot.
+    'All pass yds go to QB': every passing yard the team gains, whoever threw
+    it. TD passes count only when a QB threw them — a trick-play TD pass by an
+    RB or receiver is his 3, not the slot's. And the QBs' own running and
+    catching score here like any player's, their totals added together
+    (commissioner, 2026-09-16).
     """
 
     team: str = ""
     week: int | None = None
     season: int | None = None
 
-    passing_yards: int = 0     # team total
-    passing_tds: int = 0       # team total
+    passing_yards: int = 0     # team total, every passer
+    passing_tds: int = 0       # thrown by the team's QBs
     two_point_passes: int = 0  # successful two-point conversion PASSES, team total
-    # Only used if ASSUMPTIONS['QB_UNIT_GETS_RUSH_TD'] is enabled.
-    qb_rushing_tds: int = 0
+
+    # The team's QBs combined.
+    rushing_yards: int = 0
+    rushing_tds: int = 0
+    receiving_yards: int = 0
+    receptions: int = 0
+    receiving_tds: int = 0
+    two_point_conversions: int = 0   # conversions a QB ran or caught
 
     def __post_init__(self) -> None:
-        _yards_ok("passing_yards", self.passing_yards)
-        for n in ("passing_tds", "qb_rushing_tds"):
+        for n in ("passing_yards", "rushing_yards", "receiving_yards"):
+            _yards_ok(n, getattr(self, n))
+        for n in ("passing_tds", "two_point_passes", "rushing_tds", "receptions",
+                  "receiving_tds", "two_point_conversions"):
             _nonneg(n, getattr(self, n))
 
 

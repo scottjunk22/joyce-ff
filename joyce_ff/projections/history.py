@@ -52,9 +52,19 @@ def scored_team_unit_games(seasons=SEASONS_DEFAULT) -> dict[str, pd.DataFrame]:
     for s in seasons:
         p = _pbp(s)
         qb = nv.qb_unit_week_stats(p); qb["season"] = s
+        # The QB slot also scores its QBs' running and catching, and only their
+        # TD passes (commissioner, 2026-09-16).
+        room = {(r["week"], r["team"]): r for r in
+                nv.qb_room_week_stats(nv.player_week_stats(p), nv.qb_ids(s)).to_dict("records")}
         for _, r in qb.iterrows():
+            q = room.get((r.week, r.team), {})
+            n = lambda k: q.get(k, 0) or 0
             pts = E.score_qb_unit_game(QBUnitGame(team=r.team,
-                passing_yards=r.passing_yards, passing_tds=r.passing_tds)).total
+                passing_yards=r.passing_yards, passing_tds=int(n("passing_tds")),
+                rushing_yards=n("rushing_yards"), rushing_tds=int(n("rushing_tds")),
+                receiving_yards=n("receiving_yards"), receptions=int(n("receptions")),
+                receiving_tds=int(n("receiving_tds")),
+                two_point_conversions=int(n("two_point_conversions")))).total
             qb_rows.append((s, r.week, r.team, pts))
 
         kk = nv.kicker_unit_week_stats(p); kk["season"] = s

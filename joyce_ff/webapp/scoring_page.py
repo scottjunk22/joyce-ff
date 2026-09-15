@@ -65,21 +65,24 @@ def build_cards() -> str:
     cards = [
         _card("Touchdowns &amp; conversions", [
             ("Touchdown (rush, catch or return)", _pt(R.TD_ANY)),
-            ("Throwing a touchdown — to the QB slot", _pt(R.TD_PASS_TO_PASSER)),
+            ("Throwing a touchdown — to the QB slot, or to the RB or receiver who threw it",
+             _pt(R.TD_PASS_TO_PASSER)),
             ("Two-point conversion — to the player who scores it", _pt(R.TWO_POINT_CONVERSION)),
             ("Throwing a two-point conversion — to the QB slot", _pt(R.EXTRA_POINT_PASS)),
             ("Safety", _pt(R.SAFETY)),
         ]),
         _card("Rushing yards", _ladder(R.RUSHING_YARD_TIERS, R.RUSHING_YARD_EXTENSION),
               "Per game. Rushing and receiving yards are counted separately, "
-              "not added together."),
+              "not added together. Rushing, receiving and receptions count for RBs, "
+              "receivers and the QB slot — a team's QBs' yards are added together."),
         _card("Receiving yards", _ladder(R.RECEIVING_YARD_TIERS, R.RECEIVING_YARD_EXTENSION)),
         _card("Receptions", _ladder(R.RECEPTION_TIERS, R.RECEPTION_EXTENSION, unit="catches"),
               "On top of receiving yards."),
         _card("Passing yards — QB slot",
               _ladder(R.PASSING_YARD_TIERS, R.PASSING_YARD_EXTENSION),
               "Net yards — yards lost on sacks are subtracted. The whole team's "
-              "passing, whoever throws it."),
+              "passing yards, whoever throws them. A QB's own running and catching "
+              "also score for the QB slot, like any player's."),
         _card("Kicker", fg_rows + [("Extra point", _pt(R.EXTRA_POINT))]),
         _card("Coach", [("Each NFL win", _pt(R.COACH_WIN))],
               "A 14-win team's coach is worth 42 points across the season."),

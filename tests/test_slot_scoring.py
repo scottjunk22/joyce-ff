@@ -92,12 +92,17 @@ def test_qb_unit_aggregates_two_passers_conceptually():
     assert score_qb_unit_game(g).total == 3 + 3  # 260 -> 3, one TD -> 3
 
 
-def test_qb_rush_td_off_by_default_on_by_flag():
-    g = QBUnitGame(team="BAL", passing_yards=200, passing_tds=0, qb_rushing_tds=1)
-    assert score_qb_unit_game(g).total == 0  # 200 pass yds < 250, flag off
-    a = copy.deepcopy(rules.ASSUMPTIONS)
-    a["QB_UNIT_GETS_RUSH_TD"] = True
-    assert score_qb_unit_game(g, assumptions=a).total == 6
+def test_qb_unit_scores_its_qbs_running_and_catching_like_a_player():
+    # Commissioner 2026-09-16. 200 pass yds (0) + combined 80 rush yds (2) + a
+    # rushing TD (6) + a trick-play catch: 30 rec yds (0), 1 reception (0), TD (6).
+    g = QBUnitGame(team="BAL", passing_yards=200, rushing_yards=80, rushing_tds=1,
+                   receiving_yards=30, receptions=1, receiving_tds=1)
+    assert score_qb_unit_game(g).total == 2 + 6 + 6
+
+
+def test_a_trick_play_td_pass_is_the_throwers_3_and_no_passing_yard_points():
+    g = PlayerGame(player="RB", team="KC", rushing_yards=40, passing_yards=300, passing_tds=1)
+    assert score_player_game(g).total == 3
 
 
 # ---------------------------------------------------------------------------

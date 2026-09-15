@@ -144,7 +144,8 @@ def _parse(s: dict) -> GameLines:
 
     blocks = {team(b["team"]["abbreviation"]): b for b in bx["players"]}
     for ab, b in blocks.items():
-        for c, keys in (("rushing", {"YDS": "rushing_yards", "TD": "rushing_tds"}),
+        for c, keys in (("passing", {"TD": "passing_tds"}),
+                        ("rushing", {"YDS": "rushing_yards", "TD": "rushing_tds"}),
                         ("receiving", {"REC": "receptions", "YDS": "receiving_yards",
                                        "TD": "receiving_tds"}),
                         ("kickReturns", {"TD": "return_tds"}),

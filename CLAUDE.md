@@ -128,6 +128,15 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-16: QB SLOT RUNNING/CATCHING (commissioner). The QB slot scores its
+  QBs' (roster position QB) COMBINED rushing yards, receiving yards, receptions
+  on the normal ladders, 6 per rushing/receiving TD, 2 per conversion scored —
+  plus ALL team passing yards (any passer) but TD passes ONLY when a QB threw
+  them. An RB/receiver who throws a TD pass gets the 3; his passing yards go to
+  the QB slot, not him. RBs/receivers already scored rushing + receiving +
+  receptions together. Week 1 had 9 uncounted QB rushing TDs (BUF 2, CHI 2,
+  BAL, CAR, KC, MIA, TB); ESPN and nflverse agree on all 32 QB slots under the
+  new rule. Existing ESPN-locked lines surface as stat checks for Change.
 - 2026-09-15: COMMISSIONER TAB LAYOUT (commissioner). Order: Needs your
   attention (ties, stat checks with Change/Keep buttons, check-lineup notes;
   else a green "nothing") -> This week (lineups count, PIN count only while a
