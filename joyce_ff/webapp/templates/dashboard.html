@@ -102,6 +102,7 @@
  .lban{border-radius:10px;padding:8px 11px;font-size:12.5px;margin:2px 0 10px;display:flex;gap:6px;align-items:flex-start}
  .lban.ok{border:1px solid var(--good);color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent)}
  .lban.warn{border:1px solid var(--warn);color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
+ .lban.info{border:1px solid var(--line);color:var(--dim)}
  .lban svg{flex:none;margin-top:1px}
  .lsum{margin-bottom:12px;font-size:13px}
  .lsum .nchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
@@ -481,14 +482,25 @@ async function lineupModal(id, wk){
   else{['C','K','DEF/ST','QB'].forEach(s=>{const f=items.find(i=>i.slot===s);if(f)LU.sel.add(LUKEY(f.slot,f.ref));});
        items.filter(i=>i.slot==='RB').slice(0,2).forEach(i=>LU.sel.add(LUKEY(i.slot,i.ref)));
        items.filter(i=>i.slot==='R').slice(0,3).forEach(i=>LU.sel.add(LUKEY(i.slot,i.ref)));}
-  // A copied lineup is never described as submitted.
+  // A copied lineup is never described as submitted. Most managers set theirs
+  // Sunday morning, so the warnings are saved for when acting matters: a player
+  // whose game is before Sunday, or a copied lineup from Sunday 8am.
+  const LN=d.lineup_notice||{}, early=LN.early||[];
+  const earlyText=()=>{const byWhen={};early.forEach(p=>(byWhen[p.when]=byWhen[p.when]||[]).push(p.name));
+    const one=early.length===1;
+    return Object.entries(byWhen).map(([when,ns])=>`<b>${ns.join(' and ')} ${ns.length>1?'play':'plays'} ${when}.</b>`).join(' ')
+      +` Submit before then to choose whether ${one?'he starts':'they start'}; otherwise last week's lineup is used for ${one?'him':'them'}.`;};
   const banner = wk < LW
     ? `<div class="lban ok">${CHK}<span>Week ${wk}: ${d.carried_from?'last week&#39;s lineup was used (none was submitted)':started.size?'the lineup that was started':'no lineup was set'} — view only.</span></div>`
-    : d.carried_from
+    : d.carried_from && LN.sunday_morning
     ? `<div class="lban warn">${TRI}<span>No lineup submitted for Week ${wk} — last week's lineup is being used. Players whose games have started are locked. Submit below to change the rest.</span></div>`
+    : d.carried_from
+    ? `<div class="lban info"><span>Last week's lineup is in place for Week ${wk}. You can change any player whose game hasn't started.</span></div>`
     : started.size
     ? `<div class="lban ok">${CHK}<span>Week ${wk} lineup is in. Players lock at their kickoff.</span></div>`
-    : `<div class="lban warn">${TRI}<span>No lineup set for Week ${wk} yet. If none is submitted by the week's first kickoff, last week's lineup is used.</span></div>`;
+    : early.length
+    ? `<div class="lban warn">${TRI}<span>No lineup set for Week ${wk} yet. ${earlyText()}</span></div>`
+    : `<div class="lban info"><span>No lineup set for Week ${wk} yet.</span></div>`;
   let wkOpts='';for(let w=LW;w>=1;w--)wkOpts+=`<option value="${w}" ${w===wk?'selected':''}>${w}</option>`;
   openM(`<h3>${d.name} — Set Lineup</h3>
     <div style="margin:2px 0 8px"><label class="sub">Week <select id="luwk" onchange="lineupModal(${id},+this.value)">${wkOpts}</select></label> <span class="sub">· earlier weeks are view only (the commissioner can change them)</span></div>

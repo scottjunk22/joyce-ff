@@ -117,6 +117,22 @@ def test_the_banner_is_gone_once_the_game_kicks_off_or_the_team_submits(week2):
     assert progress.early_lineup_alerts(c, sid, 2, at(16, 12, 0)) == []
 
 
+def test_set_lineup_names_this_teams_early_players_only_before_kickoff(week2):
+    c, sid, _, _ = week2
+    tid = {r["name"]: r["id"] for r in c.execute("SELECT id, name FROM teams")}
+    before = progress.lineup_notice(c, sid, 2, tid["Thursday"], at(16, 12, 0))
+    assert before["early"] == [{"name": "Kyren Williams", "when": "Thu 7:15 PM"},
+                               {"name": "Puka Nacua", "when": "Thu 7:15 PM"}]
+    assert progress.lineup_notice(c, sid, 2, tid["Sunday"], at(16, 12, 0))["early"] == []
+    assert progress.lineup_notice(c, sid, 2, tid["Thursday"], at(17, 19, 16))["early"] == []
+
+
+def test_set_lineup_warns_about_a_copied_lineup_from_sunday_8am(week2):
+    c, sid, _, _ = week2
+    assert not progress.lineup_notice(c, sid, 2, 1, at(20, 7, 59))["sunday_morning"]
+    assert progress.lineup_notice(c, sid, 2, 1, at(20, 8, 0))["sunday_morning"]
+
+
 def test_to_play_counts_wait_for_sunday_noon(week2):
     c, sid, _, _ = week2
     assert not progress.counts_visible(c, sid, 2, at(18, 20, 0))

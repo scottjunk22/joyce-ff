@@ -343,6 +343,46 @@ def _ct_label(ko: _dt.datetime) -> str:
     return f"{t.strftime('%a')} {t.hour % 12 or 12}:{t.minute:02d} {'AM' if t.hour < 12 else 'PM'}"
 
 
+def early_players(conn, season_id: int, ff_week: int,
+                  now: _dt.datetime | None = None) -> dict[int, list]:
+    """{team_id: [(kickoff, name)]} — rostered RBs/receivers whose game is before
+    the week's Sunday and hasn't kicked off."""
+    now = now or _dt.datetime.now(ET)
+    sunday = _week_sunday(conn, season_id, ff_week)
+    if sunday is None:
+        return {}
+    games = {}
+    for g in conn.execute("SELECT home_team, away_team, kickoff FROM nfl_week_games "
+                          "WHERE season_id=? AND ff_week=?", (season_id, ff_week)):
+        if g["kickoff"]:
+            ko = _dt.datetime.fromisoformat(g["kickoff"])
+            games[g["home_team"]] = games[g["away_team"]] = ko
+    early: dict[int, list] = {}
+    for r in conn.execute(
+            "SELECT re.team_id, p.name, p.nfl_team_abbr FROM roster_entries re "
+            "JOIN nfl_players p ON p.season_id=re.season_id AND p.gsis_id=re.asset_ref "
+            "WHERE re.season_id=? AND re.asset_kind='PLAYER' AND re.released_ff_week IS NULL",
+            (season_id,)):
+        ko = games.get(r["nfl_team_abbr"])
+        if ko and ko.astimezone(CT).date() < sunday and now < ko:
+            early.setdefault(r["team_id"], []).append((ko, r["name"]))
+    return {t: sorted(v) for t, v in early.items()}
+
+
+def lineup_notice(conn, season_id: int, ff_week: int, team_id: int,
+                  now: _dt.datetime | None = None) -> dict:
+    """What Set Lineup needs to word its banner (commissioner, 2026-09-15):
+    early — this team's players whose game is before Sunday and still ahead
+    ([{"name", "when"}]); sunday_morning — 8am Central on the week's Sunday has
+    passed, when a copied lineup's note turns from quiet to a warning."""
+    now = now or _dt.datetime.now(ET)
+    sunday = _week_sunday(conn, season_id, ff_week)
+    return {"early": [{"name": n, "when": _ct_label(ko)}
+                      for ko, n in early_players(conn, season_id, ff_week, now).get(team_id, [])],
+            "sunday_morning": sunday is not None
+                              and now >= _dt.datetime.combine(sunday, _dt.time(8), CT)}
+
+
 def lineup_flags(conn, season_id: int, ff_week: int,
                  now: _dt.datetime | None = None) -> dict[int, dict]:
     """{team_id: label} for the lineup week's game cards (commissioner, 2026-09-15).
@@ -365,24 +405,10 @@ def lineup_flags(conn, season_id: int, ff_week: int,
     morning = _dt.datetime.combine(sunday, _dt.time(8), CT)
     noon = _dt.datetime.combine(sunday, _dt.time(12), CT)
 
-    games = {}
-    for g in conn.execute("SELECT home_team, away_team, kickoff FROM nfl_week_games "
-                          "WHERE season_id=? AND ff_week=?", (season_id, ff_week)):
-        if g["kickoff"]:
-            ko = _dt.datetime.fromisoformat(g["kickoff"])
-            games[g["home_team"]] = games[g["away_team"]] = ko
     lineup = {r["team_id"]: r["carried"] for r in conn.execute(
         "SELECT team_id, MAX(carried_from IS NOT NULL) carried FROM weekly_lineups "
         "WHERE season_id=? AND ff_week=? GROUP BY team_id", (season_id, ff_week))}
-    early: dict[int, list] = {}
-    for r in conn.execute(
-            "SELECT re.team_id, p.name, p.nfl_team_abbr FROM roster_entries re "
-            "JOIN nfl_players p ON p.season_id=re.season_id AND p.gsis_id=re.asset_ref "
-            "WHERE re.season_id=? AND re.asset_kind='PLAYER' AND re.released_ff_week IS NULL",
-            (season_id,)):
-        ko = games.get(r["nfl_team_abbr"])
-        if ko and ko.astimezone(CT).date() < sunday and now < ko:
-            early.setdefault(r["team_id"], []).append((ko, r["name"]))
+    early = early_players(conn, season_id, ff_week, now)
 
     out = {}
     for tid in [r["id"] for r in conn.execute("SELECT id FROM teams WHERE season_id=?", (season_id,))]:
@@ -394,7 +420,7 @@ def lineup_flags(conn, season_id: int, ff_week: int,
                             "title": "No lineup submitted yet — last week's lineup is being used"}
             continue
         if tid in early:
-            players = sorted(early[tid])
+            players = early[tid]
             day = players[0][0].astimezone(CT).strftime("%a")
             out[tid] = {"kind": "early", "text": f"{day} player{'s' if len(players) > 1 else ''}",
                         "title": ", ".join(f"{name} ({_ct_label(ko)})" for ko, name in players)

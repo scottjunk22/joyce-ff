@@ -142,7 +142,11 @@ what the Phase-1 reconciliation is designed to arbitrate.
   (progress.early_lineup_alerts). "N to play" is hidden for everyone until
   Sunday noon CT (progress.counts_visible). A copied lineup is never called
   submitted: Set Lineup and the box score say "last week's lineup — not
-  submitted" (weekly_lineups.carried_from).
+  submitted" (weekly_lineups.carried_from). Set Lineup banner: no lineup +
+  pre-Sunday player -> amber, names him and his kickoff; no lineup otherwise ->
+  grey "No lineup set for Week N yet." only (never say last week's lineup "is
+  used" to a Sunday-only team); copied -> grey "in place, change any player whose
+  game hasn't started" until Sunday 8am CT, then amber (progress.lineup_notice).
 - 2026-09-15: TWO WEEK CLOCKS (commissioner). LINEUP week (lineups, trades,
   Opens, lineups-in count; upcoming week added to the scoreboard dropdown)
   moves at 6am CT the Tuesday after a week's last game. SCOREBOARD week (the

@@ -692,6 +692,7 @@ def create_app(db_path: str | None = None) -> Flask:
         return jsonify(name=row["name"], managers=row["manager_names"],
                        roster=roster, fees=fees, history=hist, payments=pays, opens=opens,
                        box=box, carried_from=carried["cf"], carry_note=carried["cn"],
+                       lineup_notice=progress.lineup_notice(conn, sid, wk, team_id),
                        adjusted=bool(tw and tw["adjusted"]),
                        titles=titles.for_season(conn, sid).get(team_id),
                        team_total=(tw["computed_points"] if tw else None))
