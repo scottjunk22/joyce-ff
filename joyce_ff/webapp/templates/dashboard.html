@@ -105,6 +105,26 @@
  .lban.info{border:1px solid var(--line);color:var(--dim)}
  .lban svg{flex:none;margin-top:1px}
  .lsum{margin-bottom:12px;font-size:13px}
+ /* commissioner tab */
+ .csec{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:18px 0 7px;font-weight:700}
+ .catt{border:1px solid var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+ .catt .ct{font-size:15px;font-weight:700;color:var(--warn)}.catt .cd{font-size:14px;margin:4px 0 8px}
+ .cbtns{display:flex;gap:8px;flex-wrap:wrap}.cbtns .btn{font-size:14px}
+ .cclear{border:1px solid var(--good);background:color-mix(in srgb,var(--good) 10%,transparent);color:var(--good);border-radius:10px;padding:10px 12px;font-size:15px}
+ .cglance{background:var(--panel2);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+ .cglance .cn{font-size:20px;font-weight:700}.cglance .cl{font-size:13px;color:var(--dim)}
+ .cok{color:var(--good);font-size:14px}
+ .cbig{display:block;text-align:left;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px 14px;font-size:15px;font-weight:700;cursor:pointer;min-width:260px}
+ .cbig span{display:block;font-size:12px;font-weight:400;color:var(--dim);margin-top:2px}
+ .cfold{border-top:1px solid var(--line)}.cfold>summary{cursor:pointer;padding:10px 2px;font-size:14px;list-style-position:inside}
+ .cfold .cfbody{padding:2px 2px 12px}
+ .cfold.cmini{border-top:0;margin:-4px 0 8px}.cfold.cmini>summary{padding:2px 0;font-size:12px;color:var(--blue)}
+ .cchk{display:block}.cweek{display:flex;align-items:flex-start;gap:8px}.cweek>.cfold{flex:1}
+ .cweek>.cfold>summary{display:list-item}.cwk{font-weight:700;margin-right:8px}.cweek .sub{margin-left:6px}
+ .cdis{margin-top:6px;font-size:12px}
+ .cgame{display:flex;gap:8px;align-items:baseline;padding:3px 0 3px 14px;font-size:13px;flex-wrap:wrap}
+ .cgame .gi{width:14px;text-align:center}.cgame .gm{min-width:96px}.cgame .gt{color:var(--dim);font-size:12px}
+ .cgame.s-checked .gi{color:var(--good)}.cgame.s-diff .gi,.cgame.s-diff .gt{color:var(--warn)}
  .lsum .nchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
  .svok{color:var(--good);font-weight:800;margin-left:4px;font-size:12px}
  .nchip{border:1px solid var(--bad);color:var(--bad);background:var(--panel);border-radius:999px;padding:2px 10px;font-size:12px;white-space:nowrap}
@@ -639,12 +659,11 @@ function commishPC(){ const el=$('cpc'); if(el && el.value) COMMISH_PC=el.value;
 async function apost(url,body){ body.passcode=commishPC(); const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const j=await r.json(); if(!r.ok){alert('⚠ '+(j.error||'error'));return null;} return j; }
 function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothing to draw
   const L=STATE.lineups;
-  const lsum = L ? `<div class="lsum"><b>Lineups · Week ${L.week}:</b> <span style="color:var(--good)">${L.in}</span>/${L.total} in`
-    + (L.not_in.length ? ` · <span style="color:var(--bad)">${L.not_in.length}</span> not in`
-        + `<div class="nchips">${L.not_in.map(t=>`<span class="nchip">${TRI} ${t.name}${t.carried?' <span class="sub">· using last week\'s</span>':''}</span>`).join('')}</div>`
-        + L.not_in.filter(t=>t.note).map(t=>`<div class="frow" style="margin-top:4px"><span>${TRI} <b>Check lineup — ${t.name}:</b> <span class="sub">${t.note}</span></span>`
-            + `<button class="chip" onclick="closeM();lineupModal(${t.id})">Set lineup</button></div>`).join('')
-        : ` <span class="sub">— all in ✓</span>`) + `</div>` : '';
+  // This week: lineups in, with the names one tap away.
+  const lsum = L ? `<div class="cglance"><span class="cn">${L.in} of ${L.total}</span><span class="cl">lineups in · Week ${L.week}</span>`
+    + (L.not_in.length ? `</div>`+cfold('lumiss',`show who's missing`,
+        `<div class="nchips">${L.not_in.map(t=>`<span class="nchip">${TRI} ${t.name}${t.carried?' <span class="sub">· using last week\'s</span>':''}</span>`).join('')}</div>`,'cmini')
+      : `<span class="cok">✓ all in</span></div>`) : '';
   const bal=c=>c<0?`<span style="color:var(--good)">cr $${(Math.abs(c)/100).toFixed(0)}</span>`:`$${(c/100).toFixed(0)}`;
   const scoreMap={}; (STATE.scoreboard||[]).forEach(g=>{scoreMap[g.home.id]=g.home.points;scoreMap[g.away.id]=g.away.points;});
   const LK=!!(STATE.season&&STATE.season.setup_locked), dis=LK?' disabled':'';
@@ -695,33 +714,79 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
       +`<b style="color:var(--bad)">Delete season</b> <span class="sub">— removes ${STATE.season.label} and everything in it: teams, rosters, lineups, scores, transactions. Cannot be undone.</span>`
       +`<div style="margin-top:6px"><button class="chip" style="border-color:var(--bad);color:var(--bad)" onclick="deleteSeason()">Delete this season…</button></div></div>`:'')
     +`</div>`;
-  // Scoring sits inside the dashboard, not on the sign-in line: once signed in
-  // the passcode is remembered, so this is one click.
-  const scoreBar=`<div class="lsum"><b>Scores</b> <button class="chip" onclick="runCurrent()">▶ Score current week</button> <button class="chip" onclick="weeklyPoints()">📋 Weekly points</button>
-    <div class="sub" style="margin-top:4px">Scores update on their own every hour. Press this to pull in the latest right now.</div></div>`;
-  // Scores lock from ESPN within minutes; when nflverse later reports a started
-  // player differently, it's listed here. Nothing changes on its own.
-  const SC=STATE.stat_checks||[];
-  const checkBar=SC.length?`<div class="lsum" style="border-color:var(--warn)"><b>⚠ Stat check</b>`
-    +`<div class="sub" style="margin-top:4px">A second stat source later scored ${SC.length===1?'this starter':'these starters'} differently. Scores stay as they were posted; use “set” on a team's score below if you want to adjust.</div>`
-    +SC.map(c=>`<div class="frow"><span><span class="wk">W${c.w}</span> ${c.name}</span><span>posted ${(+c.locked_points).toFixed(0)} · ${c.source} ${(+c.other_points).toFixed(0)}</span></div>`).join('')
-    +`</div>`:'';
-  // Tied games the yards-allowed tiebreaker couldn't settle.
-  const TD=STATE.ties_to_decide||[];
-  const tieBar=TD.length?`<div class="lsum" style="border-color:var(--warn)"><b>⚖ Ties to decide</b>`
-    +`<div class="sub" style="margin-top:4px">The yards-allowed tiebreaker couldn't settle ${TD.length===1?'this game':'these games'}. Pick the winner — until then it doesn't count on either team's record.</div>`
-    +TD.map(t=>`<div class="frow"><span><span class="wk">W${t.week}</span> ${t.home} vs ${t.away} <span class="sub">— ${t.why}</span></span>`
-      +`<span style="display:flex;gap:5px;white-space:nowrap"><button class="chip" onclick="decideTie(${t.week},${t.home_id},${t.away_id},${t.home_id})">${t.home} wins</button>`
-      +`<button class="chip" onclick="decideTie(${t.week},${t.home_id},${t.away_id},${t.away_id})">${t.away} wins</button></span></div>`).join('')
-    +`</div>`:'';
-  const actBar=`<div class="lsum"><b>Acting for a manager</b>
-    <div class="sub" style="margin-top:4px">Open the team on the main page and use ⚙ lineup or ⇄＋ trade exactly as a manager would — enter <b>your commissioner passcode</b> where it asks for the PIN. You can also set past weeks and start players whose game has already kicked off.</div>
-    <div id="auditBox"></div></div>`;
-  $('commBody').innerHTML=scoreBar+tieBar+checkBar+lsum+pinBar+actBar+lockBar
-    +table(byNum(STATE.standings.BLUE),'BLUE CONFERENCE','var(--blue)')
-    +table(byNum(STATE.standings.RED),'RED CONFERENCE','var(--red)')
-    +txSection+seasonBar;
-  loadAudit();
+  // Stat checks: a locked line nflverse later scored differently, until settled.
+  // Ties to decide: tied games the yards-allowed tiebreaker couldn't settle.
+  const SC=STATE.stat_checks||[], TD=STATE.ties_to_decide||[];
+  /* Laid out for the commissioner (2026-09-15): what needs him first, then this
+     week at a glance, the tool he uses, the teams, and everything occasional
+     folded away at the bottom. */
+  const att=[
+    ...TD.map(t=>`<div class="catt"><div class="ct">⚖ Tie to decide · Week ${t.week} · ${t.home} vs ${t.away}</div>`
+      +`<div class="cd">${t.why} <span class="sub">— until you pick, it doesn't count on either team's record.</span></div>`
+      +`<div class="cbtns"><button class="btn" onclick="decideTie(${t.week},${t.home_id},${t.away_id},${t.home_id})">${t.home} wins</button>`
+      +`<button class="btn" onclick="decideTie(${t.week},${t.home_id},${t.away_id},${t.away_id})">${t.away} wins</button></div></div>`),
+    ...SC.map(c=>{const a=(+c.locked_points).toFixed(0), b=(+c.other_points).toFixed(0);
+      return `<div class="catt"><div class="ct">⚠ Stat check · Week ${c.w} · ${c.name}</div>`
+      +`<div class="cd">Posted ${a} points. The second stat source (${c.source}) says ${b}.</div>`
+      +`<div class="cbtns"><button class="btn" onclick="settleCheck(${c.id},'change',${b})">Change to ${b}</button>`
+      +`<button class="btn" onclick="settleCheck(${c.id},'keep',${a})">Keep ${a}</button></div></div>`;}),
+    ...(L?L.not_in.filter(t=>t.note):[]).map(t=>`<div class="catt"><div class="ct">⚠ Check lineup · Week ${L.week} · ${t.name}</div>`
+      +`<div class="cd">${t.note}</div><div class="cbtns"><button class="btn" onclick="closeM();lineupModal(${t.id})">Set lineup</button></div></div>`)];
+  const attention=`<div class="csec">Needs your attention</div>`
+    +(att.length?att.join(''):`<div class="cclear">✓ Nothing needs your attention</div>`);
+  const pinGlance=noPin.length?`<div class="cglance"><span class="cn">${allT.length-noPin.length} of ${allT.length}</span><span class="cl">manager PINs set</span></div>`
+    +cfold('pinmiss',`show who's missing`,`<div class="nchips">${noPin.map(t=>`<span class="nchip">${TRI} ${t.name}${t.pin_reset?' <span class="sub">· reset, waiting for the manager</span>':''}</span>`).join('')}</div>`,'cmini'):'';
+  const thisWeek=`<div class="csec">This week</div>${lsum}${pinGlance}`
+    +`<div class="cglance cchk"><div class="cl" style="width:100%">Scores double-checked against a second source (nflverse)</div><div id="checksBox" style="width:100%"><span class="sub">loading…</span></div></div>`;
+  const tools=`<div class="csec">Tools</div><button class="cbig" onclick="weeklyPoints()">📋 Weekly points<span>Every player's points and who owned him</span></button>`;
+  const teams=`<div class="csec">Teams</div>`+table(byNum(STATE.standings.BLUE),'BLUE CONFERENCE','var(--blue)')
+    +table(byNum(STATE.standings.RED),'RED CONFERENCE','var(--red)');
+  const folds=`<div style="margin-top:18px">`
+    +cfold('score','Scores seem stuck? Score now',`<div class="sub" style="margin-bottom:8px">Scores post on their own about 10–15 minutes after each game ends. Use this only if one hasn't shown up.</div><button class="btn" onclick="runCurrent()">▶ Score now</button>`)
+    +cfold('earlier','Earlier score checks',`<div id="earlierBox"><span class="sub">loading…</span></div>`)
+    +cfold('moves','Recent moves and entries for managers',(txSection||'<div class="sub">No moves yet.</div>')+`<div id="auditBox"></div>`)
+    +cfold('act','Acting for a manager — how to',`<div class="sub">Open the team on the main page and use ⚙ lineup or ⇄＋ trade exactly as a manager would — enter <b>your commissioner passcode</b> where it asks for the PIN. You can also set past weeks and start players whose game has already kicked off.</div>`)
+    +cfold('pins','PIN setup (draft day)',pinBar)
+    +cfold('season','Season setup — team names, new or delete season',lockBar+seasonBar)
+    +`</div>`;
+  $('commBody').innerHTML=attention+thisWeek+tools+teams+folds;
+  loadAudit(); loadScoreChecks();
+}
+/* A folded section. Which ones are open survives a redraw (every button press
+   reloads the page data and redraws the tab). */
+const CFOLD=new Set();
+function cfold(id,title,body,cls=''){
+  return `<details class="cfold ${cls}" ${CFOLD.has(id)?'open':''} ontoggle="this.open?CFOLD.add('${id}'):CFOLD.delete('${id}')">`
+    +`<summary>${title}</summary><div class="cfbody">${body}</div></details>`; }
+async function settleCheck(id,action,pts){
+  if(!confirm(action==='change'?`Change this line to ${pts} points?\n\nThe team's total for that week is updated, and so is its record if the result changes.`:`Keep the posted ${pts} points?`)) return;
+  const j=await apost(`/api/admin/stat-check/${id}`,{action,season:SEASON}); if(!j) return;
+  await load(VIEW,SEASON); commishModal(); renderCommish(); }
+async function dismissCheckWeek(week){
+  if(!confirm(`Dismiss Week ${week}'s double-check?\n\nThe games nflverse never posted stay unchecked; the week just stops being listed at the top.`)) return;
+  const j=await apost('/api/admin/score-checks/dismiss',{week,season:SEASON}); if(j) loadScoreChecks(); }
+/* The double-check list: up to 3 weeks on top, the rest under Earlier score checks. */
+async function loadScoreChecks(){
+  const box=$('checksBox'); if(!box) return;
+  const j=await apost('/api/admin/score-checks',{season:SEASON}); if(!j) return;
+  const icon={checked:'✓',diff:'⚠',waiting:'⏳',upcoming:'·',unchecked:'—'};
+  const gameRow=g=>`<div class="cgame s-${g.status}"><span class="gi">${icon[g.status]}</span><span class="gm">${g.game}</span><span class="gt">${g.text}</span></div>`;
+  const weekRow=w=>{
+    const checked=w.games.filter(g=>g.status==='checked'), rest=w.games.filter(g=>g.status!=='checked');
+    const shown=[...rest,...checked.slice(0,Math.max(0,3-rest.length))], more=checked.slice(shown.length-rest.length);
+    const games=shown.map(gameRow).join('')
+      +(more.length?cfold('more'+w.week,`+ ${more.length} more checked`,more.map(gameRow).join(''),'cmini'):'');
+    const all=w.checked===w.total;
+    const head=`<span class="cwk">Week ${w.week}</span>`
+      +(all?`<span class="cok">✓ all ${w.total} games</span>`:`<span><b>${w.checked} of ${w.total}</b> games</span>`)
+      +(w.differences?`<span class="sub">· ${w.differences} difference${w.differences>1?'s':''}</span>`:'')
+      +(w.unchecked.length?`<span class="sub">· ${w.unchecked.join(', ')} couldn't be checked${w.dismissed?' · dismissed':''}</span>`:'')
+      +(!all&&!w.unchecked.length&&w.games.some(g=>g.status==='waiting')?`<span class="sub">· nflverse usually posts the next morning</span>`:'');
+    return `<div class="cweek">`+cfold('wk'+w.week,head,games)
+      +(w.can_dismiss?`<button class="btn cdis" onclick="dismissCheckWeek(${w.week})">Dismiss</button>`:'')+`</div>`;};
+  box.innerHTML=j.recent.length?j.recent.map(weekRow).join(''):`<span class="sub">No games played yet.</span>`;
+  const eb=$('earlierBox');
+  if(eb) eb.innerHTML=j.earlier.length?j.earlier.map(weekRow).join(''):`<span class="sub">Nothing earlier yet.</span>`;
 }
 async function loadAudit(){
   const box=$('auditBox'); if(!box) return;

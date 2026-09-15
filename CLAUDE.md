@@ -128,6 +128,18 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-15: COMMISSIONER TAB LAYOUT (commissioner). Order: Needs your
+  attention (ties, stat checks with Change/Keep buttons, check-lineup notes;
+  else a green "nothing") -> This week (lineups count, PIN count only while a
+  team lacks one, score double-check list) -> Tools (Weekly points) -> Teams ->
+  folded rows (Score now, Earlier score checks, moves, acting for a manager, PIN
+  setup, season setup). Score double-check (league/score_checks.py,
+  commissioner-only endpoint): a game is checked once nflverse was compared
+  (nfl_game_locks.verified_at) or it locked from nflverse. Up to 3 weeks on top:
+  every unfinished week, then finished newest first; the rest under Earlier. A
+  game nflverse never posts in the 4-day window keeps its week listed until
+  dismissed. A "Change" on a stat check rewrites that line (breakdown note) and
+  re-totals the week; eliminations already made are not redone.
 - 2026-09-15: PIN RESET (commissioner). "Reset PIN" clears one team's PIN and
   opens only that team to set a new one from its roster, closing when the
   manager does (auth.reset_team_pin / pin_resets). The commissioner never picks

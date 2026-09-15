@@ -129,6 +129,11 @@ def ingest_asset_scores_from_nflverse(conn, season_id: int, ff_week: int) -> int
         keep(r.team, "TEAM_UNIT", r.team, "C", E.score_coach_unit_game(CoachUnitGame(
             team=r.team, won=bool(r.won), tied=bool(r.tied))))
 
+    # Every line of these games was just compared (differences went to
+    # stat_checks), so they count as double-checked (league/score_checks.py).
+    for gid in espn_locked & set(finished):
+        conn.execute("UPDATE nfl_game_locks SET verified_at=? WHERE season_id=? AND ff_week=? "
+                     "AND game_id=? AND verified_at IS NULL", (_now(), season_id, ff_week, gid))
     _lock_finished_games(conn, season_id, ff_week, finished, games, year, wk)
     conn.commit()
     return n

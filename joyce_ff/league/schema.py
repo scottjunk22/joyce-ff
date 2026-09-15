@@ -211,6 +211,7 @@ CREATE TABLE IF NOT EXISTS nfl_game_locks (
     away_team  TEXT NOT NULL,
     locked_at  TEXT NOT NULL,
     source     TEXT,                   -- 'espn' or 'nflverse': whose box score stands
+    verified_at TEXT,                  -- an ESPN lock nflverse has since been compared against
     UNIQUE(season_id, ff_week, game_id)
 );
 
@@ -257,6 +258,9 @@ CREATE TABLE IF NOT EXISTS stat_checks (
     other_points   REAL NOT NULL,
     source         TEXT NOT NULL,      -- who reported other_points
     noted_at       TEXT NOT NULL,
+    resolution     TEXT,               -- NULL = waiting on the commissioner; 'kept' / 'changed'
+    resolved_by    TEXT,
+    resolved_at    TEXT,
     UNIQUE(season_id, ff_week, asset_kind, asset_ref, unit_type)
 );
 
@@ -412,6 +416,8 @@ def migrate(conn: sqlite3.Connection) -> None:
     kcols = {r["name"] for r in conn.execute("PRAGMA table_info(nfl_game_locks)")}
     if "source" not in kcols:
         conn.execute("ALTER TABLE nfl_game_locks ADD COLUMN source TEXT")
+    if "verified_at" not in kcols:
+        conn.execute("ALTER TABLE nfl_game_locks ADD COLUMN verified_at TEXT")
     conn.execute("CREATE TABLE IF NOT EXISTS tiebreak_decisions ("
                  "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                  "season_id INTEGER NOT NULL REFERENCES seasons(id), ff_week INTEGER NOT NULL, "
@@ -432,6 +438,10 @@ def migrate(conn: sqlite3.Connection) -> None:
                  "unit_type TEXT NOT NULL DEFAULT '', locked_points REAL NOT NULL, "
                  "other_points REAL NOT NULL, source TEXT NOT NULL, noted_at TEXT NOT NULL, "
                  "UNIQUE(season_id, ff_week, asset_kind, asset_ref, unit_type))")
+    ccols = {r["name"] for r in conn.execute("PRAGMA table_info(stat_checks)")}
+    for col in ("resolution", "resolved_by", "resolved_at"):
+        if col not in ccols:
+            conn.execute(f"ALTER TABLE stat_checks ADD COLUMN {col} TEXT")
     conn.execute("CREATE TABLE IF NOT EXISTS nfl_week_games ("
                  "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                  "season_id INTEGER NOT NULL REFERENCES seasons(id), ff_week INTEGER NOT NULL, "

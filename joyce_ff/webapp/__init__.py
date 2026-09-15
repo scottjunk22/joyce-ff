@@ -18,7 +18,8 @@ from pathlib import Path
 
 from flask import Flask, g, jsonify, redirect, render_template, request
 
-from ..league import auth, display, progress, repo, runner, schema, scoring, tiebreak, titles
+from ..league import (auth, display, progress, repo, runner, schema, score_checks, scoring,
+                      tiebreak, titles)
 from ..scoring import rules
 from ..league import standings as st
 
@@ -632,14 +633,14 @@ def create_app(db_path: str | None = None) -> Flask:
                        scoring_note=runner.scoring_note(conn, sid),
                        ties_to_decide=ties_to_decide,
                        early_lineups=progress.early_lineup_alerts(conn, sid, lineup_wk),
-                       stat_checks=[{"w": r["w"], "locked_points": r["locked_points"],
+                       stat_checks=[{"id": r["id"], "w": r["w"], "locked_points": r["locked_points"],
                                      "other_points": r["other_points"], "source": r["source"],
                                      "name": r["pname"] or display.unit(r["asset_ref"], r["unit_type"])}
                                     for r in conn.execute(
-                           "SELECT s.ff_week w, s.locked_points, s.other_points, s.source, "
+                           "SELECT s.id, s.ff_week w, s.locked_points, s.other_points, s.source, "
                            "s.asset_ref, s.unit_type, p.name pname "
                            "FROM stat_checks s LEFT JOIN nfl_players p ON p.season_id=s.season_id "
-                           "AND p.gsis_id=s.asset_ref WHERE s.season_id=? "
+                           "AND p.gsis_id=s.asset_ref WHERE s.season_id=? AND s.resolution IS NULL "
                            "ORDER BY s.ff_week DESC, s.asset_ref", (sid,))],
                        payout=st.final_payout(conn, sid))
 
@@ -1041,6 +1042,51 @@ def create_app(db_path: str | None = None) -> Flask:
             (sid, wk, home, away, winner, auth.commissioner_name(conn, _passcode())))
         conn.commit()
         return jsonify(ok=True)
+
+    def _admin_season(body):
+        """The season the commissioner is looking at (the page's ?season), else the current one."""
+        if body.get("season"):
+            row = db().execute("SELECT * FROM seasons WHERE id=?", (int(body["season"]),)).fetchone()
+            if row:
+                return dict(row), None
+        return _need_season()
+
+    @app.post("/api/admin/score-checks")
+    def admin_score_checks():
+        """How far the nflverse double-check has got, week by week. Commissioner only."""
+        if (bad := _commish()):
+            return bad
+        s, err = _admin_season(request.get_json(force=True))
+        if err:
+            return err
+        return jsonify(score_checks.weeks(db(), s["id"]))
+
+    @app.post("/api/admin/score-checks/dismiss")
+    def admin_score_checks_dismiss():
+        if (bad := _commish()):
+            return bad
+        b = request.get_json(force=True)
+        s, err = _admin_season(b)
+        if err:
+            return err
+        score_checks.dismiss_week(db(), s["id"], int(b["week"]), auth.commissioner_name(db(), _passcode()))
+        return jsonify(ok=True)
+
+    @app.post("/api/admin/stat-check/<int:check_id>")
+    def admin_stat_check(check_id):
+        """Keep the posted points, or change them to the second source's."""
+        if (bad := _commish()):
+            return bad
+        b = request.get_json(force=True)
+        s, err = _admin_season(b)
+        if err:
+            return err
+        try:
+            res = score_checks.resolve_stat_check(db(), s["id"], check_id, b.get("action", ""),
+                                                  auth.commissioner_name(db(), _passcode()))
+        except ValueError as e:
+            return jsonify(error=str(e)), 400
+        return jsonify(ok=True, **res)
 
     @app.post("/api/admin/weekly-points")
     def admin_weekly_points():
