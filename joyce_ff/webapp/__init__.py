@@ -502,6 +502,7 @@ def create_app(db_path: str | None = None) -> Flask:
         # result counts), and whether the lineup was carried forward because the
         # manager didn't set one.
         stat = progress.statuses(conn, sid, wk)
+        lineup_flags = progress.lineup_flags(conn, sid, wk) if wk == lineup_wk else {}
         carried = {r["team_id"]: (r["cf"], r["cn"]) for r in conn.execute(
             "SELECT team_id, MAX(carried_from) cf, MAX(carry_note) cn FROM weekly_lineups "
             "WHERE season_id=? AND ff_week=? GROUP BY team_id", (sid, wk))}
@@ -520,6 +521,7 @@ def create_app(db_path: str | None = None) -> Flask:
                     "to_play": s_.get("to_play", 0), "done": bool(s_.get("done")),
                     "lineup_set": bool(s_.get("has_lineup")),
                     "carried_from": cf, "carry_note": cn,
+                    "lineup_flag": lineup_flags.get(tid),
                     "adjusted": tid in adjusted}
         board = []
         for m in conn.execute(
@@ -595,6 +597,9 @@ def create_app(db_path: str | None = None) -> Flask:
         cur_counts = {r["team_id"]: r["c"] for r in conn.execute(
             "SELECT team_id, COUNT(*) c FROM weekly_lineups WHERE season_id=? AND ff_week=? "
             "AND carried_from IS NULL GROUP BY team_id", (sid, cur))}
+        cur_carried = {r["team_id"]: (bool(r["cf"]), r["cn"]) for r in conn.execute(
+            "SELECT team_id, MAX(carried_from) cf, MAX(carry_note) cn FROM weekly_lineups "
+            "WHERE season_id=? AND ff_week=? GROUP BY team_id", (sid, cur))}
         lin_in, lin_notin = 0, []
         for cc in ("BLUE", "RED"):
             for t in stand[cc]:
@@ -603,7 +608,9 @@ def create_app(db_path: str | None = None) -> Flask:
                 if cur_counts.get(t["team_id"], 0) >= 9:
                     lin_in += 1
                 else:
-                    lin_notin.append({"id": t["team_id"], "name": t["name"]})
+                    carried, note = cur_carried.get(t["team_id"], (False, None))
+                    lin_notin.append({"id": t["team_id"], "name": t["name"],
+                                      "carried": carried, "note": note})
         lineups = {"week": cur, "in": lin_in, "total": lin_in + len(lin_notin),
                    "not_in": lin_notin}
 
@@ -641,13 +648,18 @@ def create_app(db_path: str | None = None) -> Flask:
         row = conn.execute("SELECT name, manager_names FROM teams WHERE id=?", (team_id,)).fetchone()
         byes = {r["abbr"] for r in conn.execute(
             "SELECT abbr FROM nfl_teams WHERE season_id=? AND bye_ff_week=?", (sid, wk))}
+        # Each player's game this week — its day and time, or BYE — so Set Lineup
+        # can show who plays Thursday before any lineup (or box score) exists.
+        games = progress.team_game_states(conn, sid, wk)
         roster = []
         for e in repo.current_roster(conn, team_id):
             team = _asset_team(conn, sid, e["asset_kind"], e["asset_ref"])
+            g = games.get(team) or {}
             roster.append({"slot": e["roster_slot"],
                            "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"], e["unit_type"]),
                            "asset_ref": e["asset_ref"], "kind": e["asset_kind"],
-                           "team": display.team(team), "bye": team in byes})
+                           "team": display.team(team), "bye": team in byes,
+                           "game_state": g.get("state"), "game_at": g.get("game_at")})
         fees = _account(conn, sid, team_id)
         hist = [{"week": t["ff_week"], "type": t["type"], "fee": t["fee_cents"],
                  **_tx_parts(conn, sid, t["position"], t["out_asset_kind"], t["out_asset_ref"],

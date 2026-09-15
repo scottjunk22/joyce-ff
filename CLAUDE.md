@@ -128,6 +128,14 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-15: LINEUP LABELS (commissioner). Most managers submit Sunday
+  morning, so cards only say: "⚠ Thu player" (team hasn't submitted and has an
+  RB/R whose game is before Sunday; tap opens Set Lineup) until that kickoff;
+  grey "last week's lineup" Sunday 8am-noon CT for a copied lineup; nothing
+  from Sunday noon (label takes the "to play" spot until then). Who never
+  submitted and "check lineup" live in the commissioner tab. The copy IS the
+  official lineup; the commissioner doesn't re-submit. Set Lineup shows each
+  player's game day/time. Code: progress.lineup_flags.
 - 2026-09-15: TWO WEEK CLOCKS (commissioner). LINEUP week (lineups, trades,
   Opens, lineups-in count; upcoming week added to the scoreboard dropdown)
   moves at 6am CT the Tuesday after a week's last game. SCOREBOARD week (the

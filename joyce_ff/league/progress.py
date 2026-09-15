@@ -262,13 +262,89 @@ def _state_for(nfl, ctx, now) -> dict:
 
 def team_game_states(conn, season_id: int, ff_week: int,
                      now: _dt.datetime | None = None) -> dict[str, dict]:
-    """{NFL team: {"state", "kickoff"}} for every NFL team this week (see
-    starter_states for what each state means)."""
+    """{NFL team: {"state", "kickoff", "game_at"}} for every NFL team this week
+    (see starter_states for what each state means). game_at is the team's
+    kickoff whatever the state — for showing a game's day and time."""
     now = now or _dt.datetime.now(ET)
     ctx = _game_context(conn, season_id, ff_week)
     teams = {r["abbr"] for r in conn.execute("SELECT abbr FROM nfl_teams WHERE season_id=?",
                                              (season_id,))} | set(ctx[3]) | ctx[1]
-    return {t: _state_for(t, ctx, now) for t in teams}
+    out = {}
+    for t in teams:
+        d = _state_for(t, ctx, now)
+        ko = ctx[3].get(t, (None, False))[0]
+        d["game_at"] = ko.isoformat() if ko else None
+        out[t] = d
+    return out
+
+
+def _ct_label(ko: _dt.datetime) -> str:
+    t = ko.astimezone(CT)
+    return f"{t.strftime('%a')} {t.hour % 12 or 12}:{t.minute:02d} {'AM' if t.hour < 12 else 'PM'}"
+
+
+def lineup_flags(conn, season_id: int, ff_week: int,
+                 now: _dt.datetime | None = None) -> dict[int, dict]:
+    """{team_id: label} for the lineup week's game cards (commissioner, 2026-09-15).
+
+    Most managers set their lineup Sunday morning, so a label only appears when
+    it's worth acting on:
+      * no lineup yet, and an RB/receiver on the roster plays BEFORE Sunday
+        -> "⚠ Thu player" (hover names them) until that kickoff — starting or
+        benching him is decided by then, because at kickoff last week's lineup
+        is copied and locks him either way;
+      * last week's lineup was copied -> grey "last week's lineup", Sunday
+        8am-noon Central only, as the morning reminder;
+      * no lineup and nothing to copy -> "⚠ no lineup", Sunday 8am-noon.
+    From Sunday noon the cards carry no lineup labels; who never submitted is
+    in the commissioner tab."""
+    now = now or _dt.datetime.now(ET)
+    first, _ = kickoffs(conn, season_id, ff_week)
+    if first is None:
+        return {}
+    sunday = first.astimezone(CT).date()
+    while sunday.weekday() != 6:
+        sunday += _dt.timedelta(days=1)
+    morning = _dt.datetime.combine(sunday, _dt.time(8), CT)
+    noon = _dt.datetime.combine(sunday, _dt.time(12), CT)
+
+    games = {}
+    for g in conn.execute("SELECT home_team, away_team, kickoff FROM nfl_week_games "
+                          "WHERE season_id=? AND ff_week=?", (season_id, ff_week)):
+        if g["kickoff"]:
+            ko = _dt.datetime.fromisoformat(g["kickoff"])
+            games[g["home_team"]] = games[g["away_team"]] = ko
+    lineup = {r["team_id"]: r["carried"] for r in conn.execute(
+        "SELECT team_id, MAX(carried_from IS NOT NULL) carried FROM weekly_lineups "
+        "WHERE season_id=? AND ff_week=? GROUP BY team_id", (season_id, ff_week))}
+    early: dict[int, list] = {}
+    for r in conn.execute(
+            "SELECT re.team_id, p.name, p.nfl_team_abbr FROM roster_entries re "
+            "JOIN nfl_players p ON p.season_id=re.season_id AND p.gsis_id=re.asset_ref "
+            "WHERE re.season_id=? AND re.asset_kind='PLAYER' AND re.released_ff_week IS NULL",
+            (season_id,)):
+        ko = games.get(r["nfl_team_abbr"])
+        if ko and ko.astimezone(CT).date() < sunday and now < ko:
+            early.setdefault(r["team_id"], []).append((ko, r["name"]))
+
+    out = {}
+    for tid in [r["id"] for r in conn.execute("SELECT id FROM teams WHERE season_id=?", (season_id,))]:
+        if tid in lineup and not lineup[tid]:
+            continue                                        # the manager submitted
+        if tid in lineup:
+            if morning <= now < noon:
+                out[tid] = {"kind": "carried", "text": "last week's lineup",
+                            "title": "No lineup submitted yet — last week's lineup is being used"}
+            continue
+        if tid in early:
+            players = sorted(early[tid])
+            day = players[0][0].astimezone(CT).strftime("%a")
+            out[tid] = {"kind": "early", "text": f"{day} player{'s' if len(players) > 1 else ''}",
+                        "title": ", ".join(f"{name} ({_ct_label(ko)})" for ko, name in players)
+                                 + " — set the lineup before kickoff"}
+        elif morning <= now < noon:
+            out[tid] = {"kind": "none", "text": "no lineup", "title": "No lineup set"}
+    return out
 
 
 def starter_states(conn, season_id: int, ff_week: int, team_id: int,
