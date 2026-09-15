@@ -423,10 +423,10 @@ async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?we
    the current PIN). Forgotten PINs are a commissioner reset, by design: PINs are
    hashed, so nobody can look one up. */
 function pinBox(id){
-  const t=TEAMS[id]||{}, open=!!(STATE.season&&STATE.season.pin_setup_open);
+  const t=TEAMS[id]||{}, open=!!(STATE.season&&STATE.season.pin_setup_open)||!!t.pin_reset;
   if(!t.has_pin && open) return `<div class="fees" id="pinbox">
     <div class="fhd"><span>🔑 Set your PIN</span></div>
-    <div class="sub" style="padding:2px 10px 8px">First time — pick a 4-6 digit PIN you'll remember.
+    <div class="sub" style="padding:2px 10px 8px">${t.pin_reset?'Your PIN was reset — pick a new':'First time — pick a'} 4-6 digit PIN you'll remember.
       You'll use it to submit lineups and make moves.</div>
     <div class="pass"><input type="password" id="pin1" inputmode="numeric" placeholder="PIN" style="width:80px">
       <input type="password" id="pin2" inputmode="numeric" placeholder="again" style="width:80px">
@@ -650,8 +650,9 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
   const LK=!!(STATE.season&&STATE.season.setup_locked), dis=LK?' disabled':'';
   const row=t=>{const f=STATE.fees[t.team_id]||{net_cents:0}, sc=scoreMap[t.team_id];
     return `<tr><td><input id="nm_${t.team_id}" style="width:108px" value="${t.name}"${dis} onchange="autoSaveTeam(${t.team_id})"><span class="svok" id="sv_${t.team_id}"></span></td><td><input id="tn_${t.team_id}" style="width:34px" value="${t.team_number??''}"${dis} onchange="autoSaveTeam(${t.team_id})"></td>
-      <td><input id="pc_${t.team_id}" style="width:70px" placeholder="—"></td>
-      <td><button class="chip" onclick="setTeamPin(${t.team_id})">set PIN</button></td>
+      <td style="white-space:nowrap">${t.pin_reset?'<span class="sub">waiting for manager</span>'
+        :t.has_pin?`<button class="chip" onclick="resetPin(${t.team_id},'${t.name.replace(/'/g,"\\'")}')">Reset PIN</button>`
+        :'<span class="sub">no PIN</span>'}</td>
       <td><input id="sc_${t.team_id}" style="width:42px" placeholder="${sc==null?'—':(+sc).toFixed(0)}"><button class="chip" onclick="setScore(${t.team_id})">set</button></td>
       <td>${bal(f.net_cents)}</td>
       <td><input id="pay_${t.team_id}" style="width:36px" placeholder="$"><button class="chip" onclick="applyPay(${t.team_id})">pay</button></td></tr>`;};
@@ -659,7 +660,7 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
   // standings' name order reads as 1, 10, 11, 2 which looks broken.
   const byNum=ts=>[...ts].sort((a,b)=>(a.team_number??99)-(b.team_number??99));
   const table=(teams,label,color)=>`<div style="margin:12px 0 4px;font-weight:800;color:${color}">${label}</div>`
-    +`<div style="overflow-x:auto"><table class="feetable"><thead><tr><th>Team</th><th>#</th><th>Passcode</th><th></th><th>Score W${VIEW}</th><th>Balance</th><th>Pay</th></tr></thead><tbody>`
+    +`<div style="overflow-x:auto"><table class="feetable"><thead><tr><th>Team</th><th>#</th><th>PIN</th><th>Score W${VIEW}</th><th>Balance</th><th>Pay</th></tr></thead><tbody>`
     +teams.map(row).join('')+`</tbody></table></div>`;
   const txs=[...STATE.transactions.BLUE,...STATE.transactions.RED].sort((a,b)=>b.id-a.id);
   const txSection = txs.length ? `<div style="margin:14px 0 4px;font-weight:800">Recent moves <span class="sub">— convert a mis-toggled Trade/Open, or reverse it</span></div>`
@@ -670,14 +671,14 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
   const noPin=allT.filter(t=>!t.has_pin), PO=!!(STATE.season&&STATE.season.pin_setup_open);
   const pinBar=`<div class="lsum" style="border-color:${PO?'var(--warn)':'var(--line)'}">`
     +`<b>🔑 Manager PINs:</b> <span style="color:var(--good)">${allT.length-noPin.length}</span>/${allT.length} set`
-    +(noPin.length?`<div class="nchips">${noPin.map(t=>`<span class="nchip">${TRI} ${t.name}</span>`).join('')}</div>`:' <span class="sub">— everyone\'s in ✓</span>')
+    +(noPin.length?`<div class="nchips">${noPin.map(t=>`<span class="nchip">${TRI} ${t.name}${t.pin_reset?' <span class="sub">· reset, waiting for the manager</span>':''}</span>`).join('')}</div>`:' <span class="sub">— everyone\'s in ✓</span>')
     +`<div style="margin-top:6px">`
     +(PO?`<b style="color:var(--warn)">Managers can set their PIN right now.</b> `
         +`<button class="chip" onclick="pinSetup(false)">Turn this off</button>`
       :`Managers cannot set a PIN right now. `
         +`<button class="chip" onclick="pinSetup(true)">Let managers set their PIN</button>`)
     +`</div><div class="sub" style="margin-top:4px">Turn this on at the draft so each manager picks their own 4-6 digit PIN, then turn it off. `
-    +`PINs are stored scrambled: you can give someone a new one below, but nobody — not even you — can look up an existing one.</div></div>`;
+    +`Forgot a PIN? Press Reset PIN beside the team below — only that team can then set a new PIN, until its manager does. PINs are stored scrambled, so nobody — not even you — can look one up.</div></div>`;
   const lockBar=`<div class="lsum" style="border-color:${LK?'var(--good)':'var(--warn)'}">`
     +(LK?`✔ <b>Setup is finished.</b> Team names and numbers are set for the season, so they can't be changed by accident. `
         +`<button class="chip" onclick="toggleLock(false)">Make changes…</button>`
@@ -786,11 +787,10 @@ async function flushTeamEdits(){
   }
   return null;
 }
-async function setTeamPin(id){
-  const pc=$('pc_'+id).value.trim();
-  if(!pc){ alert('Type a PIN in the box first, then press set PIN.'); return; }
-  const j=await apost(`/api/admin/team/${id}/passcode`,{new_passcode:pc});
-  if(j){ alert('PIN set for this team.'); $('pc_'+id).value=''; } }
+async function resetPin(id,name){
+  if(!confirm(`Clear ${name}'s PIN so the manager can set a new one?\n\nTheir current PIN stops working now. Tell the manager to open ${name} on the site (tap the team name) and set a new PIN.`)) return;
+  const j=await apost(`/api/admin/team/${id}/reset-pin`,{});
+  if(j){ await load(VIEW, SEASON); renderCommish(); } }
 async function toggleLock(lock){
   if(lock){
     const err=await flushTeamEdits();

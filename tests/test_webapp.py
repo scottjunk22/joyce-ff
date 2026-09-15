@@ -155,14 +155,22 @@ def test_admin_endpoints_require_commissioner(client):
     assert ok.status_code == 200
 
 
-def test_admin_can_set_team_passcode(client):
-    r = client.post(f"/api/admin/team/{client.otb}/passcode",
-                    json={"passcode": "commish", "new_passcode": "newpc"})
-    assert r.status_code == 200
-    # the new passcode now authorizes a team action
-    t = client.post(f"/api/team/{client.otb}/trade",
-                    json={"passcode": "newpc", "position": "RB", "out": "p_bijan", "in": "p_warren"})
-    assert t.status_code == 200
+def test_a_pin_reset_lets_only_that_manager_set_a_new_pin_once(client):
+    assert client.post(f"/api/admin/team/{client.otb}/reset-pin",
+                       json={"passcode": "otblitz"}).status_code == 403   # commissioner only
+    assert client.post(f"/api/admin/team/{client.otb}/reset-pin",
+                       json={"passcode": "commish"}).status_code == 200
+    trade = {"position": "RB", "out": "p_bijan", "in": "p_warren"}
+    assert client.post(f"/api/team/{client.otb}/trade",
+                       json={"passcode": "otblitz", **trade}).status_code == 403  # old PIN is dead
+    conn = schema.connect(client.dbpath)
+    other = conn.execute("SELECT id FROM teams WHERE name='Pike'").fetchone()["id"]
+    conn.close()
+    assert client.post(f"/api/team/{other}/claim-pin", json={"pin": "1111"}).status_code == 400
+    assert client.post(f"/api/team/{client.otb}/claim-pin", json={"pin": "2468"}).status_code == 200
+    assert client.post(f"/api/team/{client.otb}/claim-pin", json={"pin": "9999"}).status_code == 400
+    assert client.post(f"/api/team/{client.otb}/trade",
+                       json={"passcode": "2468", **trade}).status_code == 200
 
 
 def test_payment_is_commissioner_only(client):

@@ -482,6 +482,7 @@ def create_app(db_path: str | None = None) -> Flask:
         meta = {r["id"]: r for r in conn.execute(
             "SELECT id, alive, eliminated_ff_week, team_number, draft_slot, "
             "(passcode_hash IS NOT NULL) has_pin FROM teams WHERE season_id=?", (sid,))}
+        resets = auth.pin_resets(conn, sid)
         for cc in ("BLUE", "RED"):
             for t in stand[cc]:
                 m = meta.get(t["team_id"])
@@ -491,6 +492,7 @@ def create_app(db_path: str | None = None) -> Flask:
                     t["team_number"] = m["team_number"]
                     t["draft_slot"] = m["draft_slot"]
                     t["has_pin"] = bool(m["has_pin"])
+                    t["pin_reset"] = t["team_id"] in resets
         scores, adjusted = {}, set()
         for r in conn.execute("SELECT team_id, computed_points, adjusted FROM team_week_scores "
                               "WHERE season_id=? AND ff_week=?", (sid, wk)):
@@ -986,14 +988,16 @@ def create_app(db_path: str | None = None) -> Flask:
         return jsonify(ok=True, season_id=sid, label=row["label"], teams=teams,
                        ff_start_nfl_week=offset)
 
-    @app.post("/api/admin/team/<int:team_id>/passcode")
-    def admin_set_passcode(team_id):
+    @app.post("/api/admin/team/<int:team_id>/reset-pin")
+    def admin_reset_pin(team_id):
         if (bad := _commish()):
             return bad
-        new = request.get_json(force=True).get("new_passcode")
-        if not new:
-            return jsonify(error="new_passcode required"), 400
-        auth.set_team_passcode(db(), team_id, new)
+        s, err = _need_season()
+        if err:
+            return err
+        if not db().execute("SELECT 1 FROM teams WHERE id=? AND season_id=?", (team_id, s["id"])).fetchone():
+            return jsonify(error="no such team"), 404
+        auth.reset_team_pin(db(), s["id"], team_id)
         return jsonify(ok=True)
 
     @app.post("/api/admin/team/<int:team_id>/score")

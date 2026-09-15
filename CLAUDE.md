@@ -128,6 +128,12 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-15: PIN RESET (commissioner). "Reset PIN" clears one team's PIN and
+  opens only that team to set a new one from its roster, closing when the
+  manager does (auth.reset_team_pin / pin_resets). The commissioner never picks
+  a manager's PIN; the old type-a-PIN box is gone. The draft-day "Let managers
+  set their PIN" switch still opens every PIN-less team. MuddyChicks is the
+  renamed Muddy Chickens (champions list stays verbatim).
 - 2026-09-15: OPENS IN LINEUPS (commissioner). Buying an Open swaps the rental
   into an already-saved lineup that starts the bye player it covers (no
   resubmit); reversing the Open swaps him back (repo.do_open /

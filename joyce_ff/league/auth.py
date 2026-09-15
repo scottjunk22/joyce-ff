@@ -82,17 +82,41 @@ def set_pin_setup_open(conn, season_id: int, is_open: bool) -> None:
     conn.commit()
 
 
+# A commissioner reset clears one team's PIN and opens THAT team alone for its
+# manager to set a new one, closing the moment they do (commissioner,
+# 2026-09-15). The commissioner never picks or learns the new PIN.
+
+def _pin_reset_key(season_id: int, team_id: int) -> str:
+    return f"pin_reset:{season_id}:{team_id}"
+
+
+def reset_team_pin(conn, season_id: int, team_id: int) -> None:
+    conn.execute("UPDATE teams SET passcode_hash=NULL WHERE id=?", (team_id,))
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,'1')",
+                 (_pin_reset_key(season_id, team_id),))
+    conn.commit()
+
+
+def pin_resets(conn, season_id: int) -> set[int]:
+    """Teams reset by the commissioner whose manager hasn't set a new PIN yet."""
+    prefix = f"pin_reset:{season_id}:"
+    return {int(r["key"][len(prefix):]) for r in conn.execute(
+        "SELECT key FROM settings WHERE key LIKE ?", (prefix + "%",))}
+
+
 def claim_team_pin(conn, season_id: int, team_id: int, pin: str) -> None:
     """First-time claim: a manager sets their own PIN. Only possible while the
-    commissioner has the setup window open AND the team has no PIN yet — so an
-    unclaimed team is never left open to whoever wanders by."""
-    if not pin_setup_open(conn, season_id):
+    team has no PIN AND either the commissioner has the setup window open or
+    has reset this team — so an unclaimed team isn't left open to whoever
+    wanders by."""
+    if not (pin_setup_open(conn, season_id) or team_id in pin_resets(conn, season_id)):
         raise PinError("PIN setup isn't open right now — ask the commissioner to open it")
     if team_has_pin(conn, team_id):
         raise PinError("this team already has a PIN — use Change PIN, or ask the "
                        "commissioner to reset it")
     pin = validate_pin(pin)
     conn.execute("UPDATE teams SET passcode_hash=? WHERE id=?", (hash_passcode(pin), team_id))
+    conn.execute("DELETE FROM settings WHERE key=?", (_pin_reset_key(season_id, team_id),))
     conn.commit()
 
 
