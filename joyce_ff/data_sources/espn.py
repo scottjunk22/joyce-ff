@@ -47,6 +47,15 @@ _SPECIAL_TEAMS_TD = {"Punt Return Touchdown", "Kickoff Return Touchdown",
                      "Blocked Field Goal Touchdown", "Missed Field Goal Return Touchdown"}
 
 
+# A conversion rides along in a scoring play's text, e.g.
+#   "... (Carson Wentz Pass to Justin Jefferson for Two-Point Conversion)"
+#   "... (Saquon Barkley Run for Two-Point Conversion)"
+#   "... (Two-Point Pass Conversion Failed)"
+_TWO_POINT = re.compile(r"\(([^()]*Two-Point[^()]*)\)", re.I)
+_TWO_POINT_PASS = re.compile(r"^(.+?) Pass to (.+?) for Two-Point Conversion$", re.I)
+_TWO_POINT_RUN = re.compile(r"^(.+?) (?:Run|Rush) for Two-Point Conversion$", re.I)
+
+
 class Unavailable(RuntimeError):
     """ESPN didn't answer, or answered in a shape we don't recognise."""
 
@@ -164,13 +173,36 @@ def _parse(s: dict) -> GameLines:
             "sacks": sum(_num(st["SACKS"]) for _, _, st in cat(b, "defensive")),
             "interceptions": sum(_num(st["INT"]) for _, _, st in cat(b, "interceptions")),
             "fumble_recoveries": _num(tstats[opp[ab]]["fumblesLost"]),
+            "two_point_passes": 0,
             "safeties": 0, "defensive_tds": 0, "special_teams_tds": 0,
             "won": score[ab] > score[opp[ab]], "tied": score[ab] == score[opp[ab]],
         }
 
+    def credit_conversion(ab, name):
+        """+1 two-point conversion for the named scorer. A player whose only
+        stat is the conversion isn't in the box score, so he's keyed by name
+        and matched to ours by name and team."""
+        for p in g.players.values():
+            if p["team"] == ab and p["name"] == name:
+                p["two_point_conversions"] = p.get("two_point_conversions", 0) + 1
+                return
+        p = g.players.setdefault(f"name:{ab}:{name}", {"name": name, "team": ab})
+        p["two_point_conversions"] = p.get("two_point_conversions", 0) + 1
+
     for p in s.get("scoringPlays", []):
         ab, kind = team(p["team"]["abbreviation"]), p["type"]["text"]
         u = g.units[ab]
+        conv = _TWO_POINT.search(p.get("text", ""))
+        if conv and "fail" not in conv.group(1).lower():
+            text = conv.group(1).strip()
+            passed, ran = _TWO_POINT_PASS.match(text), _TWO_POINT_RUN.match(text)
+            if passed:
+                u["two_point_passes"] += 1
+                credit_conversion(ab, passed.group(2).strip())
+            elif ran:
+                credit_conversion(ab, ran.group(1).strip())
+            else:
+                g.unknown_scoring.append(f"two-point conversion: {text}")
         if kind == "Field Goal Good":
             m = re.search(r"(\d+) Yd Field Goal", p.get("text", ""))
             if not m:

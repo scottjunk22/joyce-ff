@@ -24,9 +24,9 @@ from __future__ import annotations
 TD_ANY = 6            # any touchdown scored by a player (rush, catch, return)
 TD_PASS_TO_PASSER = 3  # credited to the QB slot for throwing a TD
 SAFETY = 2
-TWO_POINT_CONVERSION = 2
+TWO_POINT_CONVERSION = 2  # to the player who scores it (catches or runs it in)
 EXTRA_POINT = 1        # made PAT kick -> K slot
-EXTRA_POINT_PASS = 1   # "extra point pass" per rulebook (see ASSUMPTIONS #A5)
+EXTRA_POINT_PASS = 1   # THROWING a successful 2-pt conversion -> QB slot (commissioner, 2026-09-14)
 COACH_WIN = 3          # per NFL team win -> C (Coach) slot
 
 # Field goals by distance (yards). (min_distance_inclusive, points)
@@ -216,9 +216,9 @@ ASSUMPTIONS = {
     # (duplicate points across two owners — confirmed Q5). Default: True.
     "RETURN_TD_COUNTS_FOR_INDIVIDUAL": True,
 
-    # A5: "Extra point pass = 1". Meaning unconfirmed (possibly a passer credit
-    # on a PAT). Encoded literally as 1 pt; not yet attributed to a slot in the
-    # engine. Flagged so validation can surface it. Default: ignore in scoring
-    # until we see a discrepancy that needs it.
-    "SCORE_EXTRA_POINT_PASS": False,
+    # A5: "Extra point pass = 1". CONFIRMED by the commissioner 2026-09-14: the
+    # team whose QB THROWS a successful two-point conversion earns 1 pt on its
+    # QB slot (whoever threw it — all of a team's passing goes to that slot).
+    # The player who catches it gets TWO_POINT_CONVERSION separately.
+    "SCORE_EXTRA_POINT_PASS": True,
 }

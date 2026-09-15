@@ -128,6 +128,11 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-14: TWO-POINT CONVERSIONS (commissioner). The player who scores a
+  successful 2-pt conversion (catch or run) gets 2; the team whose QB THROWS
+  one gets 1 on its QB slot — this is the rulebook's "Extra point pass = 1"
+  (ASSUMPTIONS A5, now on). Both the ESPN and nflverse readers had been feeding
+  zero conversions, so Week 1's one (Jefferson, GB@MIN) scored 18, not 20.
 - 2026-08-11: COMMISSIONER ANSWERS (dad). (1) Per-player kickoff lock is
   sufficient — NO separate Sunday-noon deadline. (2) Unset lineup carries
   forward previous week; commissioner can adjust if needed. (3) ELIMINATION:

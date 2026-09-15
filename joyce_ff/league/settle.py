@@ -21,7 +21,7 @@ FOLLOW_UP = _dt.timedelta(minutes=30)       # after the lock
 FOLLOW_UP_WINDOW = _dt.timedelta(hours=6)    # give up after this
 STAGES = ("final", "lock", "plus30")
 _PLAYER_FIELDS = ("rushing_yards", "rushing_tds", "receptions", "receiving_yards",
-                  "receiving_tds", "return_tds")
+                  "receiving_tds", "return_tds", "two_point_conversions")
 
 
 def snapshot(conn, season_id, ff_week, game_id, event_id, stage, lines, now) -> None:

@@ -66,8 +66,8 @@ def build_cards() -> str:
         _card("Touchdowns &amp; conversions", [
             ("Touchdown (rush, catch or return)", _pt(R.TD_ANY)),
             ("Throwing a touchdown — to the QB slot", _pt(R.TD_PASS_TO_PASSER)),
-            ("Two-point conversion", _pt(R.TWO_POINT_CONVERSION)),
-            ("Extra-point pass", _pt(R.EXTRA_POINT_PASS)),
+            ("Two-point conversion — to the player who scores it", _pt(R.TWO_POINT_CONVERSION)),
+            ("Throwing a two-point conversion — to the QB slot", _pt(R.EXTRA_POINT_PASS)),
             ("Safety", _pt(R.SAFETY)),
         ]),
         _card("Rushing yards", _ladder(R.RUSHING_YARD_TIERS, R.RUSHING_YARD_EXTENSION),

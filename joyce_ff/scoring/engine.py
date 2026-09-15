@@ -158,6 +158,9 @@ def score_qb_unit_game(g: QBUnitGame, assumptions: dict | None = None) -> ScoreB
 
     b.add(f"{_n(g.passing_yards)} pass yds", passing_yard_points(g.passing_yards))
     b.add(_pl(g.passing_tds, "pass TD"), g.passing_tds * rules.TD_PASS_TO_PASSER)
+    if a.get("SCORE_EXTRA_POINT_PASS", True):
+        b.add(_pl(g.two_point_passes, "2-pt conversion pass"),
+              g.two_point_passes * rules.EXTRA_POINT_PASS)
 
     if a.get("QB_UNIT_GETS_RUSH_TD", False):
         b.add(_pl(g.qb_rushing_tds, "QB rush TD"), g.qb_rushing_tds * rules.TD_ANY)

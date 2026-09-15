@@ -87,12 +87,14 @@ def ingest_asset_scores_from_nflverse(conn, season_id: int, ff_week: int) -> int
         keep(r["team"], "PLAYER", r["player_id"], None, E.score_player_game(PlayerGame(
             player=r["name"], team=r["team"], rushing_yards=r.rushing_yards,
             rushing_tds=r.rushing_tds, receiving_yards=r.receiving_yards,
-            receptions=r.receptions, receiving_tds=r.receiving_tds, return_tds=r.return_tds)))
+            receptions=r.receptions, receiving_tds=r.receiving_tds, return_tds=r.return_tds,
+            two_point_conversions=int(r.get("two_point_conversions", 0) or 0))))
 
     qb = nv.qb_unit_week_stats(pbp)
     for _, r in qb[qb["week"] == wk].iterrows():
         keep(r.team, "TEAM_UNIT", r.team, "QB", E.score_qb_unit_game(QBUnitGame(
-            team=r.team, passing_yards=r.passing_yards, passing_tds=r.passing_tds)))
+            team=r.team, passing_yards=r.passing_yards, passing_tds=r.passing_tds,
+            two_point_passes=int(r.get("two_point_passes", 0) or 0))))
 
     kk = nv.kicker_unit_week_stats(pbp)
     for _, r in kk[kk["week"] == wk].iterrows():
@@ -166,7 +168,7 @@ SOURCES = ("espn", "nflverse")
 # box-score touch-ups after the final whistle land first.
 ESPN_SETTLE_MINUTES = 10
 _PLAYER_FIELDS = ("rushing_yards", "rushing_tds", "receptions", "receiving_yards",
-                  "receiving_tds", "return_tds")
+                  "receiving_tds", "return_tds", "two_point_conversions")
 
 
 def _espn_to_gsis(year: int) -> dict[str, str]:
@@ -282,7 +284,8 @@ def ingest_espn_week(conn, season_id: int, ff_week: int, now=None) -> int:
                 continue
             i = lambda k: int(round(u[k]))
             _upsert_asset(conn, season_id, ff_week, "TEAM_UNIT", ab, "QB", E.score_qb_unit_game(
-                QBUnitGame(team=ab, passing_yards=i("passing_yards"), passing_tds=i("passing_tds"))))
+                QBUnitGame(team=ab, passing_yards=i("passing_yards"), passing_tds=i("passing_tds"),
+                           two_point_passes=i("two_point_passes"))))
             _upsert_asset(conn, season_id, ff_week, "TEAM_UNIT", ab, "K", E.score_kicker_unit_game(
                 KickerUnitGame(team=ab, field_goal_distances=tuple(u["fg_distances"]),
                                extra_points_made=i("extra_points_made"))))

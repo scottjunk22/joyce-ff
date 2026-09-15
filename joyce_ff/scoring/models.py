@@ -85,6 +85,7 @@ class QBUnitGame:
 
     passing_yards: int = 0     # team total
     passing_tds: int = 0       # team total
+    two_point_passes: int = 0  # successful two-point conversion PASSES, team total
     # Only used if ASSUMPTIONS['QB_UNIT_GETS_RUSH_TD'] is enabled.
     qb_rushing_tds: int = 0
 

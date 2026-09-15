@@ -229,8 +229,24 @@ def player_week_stats(pbp: pd.DataFrame) -> pd.DataFrame:
                     **{f"lateral_{field}": (y_col, "sum")})
                .reset_index().rename(columns={id_col: "player_id"})))
 
+    # Successful two-point conversions, credited to the player who scored it:
+    # the receiver on a pass, the ball carrier on a run. (Not a reception and
+    # no yards — conversion plays carry neither in play-by-play.)
+    twos = []
+    if "two_point_conv_result" in p.columns:
+        tp = p[p["two_point_conv_result"] == "success"]
+        scorer = tp["receiver_player_id"].fillna(tp["rusher_player_id"])
+        named = tp["receiver_player_name"].fillna(tp["rusher_player_name"])
+        tp = tp.assign(player_id=scorer, scorer_name=named)
+        tp = tp[tp["player_id"].notna()]
+        if len(tp):
+            twos.append(tp.groupby(["week", "player_id"])
+                          .agg(team=("posteam", "last"), name=("scorer_name", "last"),
+                               two_point_conversions=("two_point_conv_result", "size"))
+                          .reset_index())
+
     out = rush
-    for frag in (rec, pas, ret, *laterals):
+    for frag in (rec, pas, ret, *laterals, *twos):
         out = out.merge(frag, on=["week", "player_id"], how="outer",
                         suffixes=("", "_y"))
         # prefer a non-null name/team
@@ -240,7 +256,8 @@ def player_week_stats(pbp: pd.DataFrame) -> pd.DataFrame:
                 out = out.drop(columns=[f"{col}_y"])
 
     numeric = ["rushing_yards", "rushing_tds", "receiving_yards", "receptions",
-               "receiving_tds", "passing_yards", "passing_tds", "return_tds"]
+               "receiving_tds", "passing_yards", "passing_tds", "return_tds",
+               "two_point_conversions"]
     for c in numeric:
         if c not in out.columns:
             out[c] = 0
@@ -257,12 +274,22 @@ def player_week_stats(pbp: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def qb_unit_week_stats(pbp: pd.DataFrame) -> pd.DataFrame:
-    """Per (week, team) aggregated passing production -> QB slot."""
+    """Per (week, team) aggregated passing production -> QB slot, including
+    successful two-point conversion passes (1 pt each, commissioner)."""
     p = pbp[pbp["posteam"].notna()]
-    return (p.groupby(["week", "posteam"])
-            .agg(passing_yards=("passing_yards", "sum"),
-                 passing_tds=("pass_touchdown", "sum"))
-            .reset_index().rename(columns={"posteam": "team"}))
+    out = (p.groupby(["week", "posteam"])
+             .agg(passing_yards=("passing_yards", "sum"),
+                  passing_tds=("pass_touchdown", "sum"))
+             .reset_index().rename(columns={"posteam": "team"}))
+    out["two_point_passes"] = 0
+    if "two_point_conv_result" in p.columns and "play_type" in p.columns:
+        tp = p[(p["two_point_conv_result"] == "success") & (p["play_type"] == "pass")]
+        if len(tp):
+            cnt = (tp.groupby(["week", "posteam"]).size().reset_index(name="tpp")
+                     .rename(columns={"posteam": "team"}))
+            out = out.merge(cnt, on=["week", "team"], how="left")
+            out["two_point_passes"] = out.pop("tpp").fillna(0).astype(int)
+    return out
 
 
 def kicker_unit_week_stats(pbp: pd.DataFrame) -> pd.DataFrame:

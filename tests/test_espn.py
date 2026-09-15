@@ -320,3 +320,71 @@ def test_copies_are_kept_at_final_lock_and_30_minutes_and_changes_are_reported(s
     assert any("final -> lock" in l and "no changes" in l for l in report)
     assert any("lock -> plus30" in l and "1 CHANGED" in l for l in report)
     assert any("Runner Back: rushing_yards 88 -> 91" in l for l in report)
+
+
+# --- two-point conversions ----------------------------------------------------------
+# Commissioner: the player who scores a successful conversion gets 2; the team
+# whose QB throws one gets 1 on its QB slot. Missed in Week 1: Jefferson's catch.
+
+def _conversion_summary(texts):
+    plays = [{"team": {"abbreviation": "HOU"}, "type": {"text": "Rushing Touchdown"}, "text": t}
+             for t in texts]
+    return _summary(scoring_plays=plays)
+
+
+def test_a_two_point_pass_credits_the_catcher_and_the_qb_unit(monkeypatch):
+    _feed(monkeypatch, summary=_conversion_summary(
+        ["Someone 3 Yd Rush (Hou QB Pass to Runner Back for Two-Point Conversion)"]))
+    g = espn.game_lines("900")
+    assert g.players["101"]["two_point_conversions"] == 1
+    assert g.units["HOU"]["two_point_passes"] == 1 and g.unknown_scoring == []
+
+
+def test_a_two_point_run_credits_the_runner_only(monkeypatch):
+    _feed(monkeypatch, summary=_conversion_summary(
+        ["Someone 3 Yd Rush (Runner Back Run for Two-Point Conversion)"]))
+    g = espn.game_lines("900")
+    assert g.players["101"]["two_point_conversions"] == 1
+    assert g.units["HOU"]["two_point_passes"] == 0
+
+
+def test_failed_conversions_score_nothing_and_odd_ones_hold_the_game(monkeypatch):
+    _feed(monkeypatch, summary=_conversion_summary([
+        "Someone 3 Yd Rush (Two-Point Pass Conversion Failed)",
+        "Someone 3 Yd Rush (Something Unusual Two-Point Thing)"]))
+    g = espn.game_lines("900")
+    assert g.units["HOU"]["two_point_passes"] == 0
+    assert "two_point_conversions" not in g.players["101"]
+    assert g.unknown_scoring == ["two-point conversion: Something Unusual Two-Point Thing"]
+
+
+def test_a_scorer_whose_only_stat_is_the_conversion_is_still_credited(monkeypatch):
+    _feed(monkeypatch, summary=_conversion_summary(
+        ["Someone 3 Yd Rush (Hou QB Pass to Little Used TE for Two-Point Conversion)"]))
+    p = espn.game_lines("900").players["name:HOU:Little Used TE"]
+    assert (p["team"], p["two_point_conversions"]) == ("HOU", 1)
+
+
+def test_nflverse_reader_counts_two_point_conversions():
+    base = {"week": 1, "posteam": "MIN", "rusher_player_id": None, "rusher_player_name": None,
+            "rushing_yards": None, "rush_touchdown": 0, "passer_player_id": "qb",
+            "passer_player_name": "C.Wentz", "passing_yards": None, "pass_touchdown": 0,
+            "return_touchdown": 0, "td_player_id": None, "td_team": None, "td_player_name": None,
+            "receiver_player_id": "jj", "receiver_player_name": "J.Jefferson",
+            "receiving_yards": None, "complete_pass": 0, "play_type": "pass",
+            "two_point_conv_result": "success"}
+    pbp = pd.DataFrame([base, {**base, "two_point_conv_result": "failure"}])
+    players = nv.player_week_stats(pbp).set_index("player_id")
+    assert players.loc["jj", "two_point_conversions"] == 1 and players.loc["jj", "receptions"] == 0
+    qb = nv.qb_unit_week_stats(pbp).set_index("team")
+    assert qb.loc["MIN", "two_point_passes"] == 1
+
+
+def test_the_qb_unit_scores_one_point_per_two_point_pass():
+    from joyce_ff.scoring import engine as E
+    from joyce_ff.scoring.models import QBUnitGame
+
+    base = E.score_qb_unit_game(QBUnitGame(team="MIN", passing_yards=260, passing_tds=2)).total
+    more = E.score_qb_unit_game(QBUnitGame(team="MIN", passing_yards=260, passing_tds=2,
+                                           two_point_passes=1)).total
+    assert more - base == 1
