@@ -134,9 +134,10 @@ def game_lines(event_id: str) -> GameLines:
 def _team_sacks(opponent_stats: dict, defenders) -> float:
     """A defense's sacks: how many times the OPPONENT's quarterback was sacked
     ("sacksYardsLost" is "4-16" — 4 sacks for 16 yards). Adding up individual
-    defenders misses a sack credited to nobody (a coverage sack, a QB going
-    down on his own) — KC's third sack of Nix in 2026 Week 1 was one. The
-    individual sum is only the fallback when the team line is missing."""
+    defenders misses a sack credited to no defender — e.g. KC's third sack of
+    Nix in 2026 Week 1, where he fumbled out of bounds behind the line for -6:
+    a team sack for KC, no individual credit. The individual sum is only the
+    fallback when the team line is missing."""
     v = opponent_stats.get("sacksYardsLost")
     if v not in (None, "", "--"):
         try:
