@@ -180,6 +180,13 @@ what the Phase-1 reconciliation is designed to arbitrate.
   reverse_transaction). Set Lineup pre-selects an Open over the player it
   covers, shows it with the blue OPEN tag and its game time. Its bottom line is
   green only for a lineup submitting accepts (repo.bye_flex mirrors set_lineup).
+  2026-09-16: a manager can't Open a player whose game has kicked off
+  (repo.do_open locked_refs; commissioner exempt). Roster and Set Lineup list a
+  rental DIRECTLY UNDER the bye player it covers ("↳ Jonnu Smith MIA OPEN").
+  Box score rental row: "Jonnu Smith OPEN · Kelce", always one line (ellipsis,
+  never wraps, so rows stay level across teams; covered name last so a trim
+  drops it before the game state) and always tappable, even at 0, opening
+  with "Open for Travis Kelce (bye)".
 - 2026-09-15: LINEUP LABELS (commissioner). Most managers submit Sunday
   morning, so cards only say: "⚠ Thu player" (team hasn't submitted and has an
   RB/R whose game is before Sunday; tap opens Set Lineup) until that kickoff;

@@ -155,6 +155,17 @@ def test_admin_endpoints_require_commissioner(client):
     assert ok.status_code == 200
 
 
+def test_an_open_reports_who_it_covers_for_the_roster_lineup_and_box_score(client):
+    r = client.post(f"/api/team/{client.otb}/open",
+                    json={"passcode": "commish", "position": "RB", "out": "p_bijan",
+                          "in": "p_warren", "week": 7})                   # Bijan's bye week
+    assert r.status_code == 200, r.get_json()
+    d = client.get(f"/api/team/{client.otb}/detail?week=7").get_json()
+    (o,) = d["opens"]
+    assert (o["name"], o["team"], o["covering"], o["covering_name"], o["covering_short"]) == \
+        ("Jaylen Warren", "DEN", "p_bijan", "Bijan Robinson", "Robinson")
+
+
 def test_pins_open_by_conference_and_stay_open_until_each_manager_sets_one(client):
     """At the Blue draft only Blue teams open; a team closes itself once its PIN
     is set, and the commissioner can close or open a single team (2026-09-16)."""

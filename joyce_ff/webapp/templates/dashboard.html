@@ -137,6 +137,8 @@
  .cgame.s-checked .gi{color:var(--good)}.cgame.s-diff .gi,.cgame.s-diff .gt{color:var(--warn)}
  .lsum .nchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
  .pinconf{padding:6px 0;border-bottom:1px solid var(--line)}.pinconf:last-of-type{border-bottom:0}
+ .covrow{border-top:0}.covrow .nm{padding-left:4px}.covarrow{color:var(--dim)}
+ .srow .nm.oneline{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
  .pinhd{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:14px}.pinhd .btn{margin-left:auto;font-size:13px}
  .svok{color:var(--good);font-weight:800;margin-left:4px;font-size:12px}
  .nchip{border:1px solid var(--bad);color:var(--bad);background:var(--panel);border-radius:999px;padding:2px 10px;font-size:12px;white-space:nowrap}
@@ -412,9 +414,12 @@ async function boxScore(homeId,awayId,final){
   const hw=!!final&&(th>ta||!!(TB&&TB.winner===homeId)), aw=!!final&&(ta>th||!!(TB&&TB.winner===awayId));
   const tie=!!final&&th===ta && (th>0||ta>0);
   // A 0-point item is a note (e.g. a line the commissioner corrected), not a score.
-  const bdLines=x=>(x.breakdown||[]).map(it=>+it[1]
-    ? `<div class="bdline"><span>${it[0]}</span><span class="p">+${+it[1]}</span></div>`
-    : `<div class="bdline"><span>${it[0]}</span></div>`).join('');
+  // A rental's breakdown opens with who he covered; his scoring lines only once
+  // his points count (a mid-game line can hold half a game).
+  const bdLines=x=>(x.is_rental&&x.covering_name?`<div class="bdline"><span style="color:var(--blue)">Open for ${x.covering_name} (bye)</span></div>`:'')
+    +(counts(x)?(x.breakdown||[]).map(it=>+it[1]
+      ? `<div class="bdline"><span>${it[0]}</span><span class="p">+${+it[1]}</span></div>`
+      : `<div class="bdline"><span>${it[0]}</span></div>`).join(''):'');
   /* Every starter who isn't finished gets a tag; a row with none is final,
      even at 0 points. His points show as a dash until his game locks: a
      mid-game stats update can hold half a game, and a number a manager sees
@@ -427,9 +432,13 @@ async function boxScore(homeId,awayId,final){
       upcoming:` <span class="tag-when">${x.kickoff?kick(x.kickoff):'upcoming'}</span>`,
       bye:' <span class="tag-bye">BYE</span>',
       nogame:' <span class="tag-when">no game</span>'})[x.state]||'';
-  const entry=x=>{const has=counts(x)&&(x.breakdown||[]).length;
+  /* A rental reads "Jonnu Smith OPEN <state> · Kelce" and is always one line —
+     trimmed with … rather than wrapped, so rows stay level with the other
+     team's — and always tappable, even at 0, for "Open for Travis Kelce (bye)".
+     The covered name goes last, so a trim takes it before the game state. */
+  const entry=x=>{const rent=x.is_rental&&x.covering_name, has=(counts(x)&&(x.breakdown||[]).length)||rent;
     return `<div class="srow ${has?'bdrow':''}" ${has?'onclick="toggleBd(this)"':''}><span class="slot">${x.roster_slot}</span>`
-      +`<span class="nm">${has?'<span class="ci">▸</span>':''}${x.display}${x.is_rental?' <span class="tag-open">OPEN</span>':''}${stTag(x)}</span>`
+      +`<span class="nm${rent?' oneline':''}">${has?'<span class="ci">▸</span>':''}${x.display}${x.is_rental?' <span class="tag-open">OPEN</span>':''}${stTag(x)}${rent?` <span class="sub">· ${x.covering_short}</span>`:''}</span>`
       +`<span class="pts${counts(x)?'':' prov'}">${counts(x)?(x.points||0).toFixed(0):'–'}</span></div>`
       +(has?`<div class="bd" style="display:none">${bdLines(x)}</div>`:'');};
   const col=(t,cls,won)=>`<div class="boxcol ${cls} ${won?'won':''}"><div class="bh"><span>${t.name}${crownFor(t.titles)}</span><span class="tot">${tot(t).toFixed(0)}</span></div>`
@@ -442,8 +451,15 @@ async function boxScore(homeId,awayId,final){
   openM(`<h3>Box Score <span class="sub">· Week ${VIEW}</span>${tie?` <span class="sub">·</span> <span class="tielbl">${TB?TB.text:'Tie'}</span>`:''}</h3><div class="box" style="margin-top:8px">${col(h,'home',hw)}${col(a,'away',aw)}</div>`);
 }
 async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?week=${VIEW}&season=${SEASON}`)).json();
-  const rows=d.roster.map(r=>`<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}${r.bye?` <span class="tag-bye">BYE</span>`:''}</span></div>`).join('');
-  const openRows=(d.opens||[]).map(o=>`<div class="srow"><span class="slot">${o.position}</span><span class="nm">${o.name} <span class="tag-open">OPEN</span></span></div>`).join('');
+  // A rental sits directly under the bye player it covers, so who covers whom
+  // reads at a glance (commissioner, 2026-09-16).
+  const opens=d.opens||[], used=new Set();
+  const openRow=o=>`<div class="srow covrow"><span class="slot"></span><span class="nm"><span class="covarrow">↳</span> ${o.name}${o.team&&o.name.indexOf(o.team)<0?` <span class="team">${o.team}</span>`:''} <span class="tag-open">OPEN</span> <span class="sub">· this week only</span></span></div>`;
+  const rows=d.roster.map(r=>{
+    const covers=opens.filter((o,i)=>!used.has(i)&&o.covering===r.asset_ref&&o.position===r.slot&&used.add(i));
+    return `<div class="srow"><span class="slot">${r.slot}</span><span class="nm">${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}${r.bye?` <span class="tag-bye">BYE</span>`:''}</span></div>`
+      +covers.map(openRow).join('');}).join('');
+  const openRows=opens.filter((o,i)=>!used.has(i)).map(o=>`<div class="srow"><span class="slot">${o.position}</span><span class="nm">${o.name} <span class="tag-open">OPEN</span></span></div>`).join('');
   const b=c=>`$${(Math.abs(c)/100).toFixed(0)}`;
   const f=d.fees, bal=f.net_cents;
   const balTxt = bal>0 ? `<span class="fbal">owes ${b(bal)}</span>`
@@ -511,9 +527,17 @@ let LU={team:null,sel:new Set(),items:[]};
 async function lineupModal(id, wk){
   wk = wk || LW;
   const d=await (await fetch(`/api/team/${id}/detail?week=${wk}&season=${SEASON}`)).json();
-  const items=d.roster.map(r=>({slot:r.slot,ref:r.asset_ref,name:r.name,game_state:r.game_state,game_at:r.game_at}));
-  (d.opens||[]).forEach(o=>items.push({slot:o.position,ref:o.asset_ref,name:o.name+' <span class="tag-open">OPEN</span>',
-    game_state:o.game_state,game_at:o.game_at,rental:true}));
+  // Each rental goes directly under the bye player it covers.
+  const opensLeft=[...(d.opens||[])];
+  const rental=o=>({slot:o.position,ref:o.asset_ref,name:'<span class="covarrow">↳</span> '+o.name+' <span class="tag-open">OPEN</span>',
+    game_state:o.game_state,game_at:o.game_at,rental:true});
+  const items=[];
+  d.roster.forEach(r=>{
+    items.push({slot:r.slot,ref:r.asset_ref,name:r.name,game_state:r.game_state,game_at:r.game_at});
+    for(let i=opensLeft.length-1;i>=0;i--){ const o=opensLeft[i];
+      if(o.covering===r.asset_ref&&o.position===r.slot){ items.push(rental(o)); opensLeft.splice(i,1); } }
+  });
+  opensLeft.forEach(o=>items.push(rental(o)));
   const covered=new Set((d.opens||[]).map(o=>LUKEY(o.position,o.covering)));
   LU={team:id,week:wk,sel:new Set(),items,flex:d.bye_flex||{}};
   // Key every selection by SLOT + REF. A team unit's ref is just the NFL club

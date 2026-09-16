@@ -421,6 +421,15 @@ def create_app(db_path: str | None = None) -> Flask:
             return r["name"] if r else ref
         return display.unit(ref, unit)
 
+    def _short_name(full, kind, ref):
+        """The short label for who an Open covers, as a box score row has room
+        for: a player's last name ("Kelce", "Harrison Jr." -> "Harrison"), a
+        team unit's club ("KC")."""
+        if kind == "TEAM_UNIT":
+            return display.team(ref)
+        parts = [p for p in str(full or "").split() if p.rstrip(".").upper() not in ("JR", "SR", "II", "III", "IV", "V")]
+        return parts[-1] if parts else str(full or ref)
+
     def _asset_team(conn, sid, kind, ref):
         if kind == "TEAM_UNIT":
             return ref
@@ -672,13 +681,21 @@ def create_app(db_path: str | None = None) -> Flask:
                 for t in repo.transaction_history(conn, team_id)]
         opens = []
         for t in conn.execute(
-                "SELECT in_asset_ref, in_asset_kind, out_asset_ref, position FROM transactions "
-                "WHERE season_id=? AND team_id=? AND ff_week=? AND type='OPEN' AND reversed=0",
-                (sid, team_id, wk)):
-            g = games.get(_asset_team(conn, sid, t["in_asset_kind"], t["in_asset_ref"])) or {}
+                "SELECT in_asset_ref, in_asset_kind, out_asset_ref, out_asset_kind, position "
+                "FROM transactions WHERE season_id=? AND team_id=? AND ff_week=? AND type='OPEN' "
+                "AND reversed=0", (sid, team_id, wk)):
+            in_team = _asset_team(conn, sid, t["in_asset_kind"], t["in_asset_ref"])
+            g = games.get(in_team) or {}
+            unit = t["position"] if t["out_asset_kind"] == "TEAM_UNIT" else None
+            covering_name = _dname(conn, sid, t["out_asset_kind"], t["out_asset_ref"], unit)
             opens.append({"asset_ref": t["in_asset_ref"], "position": t["position"],
                           "covering": t["out_asset_ref"],
-                          "name": _dname(conn, sid, t["in_asset_kind"], t["in_asset_ref"]),
+                          "covering_name": covering_name,
+                          "covering_short": _short_name(covering_name, t["out_asset_kind"],
+                                                        t["out_asset_ref"]),
+                          "name": _dname(conn, sid, t["in_asset_kind"], t["in_asset_ref"],
+                                         t["position"] if t["in_asset_kind"] == "TEAM_UNIT" else None),
+                          "team": display.team(in_team) if in_team else None,
                           "game_state": g.get("state"), "game_at": g.get("game_at")})
         pays = [{"amount_cents": p["amount_cents"], "note": p["note"], "at": p["applied_at"]}
                 for p in conn.execute(
@@ -691,9 +708,13 @@ def create_app(db_path: str | None = None) -> Flask:
         # everyone who isn't finished — a 0 on its own can't tell you that.
         box = scoring.box_score(conn, sid, wk, team_id)
         states = progress.starter_states(conn, sid, wk, team_id)
+        covers = {(o["position"], o["asset_ref"]): o for o in opens}
         for x in box:
             st_ = states.get((x["roster_slot"], x["asset_ref"]), {})
             x["state"], x["kickoff"] = st_.get("state"), st_.get("kickoff")
+            if x["is_rental"] and (x["roster_slot"], x["asset_ref"]) in covers:
+                o = covers[(x["roster_slot"], x["asset_ref"])]
+                x["covering_name"], x["covering_short"] = o["covering_name"], o["covering_short"]
         carried = conn.execute("SELECT MAX(carried_from) cf, MAX(carry_note) cn FROM weekly_lineups "
                                "WHERE season_id=? AND ff_week=? AND team_id=?", (sid, wk, team_id)).fetchone()
         return jsonify(name=row["name"], managers=row["manager_names"],
