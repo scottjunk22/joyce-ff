@@ -665,15 +665,43 @@ def create_app(db_path: str | None = None) -> Flask:
         # Each player's game this week — its day and time, or BYE — so Set Lineup
         # can show who plays Thursday before any lineup (or box score) exists.
         games = progress.team_game_states(conn, sid, wk)
-        roster = []
+        # Weeks an Open can be bought for right now, and each club's bye week, so
+        # the move screen can tag BYE Wk N for this week (and next, from Monday).
+        open_wks = progress.open_weeks(conn, sid)
+        bye_of = {r["abbr"]: r["bye_ff_week"] for r in conn.execute(
+            "SELECT abbr, bye_ff_week FROM nfl_teams WHERE season_id=?", (sid,))}
+        roster, on_roster = [], set()
         for e in repo.current_roster(conn, team_id):
             team = _asset_team(conn, sid, e["asset_kind"], e["asset_ref"])
             g = games.get(team) or {}
+            on_roster.add((e["roster_slot"], e["asset_ref"]))
             roster.append({"slot": e["roster_slot"],
                            "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"], e["unit_type"]),
                            "asset_ref": e["asset_ref"], "kind": e["asset_kind"],
                            "team": display.team(team), "bye": team in byes,
+                           "bye_week": bye_of.get(team) if bye_of.get(team) in open_wks else None,
+                           # traded in during the week being shown: a green NEW tag
+                           "new": e["acquired_via"] == "TRADE" and e["acquired_ff_week"] == wk,
                            "game_state": g.get("state"), "game_at": g.get("game_at")})
+        # Starters traded away after their game kicked off stay in the week's
+        # lineup and keep their points — shown with a grey TRADED tag, just above
+        # the player who replaced them.
+        replaced_by = {(t["position"], t["out_asset_ref"]): t["in_asset_ref"] for t in conn.execute(
+            "SELECT position, out_asset_ref, in_asset_ref FROM transactions WHERE season_id=? "
+            "AND team_id=? AND ff_week=? AND type='TRADE' AND reversed=0", (sid, team_id, wk))}
+        traded_out = []
+        for l in conn.execute("SELECT roster_slot, asset_kind, asset_ref, unit_type FROM weekly_lineups "
+                              "WHERE season_id=? AND team_id=? AND ff_week=? AND is_rental=0",
+                              (sid, team_id, wk)):
+            if (l["roster_slot"], l["asset_ref"]) in on_roster:
+                continue
+            team = _asset_team(conn, sid, l["asset_kind"], l["asset_ref"])
+            g = games.get(team) or {}
+            traded_out.append({"slot": l["roster_slot"], "asset_ref": l["asset_ref"], "kind": l["asset_kind"],
+                               "name": _dname(conn, sid, l["asset_kind"], l["asset_ref"], l["unit_type"]),
+                               "team": display.team(team) if team else None,
+                               "replaced_by": replaced_by.get((l["roster_slot"], l["asset_ref"])),
+                               "game_state": g.get("state"), "game_at": g.get("game_at")})
         fees = _account(conn, sid, team_id)
         hist = [{"week": t["ff_week"], "type": t["type"], "fee": t["fee_cents"],
                  **_tx_parts(conn, sid, t["position"], t["out_asset_kind"], t["out_asset_ref"],
@@ -715,10 +743,14 @@ def create_app(db_path: str | None = None) -> Flask:
             if x["is_rental"] and (x["roster_slot"], x["asset_ref"]) in covers:
                 o = covers[(x["roster_slot"], x["asset_ref"])]
                 x["covering_name"], x["covering_short"] = o["covering_name"], o["covering_short"]
+            key = (x["roster_slot"], x["asset_ref"])
+            x["traded"] = not x["is_rental"] and key not in on_roster
+            x["new"] = any(r["new"] and (r["slot"], r["asset_ref"]) == key for r in roster)
         carried = conn.execute("SELECT MAX(carried_from) cf, MAX(carry_note) cn FROM weekly_lineups "
                                "WHERE season_id=? AND ff_week=? AND team_id=?", (sid, wk, team_id)).fetchone()
         return jsonify(name=row["name"], managers=row["manager_names"],
                        roster=roster, fees=fees, history=hist, payments=pays, opens=opens,
+                       traded_out=traded_out, open_weeks=open_wks,
                        box=box, carried_from=carried["cf"], carry_note=carried["cn"],
                        lineup_notice=progress.lineup_notice(conn, sid, wk, team_id),
                        bye_flex=repo.bye_flex(conn, sid, team_id, wk),
@@ -753,13 +785,24 @@ def create_app(db_path: str | None = None) -> Flask:
         if (bad := _guard(team_id)):
             return bad
         b = request.get_json(force=True)
+        sid = season()["id"]
+        lineup_wk = progress.lineup_week(db(), sid)
+        is_comm = auth.is_commissioner(db(), _passcode())
+        # A trade is allowed any time; the week's lineup follows it by the
+        # kickoff rule. Only the commissioner can file one against another week,
+        # or skip the kickoff check (a move phoned in before a game).
+        wk = _week(lineup_wk) if is_comm else lineup_wk
+        from ..league.locks import locked_assets
+        notes: list[str] = []
         try:
-            tx = repo.do_trade(db(), season()["id"], team_id, b["position"],
-                               b["out"], b["in"], _week(progress.lineup_week(db(), season()["id"])),
-                               actor=auth.commissioner_name(db(), _passcode()))
+            tx = repo.do_trade(db(), sid, team_id, b["position"], b["out"], b["in"], wk,
+                               actor=auth.commissioner_name(db(), _passcode()),
+                               locked_refs=None if is_comm else locked_assets(db(), sid, wk),
+                               notes=notes)
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
-        return jsonify(ok=True, transaction_id=tx, **_tx_fee_info(tx, team_id))
+        return jsonify(ok=True, transaction_id=tx, lineup_note=notes[0] if notes else None,
+                       **_tx_fee_info(tx, team_id))
 
     @app.post("/api/team/<int:team_id>/open")
     def open_(team_id):
@@ -767,10 +810,14 @@ def create_app(db_path: str | None = None) -> Flask:
             return bad
         b = request.get_json(force=True)
         sid = season()["id"]
-        wk = _week(progress.lineup_week(db(), sid))
-        # A manager can't Open a player whose game has kicked off; the
-        # commissioner can, same as he can set a lineup after kickoff.
+        # An Open is for the week the covered player is on bye: this week, or
+        # next week from Monday 6am. A manager can't Open a player whose game has
+        # kicked off; the commissioner can, and can file one for any week.
         is_comm = auth.is_commissioner(db(), _passcode())
+        allowed = progress.open_weeks(db(), sid)
+        wk = _week(allowed[0])
+        if not is_comm and wk not in allowed:
+            return jsonify(error=f"Opens can be for Week {' or Week '.join(map(str, allowed))} right now"), 400
         from ..league.locks import locked_assets
         try:
             tx = repo.do_open(db(), sid, team_id, b["position"], b["out"], b["in"], wk,

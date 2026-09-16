@@ -160,6 +160,10 @@
  .tag-when.now{color:var(--bright);font-weight:600}   /* the only live state: brighter, not a new color */
  .srow .pts.prov{color:var(--dim);font-weight:600}
  .tag-open{font-size:10px;color:var(--blue);border:1px solid var(--blue);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
+ .tag-bye.next{color:var(--dim);border-color:var(--dim)}
+ /* a starter traded away after kickoff (still in this week's lineup), and the player who came in */
+ .tag-traded{font-size:10px;color:var(--dim);border:1px solid var(--dim);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
+ .tag-new{font-size:10px;color:var(--good);border:1px solid var(--good);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
  /* trade/open */
  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:8px 0}.seg button{background:var(--panel2);border:0;color:var(--text);padding:6px 14px;cursor:pointer}.seg button.on{background:var(--blue);color:#04121d;font-weight:700}
  .txseg{display:flex;gap:8px;margin:10px 0}
@@ -444,7 +448,7 @@ async function boxScore(homeId,awayId,final){
      The covered name goes last, so a trim takes it before the game state. */
   const entry=x=>{const rent=x.is_rental&&x.covering_name, has=(counts(x)&&(x.breakdown||[]).length)||rent;
     return `<div class="srow ${has?'bdrow':''}" ${has?'onclick="toggleBd(this)"':''}><span class="slot">${x.roster_slot}</span>`
-      +`<span class="nm${rent?' oneline':''}">${has?'<span class="ci">▸</span>':''}${x.display}${x.is_rental?' <span class="tag-open">OPEN</span>':''}${stTag(x)}${rent?` <span class="sub">· ${x.covering_short}</span>`:''}</span>`
+      +`<span class="nm${rent?' oneline':''}">${has?'<span class="ci">▸</span>':''}${x.display}${x.is_rental?' <span class="tag-open">OPEN</span>':''}${x.traded?' <span class="tag-traded">TRADED</span>':''}${x.new?' <span class="tag-new">NEW</span>':''}${stTag(x)}${rent?` <span class="sub">· ${x.covering_short}</span>`:''}</span>`
       +`<span class="pts${counts(x)?'':' prov'}">${counts(x)?(x.points||0).toFixed(0):'–'}</span></div>`
       +(has?`<div class="bd" style="display:none">${bdLines(x)}</div>`:'');};
   const col=(t,cls,won)=>`<div class="boxcol ${cls} ${won?'won':''}"><div class="bh"><span>${t.name}${crownFor(t.titles)}</span><span class="tot">${tot(t).toFixed(0)}</span></div>`
@@ -538,12 +542,19 @@ async function lineupModal(id, wk){
   const rental=o=>({slot:o.position,ref:o.asset_ref,name:'<span class="covarrow">↳</span> '+o.name+' <span class="tag-open">OPEN</span>',
     game_state:o.game_state,game_at:o.game_at,rental:true});
   const items=[];
+  // A starter traded away after kickoff stays (locked, keeps his points) just
+  // above the player who replaced him; a player traded in this week is NEW.
+  const tradedLeft=[...(d.traded_out||[])];
+  const tradedItem=t=>({slot:t.slot,ref:t.asset_ref,name:t.name+' <span class="tag-traded">TRADED</span>',game_state:t.game_state,game_at:t.game_at,traded:true});
   d.roster.forEach(r=>{
-    items.push({slot:r.slot,ref:r.asset_ref,name:r.name,game_state:r.game_state,game_at:r.game_at});
+    for(let i=tradedLeft.length-1;i>=0;i--){ const t=tradedLeft[i];
+      if(t.replaced_by===r.asset_ref&&t.slot===r.slot){ items.push(tradedItem(t)); tradedLeft.splice(i,1); } }
+    items.push({slot:r.slot,ref:r.asset_ref,name:r.name+(r.new?' <span class="tag-new">NEW</span>':''),game_state:r.game_state,game_at:r.game_at});
     for(let i=opensLeft.length-1;i>=0;i--){ const o=opensLeft[i];
       if(o.covering===r.asset_ref&&o.position===r.slot){ items.push(rental(o)); opensLeft.splice(i,1); } }
   });
   opensLeft.forEach(o=>items.push(rental(o)));
+  tradedLeft.forEach(t=>items.push(tradedItem(t)));
   const covered=new Set((d.opens||[]).map(o=>LUKEY(o.position,o.covering)));
   LU={team:id,week:wk,sel:new Set(),items,flex:d.bye_flex||{}};
   // Key every selection by SLOT + REF. A team unit's ref is just the NFL club
@@ -640,15 +651,15 @@ async function submitLineup(){ const starters=[...LU.sel].map(k=>{const j=k.inde
 let TX={};
 async function txModal(id){
   const d=await (await fetch(`/api/team/${id}/detail?week=${LW}&season=${SEASON}`)).json();   // byes for the week being acted on
-  TX={team:id,teamName:d.name,roster:d.roster,out:null,outPos:null,outName:'',outBye:false,
+  TX={team:id,teamName:d.name,roster:d.roster,out:null,outPos:null,outName:'',outBye:false,openWeek:null,
       in:null,inName:'',mode:'trade',avail:[],filter:'',step:'build',pc:''};
   openM('<div id="txbody"></div>'); renderTxBuild();
 }
 function txSetMode(m){ if(m==='open'&&!(TX.out&&TX.outBye))return; TX.mode=m; renderTxBuild(); }
-async function pickOut(ref,pos,bye){
+async function pickOut(ref,pos,byeWeek){
   // match slot as well: a club's units share one asset_ref (BAL C and BAL QB)
   const r=TX.roster.find(x=>x.asset_ref===ref&&x.slot===pos)||{};
-  TX.out=ref;TX.outPos=pos;TX.outName=r.name||ref;TX.outBye=!!bye;TX.in=null;TX.inName='';TX.filter='';
+  TX.out=ref;TX.outPos=pos;TX.outName=r.name||ref;TX.outBye=!!byeWeek;TX.openWeek=byeWeek||null;TX.in=null;TX.inName='';TX.filter='';
   if(!TX.outBye&&TX.mode==='open')TX.mode='trade';
   renderTxBuild();
   TX.avail=(await (await fetch(`/api/team/${TX.team}/available?position=${encodeURIComponent(pos)}`)).json()).available;
@@ -664,12 +675,12 @@ function availHtml(){ if(!TX.out)return '<div class="sub" style="padding:14px;te
 }
 function renderTxBuild(){ if(TX.step==='review')return renderTxReview();
   const openOk=TX.out&&TX.outBye;
-  const rosterList=TX.roster.map(r=>`<div class="pl ${TX.out===r.asset_ref&&TX.outPos===r.slot?'sel':''}" onclick='pickOut(${JSON.stringify(r.asset_ref)},${JSON.stringify(r.slot)},${r.bye?1:0})'><span><span class="pos">${r.slot}</span>${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}${r.bye?' <span class="tag-bye">BYE</span>':''}</span></div>`).join('');
-  const hint=TX.out?(TX.outBye?`<div class="txhint">💡 ${TX.outName} is on bye — most managers <b>Open</b> (rent) a bye player rather than Trade him away.</div>`:`<div class="sub" style="margin-top:8px">Open is unavailable — ${TX.outName} isn't on a bye this week, so only Trade applies.</div>`):'';
+  const rosterList=TX.roster.map(r=>`<div class="pl ${TX.out===r.asset_ref&&TX.outPos===r.slot?'sel':''}" onclick='pickOut(${JSON.stringify(r.asset_ref)},${JSON.stringify(r.slot)},${r.bye_week||0})'><span><span class="pos">${r.slot}</span>${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}${r.bye_week?` <span class="tag-bye${r.bye_week===LW?'':' next'}">BYE Wk ${r.bye_week}</span>`:''}</span></div>`).join('');
+  const hint=TX.out?(TX.outBye?`<div class="txhint">💡 ${TX.outName} is on bye in <b>Week ${TX.openWeek}</b> — most managers <b>Open</b> (rent) a bye player rather than Trade him away. An Open here is for Week ${TX.openWeek}.</div>`:`<div class="sub" style="margin-top:8px">Open is unavailable — ${TX.outName} isn't on bye ${(TX.roster.some(x=>x.bye_week&&x.bye_week!==LW))?'this week or next':'this week'}, so only Trade applies.</div>`):'';
   $('txbody').innerHTML=`<h3>${TX.teamName} — Move a player</h3>
     <div class="txseg">
       <div class="txmode t ${TX.mode==='trade'?'on':''}" onclick="txSetMode('trade')"><div class="t1">⇄ Trade</div><div class="t2">permanent · can't undo</div></div>
-      <div class="txmode o ${TX.mode==='open'?'on':''} ${openOk?'':'dis'}" onclick="txSetMode('open')"><div class="t1">＋ Open</div><div class="t2">${TX.out?(TX.outBye?'1-week rental':'bye players only'):'1-week rental'}</div></div>
+      <div class="txmode o ${TX.mode==='open'?'on':''} ${openOk?'':'dis'}" onclick="txSetMode('open')"><div class="t1">＋ Open</div><div class="t2">${TX.out?(TX.outBye?'1-week rental · Week '+TX.openWeek:'bye players only'):'1-week rental'}</div></div>
     </div>
     <div class="cols"><div><h4>Your roster — move OUT</h4><div class="plist">${rosterList}</div></div>
       <div><h4>${TX.out?'Available '+TX.outPos:'Available'}</h4><input class="searchbox" id="asearch" placeholder="search…" ${TX.out?'':'disabled'} oninput="txFilter(this.value)" value="${TX.filter||''}"><div class="plist" id="avail">${availHtml()}</div></div></div>
@@ -682,17 +693,17 @@ function txBack(){ TX.step='build'; renderTxBuild(); }
 function txSwitchOpen(){ TX.mode='open'; renderTxReview(); }
 function renderTxReview(){ const isTrade=TX.mode==='trade', mismatch=isTrade&&TX.outBye;
   $('txbody').innerHTML=`<h3>Review this move</h3>
-    ${mismatch?`<div class="txwarn"><div style="font-weight:800;color:var(--warn)">⚠ ${TX.outName} is on his bye this week</div><div style="font-size:13px;margin:5px 0 10px">A <b>Trade is permanent</b> and can't be undone. Since he's on bye, did you mean to <b>Open</b> him — a 1-week rental that keeps him on your roster?</div><button class="go" style="background:var(--blue)" onclick="txSwitchOpen()">Switch to Open</button></div>`:''}
-    <div style="font-weight:700;color:${isTrade?'var(--bad)':'var(--blue)'};margin-bottom:4px">${isTrade?'⇄ Permanent trade':'＋ Open · 1-week rental'}</div>
-    <div style="font-size:13px;line-height:1.6">Drop <b>${TX.outName}</b><br>${isTrade?'Add':'Start'} <b>${TX.inName}</b>${isTrade?' — <span style="color:var(--bad)">permanently</span>':' — this week only; '+TX.outName+' stays rostered'}</div>
-    <div class="pass"><button class="chip" onclick="txBack()">← Back</button><span style="flex:1"></span><button class="go" style="${isTrade?'background:var(--bad);color:#fff':''}" onclick="submitTx()">${isTrade?'Confirm — trade permanently':'Confirm — Open'}</button></div>`;
+    ${mismatch?`<div class="txwarn"><div style="font-weight:800;color:var(--warn)">⚠ ${TX.outName} is on his bye in Week ${TX.openWeek}</div><div style="font-size:13px;margin:5px 0 10px">A <b>Trade is permanent</b> and can't be undone. Since he's on bye, did you mean to <b>Open</b> him — a 1-week rental that keeps him on your roster?</div><button class="go" style="background:var(--blue)" onclick="txSwitchOpen()">Switch to Open</button></div>`:''}
+    <div style="font-weight:700;color:${isTrade?'var(--bad)':'var(--blue)'};margin-bottom:4px">${isTrade?'⇄ Permanent trade':'＋ Open · 1-week rental for Week '+TX.openWeek}</div>
+    <div style="font-size:13px;line-height:1.6">Drop <b>${TX.outName}</b>${isTrade?'':' for Week '+TX.openWeek}<br>${isTrade?'Add':'Start'} <b>${TX.inName}</b>${isTrade?' — <span style="color:var(--bad)">permanently</span>':' — Week '+TX.openWeek+' only; '+TX.outName+' stays rostered'}</div>
+    <div class="pass"><button class="chip" onclick="txBack()">← Back</button><span style="flex:1"></span><button class="go" style="${isTrade?'background:var(--bad);color:#fff':''}" onclick="submitTx()">${isTrade?'Confirm — trade permanently':'Confirm — Open for Week '+TX.openWeek}</button></div>`;
 }
 async function submitTx(){
-  const res=await fetch(`/api/team/${TX.team}/${TX.mode}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:TX.pc,position:TX.outPos,out:TX.out,in:TX.in})});
+  const res=await fetch(`/api/team/${TX.team}/${TX.mode}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:TX.pc,position:TX.outPos,out:TX.out,in:TX.in,week:TX.mode==='open'?TX.openWeek:undefined})});
   const j=await res.json();
   if(res.ok){ const isTrade=TX.mode==='trade';
     const feeMsg=j.fee_cents?`$${(j.fee_cents/100).toFixed(0)} fee`:`free move · ${j.free_left} left`;
-    alert((isTrade?'Traded — permanent. ':'Opened — 1 week only. ')+feeMsg); closeM(); load(VIEW, SEASON);
+    alert((isTrade?'Traded — permanent. ':`Opened for Week ${TX.openWeek} — 1 week only. `)+feeMsg+(j.lineup_note?'\n\n'+j.lineup_note:'')); closeM(); load(VIEW, SEASON);
   } else { alert('⚠ '+(j.error||'error')); TX.step='build'; renderTxBuild(); } }
 
 let COMMISH_PC='';

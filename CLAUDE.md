@@ -128,6 +128,21 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-16: TRADES AND OPENS ANY TIME (commissioner). One rule: moves can be
+  made any time; a player scores for a team only if he was in its lineup before
+  his game kicked off. TRADE of a STARTER in the lineup week
+  (repo._trade_into_lineup): outgoing game started -> he stays locked in and
+  keeps his points (grey TRADED tag), incoming waits for next week (green NEW,
+  listed just beneath him); both games still to come -> incoming takes the spot;
+  outgoing not started but incoming started -> spot left open. A bench trade
+  leaves the lineup alone. set_lineup accepts a locked, traded-away starter
+  still in the week's lineup. OPENS: for this week's byes any time; next week's
+  byes from 6am CT Monday (after the lineup week's Sunday) until Tuesday 6am
+  (progress.open_weeks); the move screen tags "BYE Wk N" (grey for next week)
+  and the review names the week. An Open is blocked once the rental's game
+  kicked off. Opens and Trades both count toward the 5 free moves. Colors: red
+  = a permanent trade being decided (move screen only), grey = TRADE/TRADED on
+  record, blue = OPEN everywhere, green = NEW, amber = needs attention.
 - 2026-09-16: DEF/ST SACKS = times the opponent's QB was sacked (ESPN team stat
   "sacksYardsLost", e.g. "4-16"), not the sum of individual defenders — a sack
   credited to nobody still counts. KC 2026 Week 1 had 4 (one uncredited); ESPN

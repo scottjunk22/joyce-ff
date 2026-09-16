@@ -126,9 +126,54 @@ def _assert_available(conn, season_id, conf_id, position, asset_ref):
 
 # --- transactions --------------------------------------------------------
 
+def _asset_label(conn, season_id, kind, ref, position) -> str:
+    if kind == "PLAYER":
+        p = conn.execute("SELECT name FROM nfl_players WHERE season_id=? AND gsis_id=?",
+                         (season_id, ref)).fetchone()
+        return p["name"] if p else ref
+    return f"{ref} {position}"
+
+
+def _trade_into_lineup(conn, season_id, team_id, ff_week, position, out_ref, in_ref,
+                       locked_refs) -> str | None:
+    """What a trade does to the week's saved lineup (commissioner, 2026-09-16).
+
+    Only a player who was STARTING matters; a bench trade leaves the lineup be.
+      * his game has started -> he stays in the lineup, locked, and keeps his
+        points; the new player can't start until next week;
+      * his game hasn't started and the new player's hasn't either -> a normal
+        swap: the new player takes his spot;
+      * his game hasn't started but the new player's has -> the new player
+        can't start this week, so the spot is left open for the bench.
+    locked_refs None = the commissioner, who isn't bound by kickoff: a swap.
+    Returns a sentence for the manager, or None when the lineup is untouched."""
+    row = conn.execute("SELECT id FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=? "
+                       "AND roster_slot=? AND asset_ref=? AND is_rental=0",
+                       (season_id, team_id, ff_week, position, out_ref)).fetchone()
+    if not row:
+        return None
+    locked = set(locked_refs or ())
+    kind = _kind_for(position)
+    out_name = _asset_label(conn, season_id, kind, out_ref, position)
+    in_name = _asset_label(conn, season_id, kind, in_ref, position)
+    if out_ref in locked:
+        return (f"{out_name}'s game has already started, so he stays in your Week {ff_week} "
+                f"lineup and keeps his points. {in_name} can start next week.")
+    if in_ref in locked:
+        conn.execute("DELETE FROM weekly_lineups WHERE id=?", (row["id"],))
+        return (f"{in_name}'s game has already started, so he can't start in Week {ff_week}. "
+                f"{out_name}'s spot is open — pick someone in Set Lineup.")
+    conn.execute("UPDATE weekly_lineups SET asset_ref=?, asset_kind=?, unit_type=? WHERE id=?",
+                 (in_ref, kind, position if position in UNIT_POS else None, row["id"]))
+    return f"{in_name} takes {out_name}'s spot in your Week {ff_week} lineup."
+
+
 def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
-             actor=None) -> int:
-    """Permanent swap: drop out_ref, add in_ref (same position). $2 fee."""
+             actor=None, locked_refs=None, notes: list | None = None) -> int:
+    """Permanent swap: drop out_ref, add in_ref (same position). $2 fee.
+
+    Allowed any time. The week's saved lineup follows the trade by the kickoff
+    rule (_trade_into_lineup); its sentence is appended to `notes` if given."""
     if position not in INDIVIDUAL_POS | UNIT_POS:
         raise RuleError(f"invalid position {position!r}")
     out = _find_on_roster(conn, team_id, position, out_ref)
@@ -147,6 +192,10 @@ def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
         "VALUES (?,?,?,?,?,?,?, 'TRADE', ?, ?)",
         (season_id, team_id, kind, in_ref, position if kind == "TEAM_UNIT" else None,
          position, ff_week, order, _now()))
+    note = _trade_into_lineup(conn, season_id, team_id, ff_week, position, out_ref, in_ref,
+                              locked_refs)
+    if note and notes is not None:
+        notes.append(note)
     return _log_tx(conn, season_id, team_id, ff_week, "TRADE", position,
                    out_ref, in_ref, kind, entered_by=actor)
 
@@ -476,6 +525,12 @@ def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
                         "bye (an RB covered by an Open doesn't count)")
 
     rentals = _open_rentals(conn, season_id, team_id, ff_week)
+    # A starter traded away after his game kicked off stays in this week's
+    # lineup (he keeps his points), so a resubmitted lineup may still name him.
+    kept = {(r["roster_slot"], r["asset_ref"]): r for r in conn.execute(
+        "SELECT roster_slot, asset_ref, asset_kind, unit_type FROM weekly_lineups "
+        "WHERE season_id=? AND team_id=? AND ff_week=? AND is_rental=0",
+        (season_id, team_id, ff_week))}
     resolved = []
     for s in starters:
         slot, ref = s["roster_slot"], s["asset_ref"]
@@ -485,6 +540,9 @@ def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
         elif rentals.get(ref) == slot:
             resolved.append((slot, _kind_for(slot), ref,
                              slot if slot in UNIT_POS else None, 1))
+        elif (slot, ref) in kept and (locked_refs is None or ref in set(locked_refs)):
+            k = kept[(slot, ref)]
+            resolved.append((slot, k["asset_kind"], ref, k["unit_type"], 0))
         else:
             raise RuleError(f"{ref} isn't on your roster or an active Open for week {ff_week}")
 

@@ -118,3 +118,15 @@ def test_nflverse_keeps_being_checked_for_a_few_days_after_a_week_is_final(seaso
     calls.clear()
     runner.run_current(c, sid, now=dt.datetime(2026, 9, 25, 12, 0, tzinfo=ET))    # long after
     assert calls == []
+
+
+def test_opens_look_a_week_ahead_only_from_monday_6am(season):
+    """An Open is for this week's byes; next week's byes open up the morning
+    after Sunday's games, until Tuesday 6am moves the week on (2026-09-16)."""
+    c, sid = season
+    assert progress.open_weeks(c, sid, at(9, 16, 12, 0)) == [2]      # Wednesday of Week 2
+    assert progress.open_weeks(c, sid, at(9, 20, 22, 0)) == [2]      # Sunday night
+    assert progress.open_weeks(c, sid, at(9, 21, 6, 0)) == [2, 3]    # Monday 6am
+    assert progress.open_weeks(c, sid, at(9, 22, 5, 59)) == [2, 3]
+    assert progress.open_weeks(c, sid, at(9, 22, 6, 0)) == [3]       # Tuesday: Week 3 is this week
+    assert progress.open_weeks(c, sid, at(9, 28, 6, 0)) == [3]       # no Week 4 to look ahead to

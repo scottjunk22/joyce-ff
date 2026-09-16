@@ -567,3 +567,52 @@ def test_an_in_progress_card_shows_final_points_only(tmp_path):
     assert card["home"]["points"] == 27
     assert card["away"]["points"] == 25                 # not the stored 41
     assert not card["away"]["done"]
+
+
+# --- trades and the week's lineup (commissioner, 2026-09-16) ---------------------
+
+def _trade(conn, sid, otb, out, inn, locked, wk=4):
+    notes = []
+    repo.do_trade(conn, sid, otb, "R", out, inn, wk, locked_refs=locked, notes=notes)
+    return notes
+
+
+def test_a_trade_before_both_kickoffs_swaps_the_new_player_in(lg):
+    conn, sid, otb = lg
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])
+    notes = _trade(conn, sid, otb, "w3", "fa_r", locked=set())
+    assert _got(conn, sid, otb, 4)[1] == {"w1", "w2", "fa_r"}
+    assert "takes" in notes[0]
+
+
+def test_a_starter_traded_after_his_kickoff_stays_and_keeps_his_points(lg):
+    conn, sid, otb = lg
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])
+    notes = _trade(conn, sid, otb, "w3", "fa_r", locked={"w3"})
+    assert _got(conn, sid, otb, 4)[1] == {"w1", "w2", "w3"}             # still starting
+    assert "keeps his points" in notes[0]
+    units = [{"roster_slot": s, "asset_ref": r}
+             for s, r in (("C", "KC"), ("K", "BAL"), ("DEF/ST", "PIT"), ("QB", "CIN"))]
+    rbs = [{"roster_slot": "RB", "asset_ref": r} for r in ("r1", "r2")]
+    # a resubmitted lineup may still name him (he's locked in)...
+    repo.set_lineup(conn, sid, otb, 4, units + rbs + [
+        {"roster_slot": "R", "asset_ref": r} for r in ("w3", "w2", "w1")], locked_refs={"w3"})
+    # ...but can't bench him, and the new player can't take his place this week
+    with pytest.raises(repo.RuleError):
+        repo.set_lineup(conn, sid, otb, 4, units + rbs + [
+            {"roster_slot": "R", "asset_ref": r} for r in ("fa_r", "w2", "w1")], locked_refs={"w3"})
+
+
+def test_a_new_player_whose_game_started_cannot_take_the_spot(lg):
+    conn, sid, otb = lg
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])
+    notes = _trade(conn, sid, otb, "w3", "fa_r", locked={"fa_r"})
+    assert _got(conn, sid, otb, 4)[1] == {"w1", "w2"}                   # the spot is open
+    assert "can't start" in notes[0]
+
+
+def test_trading_a_bench_player_leaves_the_lineup_alone(lg):
+    conn, sid, otb = lg
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])
+    assert _trade(conn, sid, otb, "w4", "fa_r", locked=set()) == []
+    assert _got(conn, sid, otb, 4)[1] == {"w1", "w2", "w3"}

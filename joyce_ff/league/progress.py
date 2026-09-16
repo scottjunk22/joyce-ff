@@ -289,6 +289,24 @@ def _week_sunday(conn, season_id: int, ff_week: int):
     return day
 
 
+def open_weeks(conn, season_id: int, now: _dt.datetime | None = None) -> list[int]:
+    """Weeks an Open can be bought for right now (commissioner, 2026-09-16): the
+    lineup week, plus the week after it from 6am Central on the Monday after the
+    lineup week's Sunday — the morning after its Sunday games, when a manager
+    first plans around next week's byes — until Tuesday 6am moves the lineup
+    week on."""
+    now = now or _dt.datetime.now(ET)
+    wk = lineup_week(conn, season_id, now)
+    out = [wk]
+    sunday = _week_sunday(conn, season_id, wk)
+    has_next = conn.execute("SELECT 1 FROM matchups WHERE season_id=? AND ff_week=? AND kind!='NO_PLAY' "
+                            "LIMIT 1", (season_id, wk + 1)).fetchone()
+    if sunday is not None and has_next and \
+            now >= _dt.datetime.combine(sunday + _dt.timedelta(days=1), _dt.time(6), CT):
+        out.append(wk + 1)
+    return out
+
+
 def counts_visible(conn, season_id: int, ff_week: int, now: _dt.datetime | None = None) -> bool:
     """Whether game cards show "N to play" yet: from noon Central on the week's
     Sunday (commissioner, 2026-09-15). Before then nearly everyone's players are
