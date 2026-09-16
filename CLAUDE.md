@@ -135,7 +135,11 @@ what the Phase-1 reconciliation is designed to arbitrate.
   per slot given up, the rest must be 2+3 or an allowed flex). The copy at first
   kickoff fills a bye QB/K from the bench (most recently started; a tie goes to
   the commissioner as a carry note) and reverts to the last standard lineup
-  once he's back. Set Lineup lets a bye QB/K be benched.
+  once he's back. Set Lineup lets a bye QB/K be benched. Box scores always show
+  the same nine slots (C K DEF/ST QB RB RB R R R) so rows line up across teams:
+  an extra starter fills the slot he covers, tagged with his real position and
+  "· for Buffalo QB" or "· bye flex", tappable for the reason; an unfilled slot
+  shows "no starter" (webapp _box_in_slots; display only, roster_slot unchanged).
 - 2026-09-16: 48-HOUR RE-ACQUIRE (commissioner). A team can't TRADE back a
   player (or unit) it traded away within 48 hours — closes renting a player via
   two trades around kickoff. Applies to trades the commissioner enters too.

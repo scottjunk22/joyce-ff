@@ -162,6 +162,7 @@
  .tag-open{font-size:10px;color:var(--blue);border:1px solid var(--blue);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
  .tag-bye.next{color:var(--dim);border-color:var(--dim)}
  .pl.plwait{opacity:.55;cursor:not-allowed}.pl.plwait:hover{background:none}
+ .srow.fxrow{background:var(--panel2)}
  /* a starter traded away after kickoff (still in this week's lineup), and the player who came in */
  .tag-traded{font-size:10px;color:var(--dim);border:1px solid var(--dim);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
  .tag-new{font-size:10px;color:var(--good);border:1px solid var(--good);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
@@ -428,6 +429,7 @@ async function boxScore(homeId,awayId,final){
   // A rental's breakdown opens with who he covered; his scoring lines only once
   // his points count (a mid-game line can hold half a game).
   const bdLines=x=>(x.is_rental&&x.covering_name?`<div class="bdline"><span style="color:var(--blue)">Open for ${x.covering_name} (bye)</span></div>`:'')
+    +(x.flex_note?`<div class="bdline"><span>${x.flex_note}</span></div>`:'')
     +(counts(x)?(x.breakdown||[]).map(it=>+it[1]
       ? `<div class="bdline"><span>${it[0]}</span><span class="p">+${+it[1]}</span></div>`
       : `<div class="bdline"><span>${it[0]}</span></div>`).join(''):'');
@@ -447,9 +449,14 @@ async function boxScore(homeId,awayId,final){
      trimmed with … rather than wrapped, so rows stay level with the other
      team's — and always tappable, even at 0, for "Open for Travis Kelce (bye)".
      The covered name goes last, so a trim takes it before the game state. */
-  const entry=x=>{const rent=x.is_rental&&x.covering_name, has=(counts(x)&&(x.breakdown||[]).length)||rent;
-    return `<div class="srow ${has?'bdrow':''}" ${has?'onclick="toggleBd(this)"':''}><span class="slot">${x.roster_slot}</span>`
-      +`<span class="nm${rent?' oneline':''}">${has?'<span class="ci">▸</span>':''}${x.display}${x.is_rental?' <span class="tag-open">OPEN</span>':''}${x.traded?' <span class="tag-traded">TRADED</span>':''}${x.new?' <span class="tag-new">NEW</span>':''}${stTag(x)}${rent?` <span class="sub">· ${x.covering_short}</span>`:''}</span>`
+  /* Every box score shows the same nine slots, so rows line up across teams.
+     A starter filling another slot (a 3rd RB in a receiver's row, an RB or
+     receiver in a bye QB's or K's row) shows his real position and why, on one
+     line, and opens with the reason. */
+  const entry=x=>{ if(x.empty) return `<div class="srow"><span class="slot">${x.slot_shown}</span><span class="nm sub">no starter</span><span class="pts">0</span></div>`;
+    const rent=x.is_rental&&x.covering_name, fx=!!x.fills_as, has=(counts(x)&&(x.breakdown||[]).length)||rent||fx;
+    return `<div class="srow ${has?'bdrow':''}${fx?' fxrow':''}" ${has?'onclick="toggleBd(this)"':''}><span class="slot">${x.slot_shown||x.roster_slot}</span>`
+      +`<span class="nm${rent||fx?' oneline':''}">${has?'<span class="ci">▸</span>':''}${x.display}${fx?` <span class="tag-traded">${x.fills_as}</span>`:''}${x.is_rental?' <span class="tag-open">OPEN</span>':''}${x.traded?' <span class="tag-traded">TRADED</span>':''}${x.new?' <span class="tag-new">NEW</span>':''}${stTag(x)}${rent?` <span class="sub">· ${x.covering_short}</span>`:''}${fx?` <span class="sub">· ${x.flex_short}</span>`:''}</span>`
       +`<span class="pts${counts(x)?'':' prov'}">${counts(x)?(x.points||0).toFixed(0):'–'}</span></div>`
       +(has?`<div class="bd" style="display:none">${bdLines(x)}</div>`:'');};
   const col=(t,cls,won)=>`<div class="boxcol ${cls} ${won?'won':''}"><div class="bh"><span>${t.name}${crownFor(t.titles)}</span><span class="tot">${tot(t).toFixed(0)}</span></div>`

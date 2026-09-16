@@ -222,3 +222,23 @@ def test_payment_is_commissioner_only(client):
     ok = client.post(f"/api/team/{client.otb}/payment",
                      json={"passcode": "commish", "amount_cents": 200})
     assert ok.status_code == 200
+
+
+def test_a_box_score_keeps_nine_slots_with_an_extra_starter_in_the_slot_he_fills(client):
+    """No QB started (his bye) and a 3rd RB in: the RB shows in the QB row,
+    tagged with his real position and why (2026-09-16)."""
+    conn = schema.connect(client.dbpath)
+    sid = conn.execute("SELECT id FROM seasons").fetchone()["id"]
+    rows = [("C", "TEAM_UNIT", "KC"), ("K", "TEAM_UNIT", "BAL"), ("DEF/ST", "TEAM_UNIT", "PIT"),
+            ("RB", "PLAYER", "rb1"), ("RB", "PLAYER", "rb2"), ("RB", "PLAYER", "rb3"),
+            ("R", "PLAYER", "w1"), ("R", "PLAYER", "w2"), ("R", "PLAYER", "w3")]
+    for slot, kind, ref in rows:
+        conn.execute("INSERT INTO weekly_lineups(season_id,team_id,ff_week,roster_slot,asset_kind,asset_ref,unit_type) "
+                     "VALUES (?,?,3,?,?,?,?)", (sid, client.otb, slot, kind, ref, slot if kind == "TEAM_UNIT" else None))
+    conn.commit()
+    conn.close()
+    box = client.get(f"/api/team/{client.otb}/detail?week=3").get_json()["box"]
+    assert [x["slot_shown"] for x in box] == ["C", "K", "DEF/ST", "QB", "RB", "RB", "R", "R", "R"]
+    qb_row = box[3]
+    assert (qb_row["asset_ref"], qb_row["roster_slot"], qb_row["fills_as"]) == ("rb3", "RB", "RB")
+    assert qb_row["flex_short"].startswith("for ") and "(bye)" in qb_row["flex_note"]

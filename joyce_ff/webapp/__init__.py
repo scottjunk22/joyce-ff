@@ -421,6 +421,51 @@ def create_app(db_path: str | None = None) -> Flask:
             return r["name"] if r else ref
         return display.unit(ref, unit)
 
+    BOX_SLOTS = ("C", "K", "DEF/ST", "QB", "RB", "RB", "R", "R", "R")
+
+    def _box_in_slots(box, unit_names):
+        """A box score in the same nine slots for every team, so rows line up
+        across a matchup (commissioner, 2026-09-16). A starter beyond the usual
+        2 RB + 3 R fills the slot he's covering: a 3rd RB in a receiver's row
+        (the bye-week flex), or an RB/receiver in a QB's or K's row when that
+        unit is on bye. Each carries its real position and a note saying why.
+        Display only: roster_slot keeps what was saved. A slot nobody fills
+        shows as an empty row."""
+        by = {}
+        for x in box:
+            by.setdefault(x["roster_slot"], []).append(x)
+        need = {s: BOX_SLOTS.count(s) for s in set(BOX_SLOTS)}
+        placed, overflow = {s: by.get(s, [])[:need[s]] for s in need}, []
+        for s in need:
+            overflow += by.get(s, [])[need[s]:]
+        for s, rows in by.items():
+            if s not in need:
+                overflow += rows
+        out, used = [], {s: 0 for s in need}
+        for s in BOX_SLOTS:
+            rows = placed[s]
+            if used[s] < len(rows):
+                x = rows[used[s]]
+                used[s] += 1
+            elif overflow:
+                x = overflow.pop(0)
+                pos = "RB" if x["roster_slot"] == "RB" else "R"
+                x["fills_as"] = pos
+                if s in repo.UNIT_FLEX:
+                    unit = unit_names.get(s, s)
+                    x["flex_short"], x["flex_note"] = f"for {unit}", f"Started in place of {unit} (bye)"
+                else:
+                    x["flex_short"] = "bye flex"
+                    x["flex_note"] = ("Bye-week flex: 2+ receivers on bye" if s == "R"
+                                      else "Bye-week flex: 2+ RBs on bye")
+            else:
+                x = {"roster_slot": s, "asset_kind": None, "asset_ref": "", "unit_type": None,
+                     "is_rental": 0, "points": 0, "breakdown": [], "display": "no starter",
+                     "state": None, "kickoff": None, "empty": True}
+            x["slot_shown"] = s
+            out.append(x)
+        return out + overflow                    # anything left over still shows
+
     def _short_name(full, kind, ref):
         """The short label for who an Open covers, as a box score row has room
         for: a player's last name ("Kelce", "Harrison Jr." -> "Harrison"), a
@@ -746,6 +791,8 @@ def create_app(db_path: str | None = None) -> Flask:
             key = (x["roster_slot"], x["asset_ref"])
             x["traded"] = not x["is_rental"] and key not in on_roster
             x["new"] = any(r["new"] and (r["slot"], r["asset_ref"]) == key for r in roster)
+        unit_names = {r["slot"]: r["name"] for r in roster if r["slot"] in repo.UNIT_FLEX}
+        box = _box_in_slots(box, unit_names) if box else box
         carried = conn.execute("SELECT MAX(carried_from) cf, MAX(carry_note) cn FROM weekly_lineups "
                                "WHERE season_id=? AND ff_week=? AND team_id=?", (sid, wk, team_id)).fetchone()
         return jsonify(name=row["name"], managers=row["manager_names"],
