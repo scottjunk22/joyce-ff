@@ -70,12 +70,13 @@ def _trades_since(conn, sid, tid, wk) -> dict[tuple[str, str], str]:
 
 def _last_standard_week(conn, sid, tid, before) -> int | None:
     """The most recent week before `before` whose lineup was the standard
-    2 RB + 3 R — the lineup from before a bye-week flex."""
+    2 RB + 3 R with a QB and a K — the lineup from before a bye-week flex."""
     for r in conn.execute(
-            "SELECT ff_week w, SUM(roster_slot='RB') rb, SUM(roster_slot='R') r "
+            "SELECT ff_week w, SUM(roster_slot='RB') rb, SUM(roster_slot='R') r, "
+            "SUM(roster_slot='QB') qb, SUM(roster_slot='K') k "
             "FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week<? "
             "GROUP BY ff_week ORDER BY ff_week DESC", (sid, tid, before)):
-        if (r["rb"], r["r"]) == (2, 3):
+        if (r["rb"], r["r"], r["qb"], r["k"]) == (2, 3, 1, 1):
             return r["w"]
     return None
 
@@ -176,7 +177,16 @@ def carry_team(conn, sid: int, tid: int, wk: int) -> bool:
     lineup = _traced(team, prev, notes)
 
     # 3. A bye-week flex that isn't legal this week goes back to the lineup
-    #    from before the bye week.
+    #    from before the bye week — including one that gave a bye QB's or K's
+    #    slot to an extra RB or receiver, now that he's back.
+    missing = [u for u in repo.UNIT_FLEX if not any(l["slot"] == u for l in lineup)]
+    if missing and not all(repo.unit_on_bye_uncovered(conn, sid, tid, u, wk) for u in missing):
+        before = _last_standard_week(conn, sid, tid, prev)
+        if before is None:
+            notes.append("last week's lineup started an extra RB or receiver in place of a QB or K "
+                         "on bye, and there's no earlier lineup to go back to")
+        else:
+            lineup = _traced(team, before, notes)
     short = _FLEX_SHORT.get(_composition([l for l in lineup if l["slot"] in SKILL]))
     if short and team.uncovered_byes(short) < need:
         before = _last_standard_week(conn, sid, tid, prev)
@@ -224,6 +234,24 @@ def carry_team(conn, sid: int, tid: int, wk: int) -> bool:
         if pick:
             l.update(slot=other, ref=pick, rental=False, kind=None, unit=None)
 
+    # 6. A QB or K on bye with no Open gives its slot to a bench RB or receiver
+    #    (commissioner, 2026-09-16) — the one the manager started most recently;
+    #    if that doesn't settle it, the commissioner chooses.
+    for l in [l for l in lineup if l["slot"] in repo.UNIT_FLEX and team.stuck(l)
+              and l["ref"] is not None and not l.get("ambiguous")]:
+        if not repo.unit_on_bye_uncovered(conn, sid, tid, l["slot"], wk):
+            continue
+        taken = {x["ref"] for x in lineup if x["ref"]}
+        cands = [("RB", r) for r in team.bench("RB", taken)] + [("R", r) for r in team.bench("R", taken)]
+        pick = _pick(team, [r for _, r in cands])
+        if pick:
+            slot = next(s for s, r in cands if r == pick)
+            l.update(slot=slot, ref=pick, rental=False, kind=None, unit=None)
+        elif cands:
+            l["ambiguous"] = True
+            notes.append(f"{team.name(l)} is on bye — couldn't tell whether a bench RB or receiver "
+                         "should start in his place; the commissioner should choose")
+
     for l in lineup:
         if l["ref"] is None:
             notes.append(f"no one was available for a {l['slot']} slot")
@@ -232,13 +260,8 @@ def carry_team(conn, sid: int, tid: int, wk: int) -> bool:
                          "— an Open would cover him")
 
     full = [l for l in lineup if l["ref"]]
-    if len(full) == 9:
-        rule = repo.LEGAL_SKILL.get(_composition([l for l in full if l["slot"] in SKILL]),
-                                    "ILLEGAL")
-        if (rule == "ILLEGAL"
-                or (rule == "recv_bye" and team.uncovered_byes("R") < need)
-                or (rule == "rb_bye" and team.uncovered_byes("RB") < need)):
-            notes.append("the carried lineup isn't a legal combination this week")
+    if len(full) == 9 and repo.lineup_problem(conn, sid, tid, wk, [l["slot"] for l in full]):
+        notes.append("the carried lineup isn't a legal combination this week")
 
     note = "; ".join(dict.fromkeys(notes)) or None
     now = _now()

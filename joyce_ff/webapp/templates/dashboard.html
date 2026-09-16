@@ -161,6 +161,7 @@
  .srow .pts.prov{color:var(--dim);font-weight:600}
  .tag-open{font-size:10px;color:var(--blue);border:1px solid var(--blue);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
  .tag-bye.next{color:var(--dim);border-color:var(--dim)}
+ .pl.plwait{opacity:.55;cursor:not-allowed}.pl.plwait:hover{background:none}
  /* a starter traded away after kickoff (still in this week's lineup), and the player who came in */
  .tag-traded{font-size:10px;color:var(--dim);border:1px solid var(--dim);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
  .tag-new{font-size:10px;color:var(--good);border:1px solid var(--good);border-radius:5px;padding:0 5px;margin-left:4px;font-weight:700}
@@ -606,7 +607,9 @@ function luGame(i){
 function renderLineup(){ const ord={'C':0,'K':1,'DEF/ST':2,'QB':3,'RB':4,'R':5}, unit=s=>['C','K','DEF/ST','QB'].includes(s);
   const items=[...LU.items].sort((a,b)=>ord[a.slot]-ord[b.slot]);
   const cnt={}; LU.items.forEach(i=>cnt[i.slot]=(cnt[i.slot]||0)+1);
-  const clickable=i=> !unit(i.slot) || cnt[i.slot]>1;   // a unit toggles only when an Open gives it a choice
+  // A unit toggles only when an Open gives it a choice — or, for a QB or K on
+  // bye with no Open, so it can be benched for an extra RB or receiver.
+  const clickable=i=> !unit(i.slot) || cnt[i.slot]>1 || (['QB','K'].includes(i.slot)&&(LU.flex||{})[i.slot]);
   $('luRows').innerHTML=items.map(i=>{const key=LUKEY(i.slot,i.ref), on=LU.sel.has(key);
     return `<div class="srow"><span class="slot">${i.slot}</span><span class="nm">${i.name}${luGame(i)}</span><span class="st ${on?'start':'bench'}" ${clickable(i)?`onclick="toggleStart('${encodeURIComponent(key)}')"`:''}>${on?'START':'BENCH'}</span></div>`;}).join('');
   const c=s=>[...LU.sel].filter(k=>k.startsWith(s+'|')).length;
@@ -619,26 +622,36 @@ function lineupCheck(c){
   const n=LU.sel.size, rb=c('RB'), r=c('R'), F=LU.flex||{};
   const ok=t=>`<span style="color:var(--good)">✅ ${t}</span>`, bad=t=>`<span style="color:var(--warn)">⚠ ${t}</span>`;
   if(!n) return bad('0 of 9 — start C, K, DEF/ST, QB, 2 RB, 3 R');
-  const units=['C','K','DEF/ST','QB'].filter(u=>!c(u));
+  // A QB or K on bye with no Open may give its slot to an extra RB or receiver.
+  const given=['QB','K'].filter(u=>!c(u)&&F[u]), extras=given.length;
+  const units=['C','K','DEF/ST','QB'].filter(u=>!c(u)&&!given.includes(u));
   // The RB/R mix being aimed for: a flex once its extra player is picked, else 2 + 3.
   const [tRB,tR]= rb>=3&&r<=2 ? [3,2] : r>=4&&rb<=1 ? [1,4] : [2,3];
   if(n<9){ const fix=units.map(u=>`a ${u}`);
-    if(rb<tRB) fix.push(`${tRB-rb} more RB`); if(r<tR) fix.push(`${tR-r} more R`);
+    if(extras){ const more=5+extras-rb-r; if(more>0) fix.push(`${more} more RB or receiver`); }
+    else { if(rb<tRB) fix.push(`${tRB-rb} more RB`); if(r<tR) fix.push(`${tR-r} more R`); }
     return bad(`${n} of 9 — start ${fix.join(', ')}`); }
-  if(n>9){ const pos= rb>tRB&&r>=tR ? ' RB' : r>tR&&rb>=tRB ? ' R' : '';
+  if(n>9){ const pos= extras?'': rb>tRB&&r>=tR ? ' RB' : r>tR&&rb>=tRB ? ' R' : '';
     return bad(`${n} of 9 — bench ${n-9}${pos}`); }
   if(units.length) return bad(`start a ${units.join(', a ')}`);
-  if(rb===2&&r===3) return ok('Lineup complete — 9 starters');
-  if(rb===3&&r===2) return F.RB ? ok('Lineup complete — 9 starters · bye-week flex')
-    : bad('3 RBs only when 2+ receivers are on bye — bench 1 RB, start 1 more R');
-  if(rb===1&&r===4) return F.R ? ok('Lineup complete — 9 starters · bye-week flex')
-    : bad('4 receivers only when 2+ RBs are on bye — bench 1 R, start 1 more RB');
+  // Same test as repo.lineup_problem: take out one RB or receiver per slot given up,
+  // and what's left must be 2 + 3 or an allowed bye-week flex.
+  const standard=(a,b)=>a===2&&b===3, flexOk=(a,b)=>(a===3&&b===2&&F.RB)||(a===1&&b===4&&F.R);
+  let fits=null;
+  for(let x=0;x<=extras;x++){ const a=rb-x, b=r-(extras-x);
+    if(standard(a,b)){ fits='std'; break; } if(flexOk(a,b)) fits='flex'; }
+  const note=(extras?` · extra ${extras>1?'players':'player'} for your ${given.join(' and ')} on bye`:'')+(fits==='flex'?' · bye-week flex':'');
+  if(fits) return ok('Lineup complete — 9 starters'+note);
+  if(extras) return bad(`${rb} RB + ${r} R isn't allowed here`);
+  if(rb===3&&r===2) return bad('3 RBs only when 2+ receivers are on bye — bench 1 RB, start 1 more R');
+  if(rb===1&&r===4) return bad('4 receivers only when 2+ RBs are on bye — bench 1 R, start 1 more RB');
   return bad(`${rb} RB + ${r} R isn't allowed — start 2 RB, 3 R`);
 }
 function toggleStart(encKey){ const key=decodeURIComponent(encKey);
   const it=LU.items.find(i=>LUKEY(i.slot,i.ref)===key); if(!it) return;
   const unit=['C','K','DEF/ST','QB'].includes(it.slot);
-  if(unit){ // radio within that slot only — never touches another slot's unit
+  if(unit&&LU.sel.has(key)&&(LU.flex||{})[it.slot]){ LU.sel.delete(key); }   // bench a bye QB/K
+  else if(unit){ // radio within that slot only — never touches another slot's unit
     LU.items.filter(i=>i.slot===it.slot).forEach(i=>LU.sel.delete(LUKEY(i.slot,i.ref)));
     LU.sel.add(key); }
   else { LU.sel.has(key)?LU.sel.delete(key):LU.sel.add(key); }
@@ -655,7 +668,10 @@ async function txModal(id){
       in:null,inName:'',mode:'trade',avail:[],filter:'',step:'build',pc:''};
   openM('<div id="txbody"></div>'); renderTxBuild();
 }
-function txSetMode(m){ if(m==='open'&&!(TX.out&&TX.outBye))return; TX.mode=m; renderTxBuild(); }
+function txSetMode(m){ if(m==='open'&&!(TX.out&&TX.outBye))return; TX.mode=m;
+  // switching to Trade drops a pick that Trade doesn't allow (traded away within 48 hours)
+  if(m==='trade'&&TX.in){ const x=TX.avail.find(a=>(a.gsis_id||a.abbr)===TX.in); if(x&&x.back_at){TX.in=null;TX.inName='';} }
+  renderTxBuild(); }
 async function pickOut(ref,pos,byeWeek){
   // match slot as well: a club's units share one asset_ref (BAL C and BAL QB)
   const r=TX.roster.find(x=>x.asset_ref===ref&&x.slot===pos)||{};
@@ -671,7 +687,10 @@ function availHtml(){ if(!TX.out)return '<div class="sub" style="padding:14px;te
   const nm=x=>x.name||x.abbr, list=TX.avail.filter(x=>nm(x).toLowerCase().includes((TX.filter||'').toLowerCase()));
   if(!list.length)return '<div class="sub" style="padding:14px;text-align:center">no matches</div>';
   return list.map(x=>{const key=x.gsis_id||x.abbr;
-    return `<div class="pl ${TX.in===key?'sel':''}" onclick='pickIn(${JSON.stringify(key)})'><span><span class="pos">${TX.outPos}</span>${nm(x)}${x.nfl_team_abbr?` <span class="team">${x.nfl_team_abbr}</span>`:''}</span></div>`;}).join('');
+    // Traded away by this team in the last 48 hours: can't come back by Trade
+    // yet (an Open is a rental, so it's still allowed).
+    const wait=TX.mode==='trade'&&x.back_at;
+    return `<div class="pl ${TX.in===key?'sel':''}${wait?' plwait':''}" ${wait?'':`onclick='pickIn(${JSON.stringify(key)})'`}><span><span class="pos">${TX.outPos}</span>${nm(x)}${x.nfl_team_abbr?` <span class="team">${x.nfl_team_abbr}</span>`:''}</span>${wait?`<span class="sub">you traded him · back ${x.back_at}</span>`:''}</div>`;}).join('');
 }
 function renderTxBuild(){ if(TX.step==='review')return renderTxReview();
   const openOk=TX.out&&TX.outBye;

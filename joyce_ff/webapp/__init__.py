@@ -772,6 +772,12 @@ def create_app(db_path: str | None = None) -> Flask:
             # "abbr" stays the stored code — it's what a trade sends back.
             data = [{**u, "name": display.team(u["name"])}
                     for u in repo.available_units(conn, s["id"], conf["conference_id"], pos)]
+        # A player this team traded away in the last 48 hours can't come back to
+        # it by Trade yet — marked so the list can grey him out with the time.
+        waiting = repo.recently_traded_away(conn, s["id"], team_id)
+        for x in data:
+            back = waiting.get((pos, x.get("gsis_id") or x.get("abbr")))
+            x["back_at"] = repo._ct_when(back) if back else None
         return jsonify(position=pos, available=data)
 
     # ---- write API (passcode-gated) ----

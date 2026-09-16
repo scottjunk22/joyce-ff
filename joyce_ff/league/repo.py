@@ -168,8 +168,38 @@ def _trade_into_lineup(conn, season_id, team_id, ff_week, position, out_ref, in_
     return f"{in_name} takes {out_name}'s spot in your Week {ff_week} lineup."
 
 
+REACQUIRE_WAIT = __import__("datetime").timedelta(hours=48)
+
+
+def recently_traded_away(conn, season_id, team_id, now=None) -> dict[tuple[str, str], datetime]:
+    """{(position, asset_ref): when he can come back} for everything this team
+    traded away in the last 48 hours (commissioner, 2026-09-16). Without it a
+    manager could trade McCaffrey for Barkley at 11:55, let Barkley's noon game
+    lock him in, and trade straight back — renting Barkley for the week. A
+    reversed trade doesn't count. Applies to a trade the commissioner enters too."""
+    now = now or datetime.now(timezone.utc)
+    out = {}
+    for r in conn.execute("SELECT position, out_asset_ref, created_at FROM transactions "
+                          "WHERE season_id=? AND team_id=? AND type='TRADE' AND reversed=0",
+                          (season_id, team_id)):
+        try:
+            back = datetime.fromisoformat(r["created_at"]) + REACQUIRE_WAIT
+        except (TypeError, ValueError):
+            continue                          # no usable time on the row: nothing to wait for
+        if back > now:
+            key = (r["position"], r["out_asset_ref"])
+            out[key] = max(back, out.get(key, back))
+    return out
+
+
+def _ct_when(t: datetime) -> str:
+    from zoneinfo import ZoneInfo
+    c = t.astimezone(ZoneInfo("America/Chicago"))
+    return f"{c.strftime('%a')} at {c.hour % 12 or 12}:{c.minute:02d} {'AM' if c.hour < 12 else 'PM'}"
+
+
 def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
-             actor=None, locked_refs=None, notes: list | None = None) -> int:
+             actor=None, locked_refs=None, notes: list | None = None, now=None) -> int:
     """Permanent swap: drop out_ref, add in_ref (same position). $2 fee.
 
     Allowed any time. The week's saved lineup follows the trade by the kickoff
@@ -179,6 +209,11 @@ def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
     out = _find_on_roster(conn, team_id, position, out_ref)
     if not out:
         raise RuleError("you don't own that player at that position")
+    back = recently_traded_away(conn, season_id, team_id, now).get((position, in_ref))
+    if back:
+        who = _asset_label(conn, season_id, _kind_for(position), in_ref, position)
+        raise RuleError(f"{who} was traded away by this team in the last 48 hours — "
+                        f"he can't come back until {_ct_when(back)}")
     conf = _team_conf(conn, team_id)
     _assert_available(conn, season_id, conf, position, in_ref)
 
@@ -489,13 +524,73 @@ def _bye_count(conn, season_id, team_id, slot, ff_week) -> int:
     return n
 
 
+UNIT_FLEX = ("QB", "K")    # team slots an extra RB/receiver may fill while on bye
+
+
+def unit_on_bye_uncovered(conn, season_id, team_id, slot, ff_week) -> bool:
+    """This team's QB (or K) is on bye this week and no Open covers it — the
+    slot may then be filled by a 3rd RB or 4th receiver instead (commissioner,
+    2026-09-16). A covered unit doesn't qualify: the Open already fills it."""
+    covered = {r["out_asset_ref"] for r in conn.execute(
+        "SELECT out_asset_ref FROM transactions WHERE season_id=? AND team_id=? AND ff_week=? "
+        "AND type='OPEN' AND reversed=0 AND position=?", (season_id, team_id, ff_week, slot))}
+    return any(e["roster_slot"] == slot and e["asset_ref"] not in covered
+               and is_on_bye(conn, season_id, e["asset_kind"], e["asset_ref"], ff_week)
+               for e in current_roster(conn, team_id))
+
+
 def bye_flex(conn, season_id, team_id, ff_week) -> dict:
     """Which bye-week flex this team may use this week — the same test set_lineup
     applies, so Set Lineup's count agrees with what submitting will accept.
-    {"RB": a 3rd RB is allowed, "R": a 4th receiver is allowed}"""
+    {"RB": a 3rd RB is allowed, "R": a 4th receiver is allowed,
+     "QB"/"K": that slot may be left to an extra RB or receiver}"""
     least = rules.BYE_FLEX_MIN_ON_BYE
-    return {"RB": _bye_count(conn, season_id, team_id, "R", ff_week) >= least,
-            "R": _bye_count(conn, season_id, team_id, "RB", ff_week) >= least}
+    out = {"RB": _bye_count(conn, season_id, team_id, "R", ff_week) >= least,
+           "R": _bye_count(conn, season_id, team_id, "RB", ff_week) >= least}
+    for slot in UNIT_FLEX:
+        out[slot] = unit_on_bye_uncovered(conn, season_id, team_id, slot, ff_week)
+    return out
+
+
+def lineup_problem(conn, season_id, team_id, ff_week, slots: list[str]) -> str | None:
+    """Why a lineup with these starting slots isn't legal this week, or None.
+
+    Nine starters: a C and a DEF/ST always; a QB and a K unless that unit is on
+    bye and uncovered, when its slot goes to an extra RB or receiver; and the RBs
+    and receivers make up the rest — 2 RB + 3 R, or the bye-week flex (3 + 2
+    with 2+ receivers on bye, 1 + 4 with 2+ RBs on bye), plus one RB or receiver
+    of the manager's choosing for each QB/K slot given up."""
+    for unit in ("C", "DEF/ST"):
+        if slots.count(unit) != 1:
+            return f"you must start exactly one {unit}"
+    flex = bye_flex(conn, season_id, team_id, ff_week)
+    extras = 0
+    for unit in UNIT_FLEX:
+        n = slots.count(unit)
+        if n > 1 or (n == 0 and not flex[unit]):
+            return (f"you must start exactly one {unit}" + (
+                "" if n else f" — you can start an extra RB or receiver instead only when "
+                             f"your {unit} is on bye and not covered by an Open"))
+        extras += n == 0
+    n_rb, n_r = slots.count("RB"), slots.count("R")
+    if len(slots) != 9 or n_rb + n_r != 5 + extras:
+        return "a lineup is 9 starters: C, K, DEF/ST, QB, 2 RB and 3 receivers"
+    needs = set()
+    for x in range(extras + 1):                       # x of the extras are RBs
+        base = (n_rb - x, n_r - (extras - x))
+        if base not in LEGAL_SKILL:
+            continue
+        need = LEGAL_SKILL[base]
+        if need is None or (need == "recv_bye" and flex["RB"]) or (need == "rb_bye" and flex["R"]):
+            return None
+        needs.add(need)
+    if "recv_bye" in needs:
+        return ("you can only start a 3rd RB when 2 or more of your receivers are on bye, or "
+                "in place of a QB or K on bye (a player covered by an Open doesn't count)")
+    if "rb_bye" in needs:
+        return ("you can only start a 4th receiver when 2 or more of your RBs are on bye, or "
+                "in place of a QB or K on bye (a player covered by an Open doesn't count)")
+    return f"{n_rb} RB + {n_r} R isn't a legal lineup"
 
 
 def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
@@ -505,24 +600,10 @@ def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
     (if locked_refs given) that no player whose game has kicked off is being
     started or benched.
     """
-    slots = [s["roster_slot"] for s in starters]
-    for unit in ("C", "K", "DEF/ST", "QB"):
-        if slots.count(unit) != 1:
-            raise RuleError(f"you must start exactly one {unit}")
-    n_rb, n_r = slots.count("RB"), slots.count("R")
-    if n_rb + n_r != 5 or len(starters) != 9:
-        raise RuleError("a lineup is 9 starters: C, K, DEF/ST, QB and 5 of RB/R")
-
-    need = LEGAL_SKILL.get((n_rb, n_r), "ILLEGAL")
-    if need == "ILLEGAL":
-        raise RuleError(f"{n_rb} RB + {n_r} R isn't a legal lineup")
-    least = rules.BYE_FLEX_MIN_ON_BYE
-    if need == "recv_bye" and _bye_count(conn, season_id, team_id, "R", ff_week) < least:
-        raise RuleError("you can only start a 3rd RB when 2 or more of your receivers are on "
-                        "bye (a receiver covered by an Open doesn't count)")
-    if need == "rb_bye" and _bye_count(conn, season_id, team_id, "RB", ff_week) < least:
-        raise RuleError("you can only start a 4th receiver when 2 or more of your RBs are on "
-                        "bye (an RB covered by an Open doesn't count)")
+    problem = lineup_problem(conn, season_id, team_id, ff_week,
+                             [s["roster_slot"] for s in starters])
+    if problem:
+        raise RuleError(problem)
 
     rentals = _open_rentals(conn, season_id, team_id, ff_week)
     # A starter traded away after his game kicked off stays in this week's

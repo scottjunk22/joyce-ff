@@ -128,6 +128,19 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-16: BYE QB/K FLEX (commissioner). A QB or K on bye and NOT covered by
+  an Open may give its slot to an extra rostered RB or receiver (manager's
+  choice); both on bye frees two. Still 9 starters; C and DEF/ST always start.
+  Combines with the RB/receiver flex (repo.lineup_problem: remove one RB-or-R
+  per slot given up, the rest must be 2+3 or an allowed flex). The copy at first
+  kickoff fills a bye QB/K from the bench (most recently started; a tie goes to
+  the commissioner as a carry note) and reverts to the last standard lineup
+  once he's back. Set Lineup lets a bye QB/K be benched.
+- 2026-09-16: 48-HOUR RE-ACQUIRE (commissioner). A team can't TRADE back a
+  player (or unit) it traded away within 48 hours — closes renting a player via
+  two trades around kickoff. Applies to trades the commissioner enters too.
+  Opens are exempt (a rental for a bye player). A reversed trade doesn't count.
+  The Trade list greys him out: "you traded him · back Tue at 11:55 AM".
 - 2026-09-16: PLAYER POOL REFRESH. nfl_players was only copied from nflverse's
   roster at "Start new season", so a traded NFL player kept his old team (wrong
   bye, game time and KICKOFF LOCK — exploitable) and call-ups/signings couldn't

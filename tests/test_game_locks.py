@@ -434,10 +434,10 @@ def test_set_lineups_flex_check_matches_what_submitting_accepts(lg):
     """Set Lineup's green check uses repo.bye_flex: w1 and w2 on bye in week 5
     allow the 3rd RB until an Open covers one of them."""
     conn, sid, otb = lg
-    assert repo.bye_flex(conn, sid, otb, 5) == {"RB": True, "R": False}
-    assert repo.bye_flex(conn, sid, otb, 4) == {"RB": False, "R": False}
+    assert repo.bye_flex(conn, sid, otb, 5) == {"RB": True, "R": False, "QB": False, "K": False}
+    assert repo.bye_flex(conn, sid, otb, 4) == {"RB": False, "R": False, "QB": False, "K": False}
     repo.do_open(conn, sid, otb, "R", "w1", "fa_r", 5)
-    assert repo.bye_flex(conn, sid, otb, 5) == {"RB": False, "R": False}
+    assert repo.bye_flex(conn, sid, otb, 5) == {"RB": False, "R": False, "QB": False, "K": False}
 
 
 def test_a_carried_player_whose_game_has_started_is_locked_in(lg):
@@ -616,3 +616,74 @@ def test_trading_a_bench_player_leaves_the_lineup_alone(lg):
     _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])
     assert _trade(conn, sid, otb, "w4", "fa_r", locked=set()) == []
     assert _got(conn, sid, otb, 4)[1] == {"w1", "w2", "w3"}
+
+
+# --- a QB or K on bye gives its slot to an extra RB or receiver (2026-09-16) ----
+
+UNITS_NO = {"C": "KC", "K": "BAL", "DEF/ST": "PIT", "QB": "CIN"}
+
+
+def _lineup(conn, sid, otb, wk, rbs, rs, skip=()):
+    repo.set_lineup(conn, sid, otb, wk,
+                    [{"roster_slot": s, "asset_ref": r} for s, r in UNITS_NO.items() if s not in skip]
+                    + [{"roster_slot": "RB", "asset_ref": r} for r in rbs]
+                    + [{"roster_slot": "R", "asset_ref": r} for r in rs])
+
+
+def test_a_bye_qb_can_give_his_slot_to_an_extra_rb_or_receiver(lg):
+    conn, sid, otb = lg
+    conn.execute("UPDATE nfl_teams SET bye_ff_week=6 WHERE abbr='CIN'")
+    conn.commit()
+    _lineup(conn, sid, otb, 6, ["r1", "r2", "r3"], ["w1", "w2", "w3"], skip=("QB",))   # extra RB
+    _lineup(conn, sid, otb, 6, ["r1", "r2"], ["w1", "w2", "w3", "w4"], skip=("QB",))   # extra receiver
+    with pytest.raises(repo.RuleError):                                                # still 9
+        _lineup(conn, sid, otb, 6, ["r1", "r2"], ["w1", "w2", "w3"], skip=("QB",))
+    with pytest.raises(repo.RuleError):                                                # K isn't on bye
+        _lineup(conn, sid, otb, 6, ["r1", "r2", "r3"], ["w1", "w2", "w3"], skip=("K",))
+    with pytest.raises(repo.RuleError):                                                # not his bye week
+        _lineup(conn, sid, otb, 4, ["r1", "r2", "r3"], ["w1", "w2", "w3"], skip=("QB",))
+
+
+def test_qb_and_k_both_on_bye_free_two_slots_but_an_open_closes_one(lg):
+    conn, sid, otb = lg
+    conn.execute("UPDATE nfl_teams SET bye_ff_week=6 WHERE abbr IN ('CIN','BAL')")
+    conn.commit()
+    _lineup(conn, sid, otb, 6, ["r1", "r2", "r3"], ["w1", "w2", "w3", "w4"], skip=("QB", "K"))
+    repo.do_open(conn, sid, otb, "QB", "CIN", "T8", 6)
+    with pytest.raises(repo.RuleError):
+        _lineup(conn, sid, otb, 6, ["r1", "r2", "r3"], ["w1", "w2", "w3", "w4"], skip=("QB", "K"))
+
+
+def test_the_copy_fills_a_bye_qb_from_the_bench_and_brings_him_back_after(lg):
+    conn, sid, otb = lg
+    conn.execute("UPDATE nfl_teams SET bye_ff_week=6 WHERE abbr='CIN'")
+    conn.commit()
+    _lineup(conn, sid, otb, 3, ["r1", "r2"], ["w1", "w2", "w4"])        # w4 started more recently than r3
+    _lineup(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])
+    carry.carry_team(conn, sid, otb, 6)
+    rows = _got(conn, sid, otb, 6)[2]
+    assert "QB" not in {r["roster_slot"] for r in rows}
+    assert _got(conn, sid, otb, 6)[1] == {"w1", "w2", "w3", "w4"} and not rows[0]["carry_note"]
+    carry.carry_team(conn, sid, otb, 7)                                  # CIN back: standard lineup again
+    rows7 = _got(conn, sid, otb, 7)
+    assert "QB" in {r["roster_slot"] for r in rows7[2]} and rows7[1] == {"w1", "w2", "w3"}
+
+
+# --- no trading a player back within 48 hours (2026-09-16) ----------------------
+
+def test_a_traded_away_player_cannot_come_back_for_48_hours(lg):
+    import datetime as _d
+    conn, sid, otb = lg
+    repo.do_trade(conn, sid, otb, "R", "w4", "fa_r", 4)
+    soon = _d.datetime.now(_d.timezone.utc) + _d.timedelta(hours=1)
+    with pytest.raises(repo.RuleError, match="48 hours"):
+        repo.do_trade(conn, sid, otb, "R", "fa_r", "w4", 4, now=soon)
+    later = _d.datetime.now(_d.timezone.utc) + _d.timedelta(hours=49)
+    repo.do_trade(conn, sid, otb, "R", "fa_r", "w4", 4, now=later)
+
+
+def test_a_reversed_trade_does_not_start_the_48_hours(lg):
+    conn, sid, otb = lg
+    tx = repo.do_trade(conn, sid, otb, "R", "w4", "fa_r", 4)
+    repo.reverse_transaction(conn, tx)
+    assert repo.recently_traded_away(conn, sid, otb) == {}
