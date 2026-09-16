@@ -29,7 +29,15 @@ import sqlite3
 #
 #     "Barn Brners": "Barn Burners",
 #
-ALIASES: dict[str, str] = {}
+ALIASES: dict[str, str] = {
+    # Commissioner, 2026-09-16: champions that later changed their names.
+    "Chaos": "TightEnds",                      # 2019
+    "Sparky's Return": "BigDitkas",            # 1998, "Sparky's Return (Tiburzi)"
+    "TKatich": "Juggernuts",                   # 2016
+    # 1999's "RIP (Tallmans)" was owned jointly by the managers now running
+    # MuddyChicks and TallBears; the commissioner credits the title to TallBears.
+    "RIP": "TallBears",
+}
 
 _PAREN = re.compile(r"\s*\([^)]*\)\s*$")
 

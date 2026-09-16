@@ -24,7 +24,10 @@
  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;align-items:start}
  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
  .card.hit{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue)}
- .ch{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:8px 11px;font-weight:700;font-size:14.5px;border-bottom:1px solid var(--line)}
+ .ch{padding:8px 11px;font-weight:700;font-size:14.5px;border-bottom:1px solid var(--line)}
+ .ch .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+ .ch .tr{height:17px;line-height:17px;margin-top:2px;font-size:11.5px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .ch .def{font-size:10px;font-weight:700;border:1px solid currentColor;border-radius:5px;padding:0 5px;margin-left:4px}
  .BLUE .ch{color:var(--blue);background:color-mix(in srgb,var(--blue) 14%,var(--panel))}
  .RED .ch{color:var(--red);background:color-mix(in srgb,var(--red) 14%,var(--panel))}
  .rk{font-size:12px;font-weight:400;color:var(--dim);white-space:nowrap}.rk .seed{font-weight:700;color:var(--dim)}.rk .seed.po{color:var(--good)}
@@ -60,10 +63,16 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const CONF_NAME={BLUE:'Blue',RED:'Red'};
 
-/* One card per team. The trophy follows the rest of the site: defending
-   champion only. */
+/* One card per team. Under the name, the years it won the league; a team
+   that never has keeps the same empty line, so every card's position rows
+   start at the same height. */
 function card(conf,t,hits){
-  const trophy=t.titles&&t.titles.defending?' <span title="Defending champion">\u{1F3C6}</span>':'';
+  // Seasons come as "2025-26"; the league writes a title by its ending year
+  // ("2026"), oldest first.
+  const years=((t.titles&&t.titles.years)||[]).map(l=>{const y=parseInt(l,10);return isNaN(y)?l:y+1;})
+    .sort((a,b)=>a-b);
+  const trophy=`<div class="tr">${years.length?'\u{1F3C6} '+years.join(' · ')
+    +(t.titles.defending?' <span class="def">defending</span>':''):''}</div>`;
   const rank=t.seed?`<span class="rk"><span class="seed${t.playoffs?' po':''}">#${t.seed}</span> · ${t.wins}-${t.losses}</span>`:'';
   const rows=t.players.map(p=>{
     const key=p.slot+'|'+p.ref, hit=hits.has(key);
@@ -74,7 +83,7 @@ function card(conf,t,hits){
         +(o.team?` <span class="tm">${esc(o.team)}</span>`:'')+' <span class="tag open">OPEN</span></span></div>').join('');
   }).join('');
   const any=t.players.some(p=>hits.has(p.slot+'|'+p.ref)||p.opens.some(o=>hits.has(p.slot+'|'+o.ref)));
-  return `<div class="card${any?' hit':''}"><div class="ch"><span>${esc(t.name)}${trophy}</span>${rank}</div>${rows}</div>`;
+  return `<div class="card${any?' hit':''}"><div class="ch"><div class="top"><span>${esc(t.name)}</span>${rank}</div>${trophy}</div>${rows}</div>`;
 }
 
 /* Search the whole pool (rostered or not), then say who has each match in each

@@ -131,8 +131,13 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-09-16: ROSTERS PAGE (/rosters, footer link "Rosters"). All 22 rosters
   from the live roster tables (a trade shows immediately), Blue then Red, teams
   alphabetical, no manager names. Card header tinted by conference with
-  "#seed · W-L" (seed green in playoff position) and the defending-champion
-  trophy only (titles.ALIASES for renamed champions). Lineup-week tags: BYE,
+  "#seed · W-L" (seed green in playoff position), and under the name a
+  fixed-height title line "🏆 2010 · 2013" (ending years, oldest first,
+  "defending" tag on the holder; empty but same height for teams without a
+  title, so position rows line up). Renamed champions via titles.ALIASES
+  (commissioner 2026-09-16): Chaos=TightEnds, Sparky's Return=BigDitkas,
+  TKatich=Juggernuts, RIP (Tallmans; co-owned by MuddyChicks & TallBears) =
+  TallBears. Lineup-week tags: BYE,
   OPEN rental under the covered player, NEW for a player traded in that week.
   "Find a player" searches the whole pool: "Blue: OT Blitz · Red: available".
 - 2026-09-16: BYE QB/K FLEX (commissioner). A QB or K on bye and NOT covered by

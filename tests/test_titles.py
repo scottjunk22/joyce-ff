@@ -88,3 +88,14 @@ def test_the_crown_belongs_to_the_season_being_viewed(tmp_path):
 
     assert crowned(new) == {"Ribears"}      # 2026-27: Ribears defend
     assert crowned(old) == {"Bad Boys"}     # 2025-26: Bad Boys were defending
+
+
+def test_the_commissioners_renamed_champions_are_credited():
+    """2026-09-16: Chaos -> TightEnds, Sparky's Return -> BigDitkas, TKatich ->
+    Juggernuts, and 1999's RIP (Tallmans) credited to TallBears."""
+    from joyce_ff.league import titles
+    assert titles.key_for("Chaos") == titles.key_for("TightEnds")
+    assert titles.key_for("Sparky's Return (Tiburzi)") == titles.key_for("BigDitkas")
+    assert titles.key_for("TKatich") == titles.key_for("Juggernuts")
+    assert titles.key_for("RIP (Tallmans)") == titles.key_for("TallBears")
+    assert titles.key_for("RIP (Tallmans)") != titles.key_for("MuddyChicks")
