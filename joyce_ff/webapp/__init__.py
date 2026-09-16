@@ -745,10 +745,16 @@ def create_app(db_path: str | None = None) -> Flask:
         if (bad := _guard(team_id)):
             return bad
         b = request.get_json(force=True)
+        sid = season()["id"]
+        wk = _week(progress.lineup_week(db(), sid))
+        # A manager can't Open a player whose game has kicked off; the
+        # commissioner can, same as he can set a lineup after kickoff.
+        is_comm = auth.is_commissioner(db(), _passcode())
+        from ..league.locks import locked_assets
         try:
-            tx = repo.do_open(db(), season()["id"], team_id, b["position"],
-                              b["out"], b["in"], _week(progress.lineup_week(db(), season()["id"])),
-                              actor=auth.commissioner_name(db(), _passcode()))
+            tx = repo.do_open(db(), sid, team_id, b["position"], b["out"], b["in"], wk,
+                              actor=auth.commissioner_name(db(), _passcode()),
+                              locked_refs=None if is_comm else locked_assets(db(), sid, wk))
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
         return jsonify(ok=True, transaction_id=tx, **_tx_fee_info(tx, team_id))

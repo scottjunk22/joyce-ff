@@ -152,11 +152,21 @@ def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
 
 
 def do_open(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
-            actor=None) -> int:
+            actor=None, locked_refs=None) -> int:
     """One-week rental: start in_ref for out_ref THIS week only. Requires the
-    outgoing player to be on his NFL bye. $2 fee. Roster is unchanged."""
+    outgoing player to be on his NFL bye. $2 fee. Roster is unchanged.
+
+    locked_refs: assets whose game this week has kicked off. A rental in it is
+    refused — an Open exists only to start him that week, and he can't be
+    picked up once his game has started (league rule Q7). None skips the check
+    (the commissioner entering a move that was phoned in before kickoff)."""
     if position not in INDIVIDUAL_POS | UNIT_POS:
         raise RuleError(f"invalid position {position!r}")
+    if locked_refs and in_ref in locked_refs:
+        p = conn.execute("SELECT name FROM nfl_players WHERE season_id=? AND gsis_id=?",
+                         (season_id, in_ref)).fetchone()
+        who = p["name"] if p else f"{in_ref} {position}"
+        raise RuleError(f"{who}'s game has already started — he can't be Opened for Week {ff_week}")
     out = _find_on_roster(conn, team_id, position, out_ref)
     if not out:
         raise RuleError("you don't own that player at that position")

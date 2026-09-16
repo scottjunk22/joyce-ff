@@ -410,6 +410,19 @@ def repo_last_open(conn, team_id):
                         (team_id,)).fetchone()["i"]
 
 
+def test_a_manager_cannot_open_a_player_whose_game_has_started(lg):
+    """Otherwise a manager could wait until Sunday night, Open whoever scored big
+    for a bye player, and the rental would swap straight into his lineup."""
+    conn, sid, otb = lg
+    _set(conn, sid, otb, 5, ["r1", "r2"], ["w1", "w3", "w4"])     # w1 on bye
+    with pytest.raises(repo.RuleError):
+        repo.do_open(conn, sid, otb, "R", "w1", "fa_r", 5, locked_refs={"fa_r", "r1"})
+    assert _got(conn, sid, otb, 5)[1] == {"w1", "w3", "w4"}       # lineup untouched
+    assert repo_last_open(conn, otb) is None                       # no fee, no transaction
+    repo.do_open(conn, sid, otb, "R", "w1", "fa_r", 5, locked_refs={"r1"})   # his game is still to come
+    assert _got(conn, sid, otb, 5)[1] == {"fa_r", "w3", "w4"}
+
+
 def test_an_open_leaves_a_lineup_that_benched_the_bye_player_alone(lg):
     conn, sid, otb = lg
     _set(conn, sid, otb, 5, ["r1", "r2"], ["w3", "w4", "w2"])
