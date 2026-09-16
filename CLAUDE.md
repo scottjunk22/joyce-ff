@@ -128,6 +128,14 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-16: PLAYER POOL REFRESH. nfl_players was only copied from nflverse's
+  roster at "Start new season", so a traded NFL player kept his old team (wrong
+  bye, game time and KICKOFF LOCK — exploitable) and call-ups/signings couldn't
+  be picked up. The hourly job now runs setup.refresh_nfl_players once per
+  Central day, before scoring: existing players' team/position/status/name
+  follow the roster, new RB/WR/TE are added, nobody is ever removed. nflverse's
+  roster can lag a real move by about a day. Failure is logged, never stops
+  scoring.
 - 2026-09-16: TRADES AND OPENS ANY TIME (commissioner). One rule: moves can be
   made any time; a player scores for a team only if he was in its lineup before
   his game kicked off. TRADE of a STARTER in the lineup week

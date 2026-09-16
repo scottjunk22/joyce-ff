@@ -91,6 +91,18 @@ def run_current(conn, season_id: int, now: _dt.datetime | None = None,
 
     now = now or _dt.datetime.now(ET)
     year = conn.execute("SELECT year FROM seasons WHERE id=?", (season_id,)).fetchone()["year"]
+    if "nflverse" in (sources or scoring.SOURCES):
+        # Once a day, the hourly job brings the player pool up to date — before
+        # scoring, so today's locks, byes and game times follow a traded player.
+        # It must never stop scoring, so a failure is only reported.
+        from . import setup
+        try:
+            res = setup.refresh_nfl_players_daily(conn, season_id, year, now)
+            if res and (res["updated"] or res["added"]):
+                print(f"  player pool: {res['updated']} updated, {res['added']} added")
+        except Exception as e:
+            conn.rollback()
+            print(f"  player pool refresh skipped: {type(e).__name__}: {e}")
     g = nv.load_games()
     g = g[g["season"] == year]
     import pandas as pd

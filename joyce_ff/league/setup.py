@@ -47,6 +47,68 @@ def load_nfl_universe(conn, season_id: int, year: int) -> tuple[int, int]:
     return len(byes), n
 
 
+PLAYER_POSITIONS = ("RB", "WR", "TE")
+
+
+def refresh_nfl_players(conn, season_id: int, year: int, roster=None) -> dict:
+    """Bring the player pool up to date with nflverse's season roster
+    (commissioner, 2026-09-16). The pool was only ever copied when the season
+    was created, so a player traded to another NFL team kept his old team — and
+    with it the wrong bye, game time and kickoff lock — and a call-up or signing
+    couldn't be picked up at all.
+
+      * existing players: name, position, NFL team and status follow the roster;
+      * new RBs / WRs / TEs are added;
+      * nobody is removed — a player a team owns never drops off its roster.
+    Returns {"updated": n, "added": n}."""
+    import pandas as pd
+
+    from ..data_sources import nflverse as nv
+
+    roster = nv.load_roster(year) if roster is None else roster
+    have = {r["gsis_id"]: r for r in conn.execute(
+        "SELECT gsis_id, name, position, nfl_team_abbr, status FROM nfl_players WHERE season_id=?",
+        (season_id,))}
+    val = lambda v: None if v is None or (isinstance(v, float) and pd.isna(v)) else v
+    updated = added = 0
+    for r in roster.to_dict("records"):
+        gid = val(r.get("gsis_id"))
+        if not gid:
+            continue
+        name, pos, team, status = (val(r.get("full_name")), val(r.get("position")),
+                                   val(r.get("team")), val(r.get("status")))
+        old = have.get(gid)
+        if old is None:
+            if pos in PLAYER_POSITIONS and name and team:
+                conn.execute("INSERT INTO nfl_players(season_id,gsis_id,name,position,nfl_team_abbr,status) "
+                             "VALUES (?,?,?,?,?,?)", (season_id, gid, name, pos, team, status))
+                added += 1
+            continue
+        new = (name or old["name"], pos or old["position"], team or old["nfl_team_abbr"], status)
+        if new != (old["name"], old["position"], old["nfl_team_abbr"], old["status"]):
+            conn.execute("UPDATE nfl_players SET name=?, position=?, nfl_team_abbr=?, status=? "
+                         "WHERE season_id=? AND gsis_id=?", (*new, season_id, gid))
+            updated += 1
+    conn.commit()
+    return {"updated": updated, "added": added}
+
+
+def refresh_nfl_players_daily(conn, season_id: int, year: int, now) -> dict | None:
+    """refresh_nfl_players at most once per Central calendar day. None if it
+    already ran today."""
+    from .progress import CT
+
+    key, today = f"players_refreshed:{season_id}", now.astimezone(CT).date().isoformat()
+    row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    if row and row["value"][:10] == today:
+        return None
+    res = refresh_nfl_players(conn, season_id, year)
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)",
+                 (key, now.astimezone(CT).isoformat(timespec="minutes")))
+    conn.commit()
+    return res
+
+
 def assign_numbers_and_slots(conn, season_id: int) -> None:
     """Give each team a team_number (schedule) and draft_slot (card), 1-11 per
     conference. Deterministic — real draws replace these on draft day."""
@@ -93,7 +155,7 @@ def delete_season(conn, season_id: int) -> dict:
                  (f"draft_cursor:{season_id}:%", f"week_final:{season_id}:%",
                   f"week_live:{season_id}:%", f"kickoffs:{season_id}:%",
                   f"espn_final_seen:{season_id}:%", f"pin_reset:{season_id}:%", f"score_check_dismissed:{season_id}:%",
-                  f"setup_locked:{season_id}", f"pin_setup_open:{season_id}",
+                  f"setup_locked:{season_id}", f"players_refreshed:{season_id}",
                   f"scoring_note:{season_id}"))
     conn.execute("DELETE FROM seasons WHERE id=?", (season_id,))
     conn.commit()
