@@ -128,6 +128,11 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-16: DEF/ST SACKS = times the opponent's QB was sacked (ESPN team stat
+  "sacksYardsLost", e.g. "4-16"), not the sum of individual defenders — a sack
+  credited to nobody still counts. KC 2026 Week 1 had 4 (one uncredited); ESPN
+  had scored 3. nflverse already counted sack plays. All 32 Week 1 defenses now
+  agree between the two readers.
 - 2026-09-16: QB SLOT RUNNING/CATCHING (commissioner). The QB slot scores its
   QBs' (roster position QB) COMBINED rushing yards, receiving yards, receptions
   on the normal ladders, 6 per rushing/receiving TD, 2 per conversion scored —

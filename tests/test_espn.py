@@ -100,6 +100,17 @@ def test_the_reader_reduces_a_box_score_to_what_we_score(monkeypatch):
     assert g.unknown_scoring == []
 
 
+def test_a_sack_credited_to_nobody_still_counts_for_the_defense(monkeypatch):
+    """KC, 2026 Week 1: three defenders had a sack each, but Nix was sacked four
+    times — one went uncredited. The opponent's sacked count is the defense's."""
+    s = _summary()
+    for t in s["boxscore"]["teams"]:
+        if t["team"]["abbreviation"] == "HOU":
+            t["statistics"].append({"name": "sacksYardsLost", "displayValue": "4-23"})
+    _feed(monkeypatch, summary=s)
+    assert espn.game_lines("900").units["BUF"]["sacks"] == 4       # defenders only add up to 3
+
+
 def test_espn_team_spellings_map_onto_ours(monkeypatch):
     board = {"events": [{"id": "1", "status": {"type": {"state": "pre", "completed": False}},
                          "competitions": [{"competitors": [

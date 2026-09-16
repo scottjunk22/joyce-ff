@@ -131,6 +131,21 @@ def game_lines(event_id: str) -> GameLines:
         raise Unavailable(f"ESPN box score for {event_id} wasn't in the expected shape: {e}") from e
 
 
+def _team_sacks(opponent_stats: dict, defenders) -> float:
+    """A defense's sacks: how many times the OPPONENT's quarterback was sacked
+    ("sacksYardsLost" is "4-16" — 4 sacks for 16 yards). Adding up individual
+    defenders misses a sack credited to nobody (a coverage sack, a QB going
+    down on his own) — KC's third sack of Nix in 2026 Week 1 was one. The
+    individual sum is only the fallback when the team line is missing."""
+    v = opponent_stats.get("sacksYardsLost")
+    if v not in (None, "", "--"):
+        try:
+            return float(str(v).split("-")[0])
+        except ValueError:
+            pass
+    return sum(_num(st["SACKS"]) for _, _, st in defenders)
+
+
 def _parse(s: dict) -> GameLines:
     bx = s["boxscore"]
     g = GameLines()
@@ -174,7 +189,7 @@ def _parse(s: dict) -> GameLines:
             "extra_points_made": sum(_num(st["XP"]) for _, _, st in cat(b, "kicking")),
             "points_allowed": score[opp[ab]],
             "yards_allowed": _num(tstats[opp[ab]]["totalYards"]),
-            "sacks": sum(_num(st["SACKS"]) for _, _, st in cat(b, "defensive")),
+            "sacks": _team_sacks(tstats[opp[ab]], cat(b, "defensive")),
             "interceptions": sum(_num(st["INT"]) for _, _, st in cat(b, "interceptions")),
             "fumble_recoveries": _num(tstats[opp[ab]]["fumblesLost"]),
             "two_point_passes": 0,
