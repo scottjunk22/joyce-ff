@@ -88,7 +88,7 @@
  /* transactions */
  .txlist{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
  .txlist .cap{padding:8px 13px;font-weight:800;border-bottom:2px solid var(--line)}
- .tx{padding:7px 13px;border-bottom:1px solid var(--line);font-size:13px}.tx .wk{color:var(--dim)}.tx .trade{color:var(--blue)}.tx .open{color:var(--warn)}
+ .tx{padding:7px 13px;border-bottom:1px solid var(--line);font-size:13px}.tx .wk{color:var(--dim)}
  /* modal */
  .mb{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:12px;z-index:20}
  .mb.show{display:flex}.modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:760px;width:100%;max-height:90vh;overflow:auto;padding:16px 18px}
@@ -163,6 +163,8 @@
  /* trade/open */
  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:8px 0}.seg button{background:var(--panel2);border:0;color:var(--text);padding:6px 14px;cursor:pointer}.seg button.on{background:var(--blue);color:#04121d;font-weight:700}
  .txseg{display:flex;gap:8px;margin:10px 0}
+ .txtag{font-size:10px;font-weight:700;letter-spacing:.03em;border:1px solid;border-radius:5px;padding:0 5px;margin-right:6px;vertical-align:1px}
+ .txtag.trade{color:var(--dim);border-color:var(--dim)}.txtag.open{color:var(--blue);border-color:var(--blue)}
  .txmode{flex:1;border:1px solid var(--line);border-radius:8px;padding:7px 10px;cursor:pointer}
  .txmode.t.on{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 14%,transparent)}
  .txmode.o.on{border-color:var(--blue);background:color-mix(in srgb,var(--blue) 12%,transparent)}
@@ -392,7 +394,11 @@ function renderElim(){
 }
 function txSide(s){ return `${s.name}${s.kind==='PLAYER'&&s.team?` <span class="team">${s.team}</span>`:''}`; }
 function txSwap(t){ return `<span class="poschip">${t.pos}</span> ${txSide(t.out)} → ${txSide(t.in)}`; }
-function renderTx(){ const row=t=>`<div class="tx"><span class="wk">W${t.week}</span> <span class="${t.type.toLowerCase()}">${t.type==='TRADE'?'⇄':'＋'}</span> <b>${t.team}</b> — ${txSwap(t)}</div>`;
+/* A move in a list: grey TRADE (a permanent move, already made) or the blue
+   OPEN used everywhere a rental appears. Red is kept for the move screen, the
+   moment a permanent trade is being decided. */
+function txTag(type){ return type==='TRADE'?'<span class="txtag trade">TRADE</span>':'<span class="txtag open">OPEN</span>'; }
+function renderTx(){ const row=t=>`<div class="tx"><span class="wk">W${t.week}</span> ${txTag(t.type)}<b>${t.team}</b> — ${txSwap(t)}</div>`;
   $('txBlue').innerHTML=STATE.transactions.BLUE.map(row).join('')||'<div class="tx sub">none</div>';
   $('txRed').innerHTML=STATE.transactions.RED.map(row).join('')||'<div class="tx sub">none</div>'; }
 
@@ -467,7 +473,7 @@ async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?we
     : `<span class="fbal paid">settled</span>`;
   const fees = `<div class="fees"><div class="fhd"><span>Account <span class="sub">· ${f.free_used}/5 free trades used</span></span>${balTxt}</div>`
     +`<div class="frow"><span>Entry fee</span><span>${b(f.entry_fee_cents)}</span></div>`
-    +d.history.map(h=>`<div class="frow"><span>W${h.week} ${h.type==='TRADE'?'⇄':'＋'} ${txSwap(h)}</span><span>${h.fee?b(h.fee):'<span class="sub">free</span>'}</span></div>`).join('')
+    +d.history.map(h=>`<div class="frow"><span>W${h.week} ${txTag(h.type)}${txSwap(h)}</span><span>${h.fee?b(h.fee):'<span class="sub">free</span>'}</span></div>`).join('')
     +(d.payments||[]).map(p=>`<div class="frow"><span>✓ payment${p.note?` <span class="sub">(${p.note})</span>`:''}</span><span class="paid">−${b(p.amount_cents)}</span></div>`).join('')
     +(f.winnings_cents?`<div class="frow"><span>🏆 Week 15 winnings</span><span class="paid">−${b(f.winnings_cents)}</span></div>`:'')
     +`</div>`;
@@ -724,7 +730,7 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
     +teams.map(row).join('')+`</tbody></table></div>`;
   const txs=[...STATE.transactions.BLUE,...STATE.transactions.RED].sort((a,b)=>b.id-a.id);
   const txSection = txs.length ? `<div style="margin:14px 0 4px;font-weight:800">Recent moves <span class="sub">— convert a mis-toggled Trade/Open, or reverse it</span></div>`
-    +txs.map(t=>`<div class="frow"><span><span class="wk">W${t.week}</span> ${t.type==='TRADE'?'⇄':'＋'} <b>${t.team}</b> — ${txSwap(t)}</span>
+    +txs.map(t=>`<div class="frow"><span><span class="wk">W${t.week}</span> ${txTag(t.type)}<b>${t.team}</b> — ${txSwap(t)}</span>
       <span style="display:flex;gap:5px;white-space:nowrap"><button class="chip" onclick="convertTx(${t.id},'${t.type}')">→ ${t.type==='TRADE'?'Open':'Trade'}</button><button class="chip" style="border-color:var(--bad);color:var(--bad)" onclick="reverseTx(${t.id})">reverse</button></span></div>`).join('')
     +`<div class="sub" style="margin-top:6px">To fix the wrong player: reverse the move, then redo it correctly from the team's Trade/Open button.</div>` : '';
   const allT=[...STATE.standings.BLUE,...STATE.standings.RED];
@@ -853,7 +859,7 @@ async function loadScoreChecks(){
 async function loadAudit(){
   const box=$('auditBox'); if(!box) return;
   const j=await apost('/api/admin/audit',{}); if(!j||!box) return;
-  const rows=[...(j.transactions||[]).map(t=>`<div class="frow"><span><span class="wk">W${t.week}</span> ${t.type==='TRADE'?'⇄':'＋'} <b>${t.team}</b></span><span class="sub">entered by ${t.entered_by}</span></div>`),
+  const rows=[...(j.transactions||[]).map(t=>`<div class="frow"><span><span class="wk">W${t.week}</span> ${txTag(t.type)}<b>${t.team}</b></span><span class="sub">entered by ${t.entered_by}</span></div>`),
               ...(j.lineups||[]).map(l=>`<div class="frow"><span><span class="wk">W${l.week}</span> <b>${l.team}</b> lineup</span><span class="sub">entered by ${l.by}</span></div>`)];
   box.innerHTML = rows.length
     ? `<div style="margin-top:8px;font-weight:800;font-size:12px">Entered on a manager's behalf <span class="sub">(only you see this)</span></div>`+rows.join('')
