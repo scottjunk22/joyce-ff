@@ -144,8 +144,15 @@ def resolve_stat_check(conn, season_id: int, check_id: int, action: str, by: str
             "SELECT breakdown_json FROM asset_week_scores WHERE season_id=? AND ff_week=? "
             "AND asset_kind=? AND asset_ref=? AND unit_type=?",
             (season_id, row["ff_week"], row["asset_kind"], row["asset_ref"], row["unit_type"])).fetchone()
-        items = json.loads(line["breakdown_json"] or "[]") if line else []
-        items.append([f"Stat correction ({row['source']})", row["other_points"] - row["locked_points"]])
+        # Take the other source's own lines, so the box score explains the new
+        # number instead of showing the old lines plus a correction.
+        if row["other_breakdown"]:
+            items = json.loads(row["other_breakdown"])
+        else:
+            items = json.loads(line["breakdown_json"] or "[]") if line else []
+            items.append([f"Stat correction ({row['source']})",
+                          row["other_points"] - row["locked_points"]])
+        items.append([f"corrected from {row['source']} · was {row['locked_points']:g}", 0])
         conn.execute(
             "UPDATE asset_week_scores SET points=?, breakdown_json=? WHERE season_id=? AND ff_week=? "
             "AND asset_kind=? AND asset_ref=? AND unit_type=?",

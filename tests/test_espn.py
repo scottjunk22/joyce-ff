@@ -272,12 +272,29 @@ def test_a_later_difference_is_noted_and_nothing_changes(season):
                  "VALUES (?,?,1,'RB','PLAYER','g_rb')", (sid, team))
     conn.execute("INSERT INTO asset_week_scores(season_id,ff_week,asset_kind,asset_ref,unit_type,points,"
                  "computed_at) VALUES (?,1,'PLAYER','g_rb','',8,'t')", (sid,))
-    scoring._check_locked(conn, sid, 1, "PLAYER", "g_rb", None, 8, "nflverse")      # same: nothing
-    scoring._check_locked(conn, sid, 1, "PLAYER", "nobody", None, 6, "nflverse")    # not started
+    from joyce_ff.scoring.models import ScoreBreakdown
+
+    def bd(total, items):
+        b = ScoreBreakdown()
+        for label, pts in items:
+            b.add(label, pts)
+        assert b.total == total
+        return b
+
+    same = bd(8, [("80 rush yds", 2), ("1 rushing TD", 6)])
+    scoring._check_locked(conn, sid, 1, "PLAYER", "g_rb", None, same, "nflverse")   # same: nothing
+    scoring._check_locked(conn, sid, 1, "PLAYER", "nobody", None,
+                          bd(6, [("1 rushing TD", 6)]), "nflverse")                 # not started
     assert conn.execute("SELECT COUNT(*) c FROM stat_checks").fetchone()["c"] == 0
-    scoring._check_locked(conn, sid, 1, "PLAYER", "g_rb", None, 10, "nflverse")
-    row = conn.execute("SELECT locked_points, other_points FROM stat_checks").fetchone()
+    # ...but the same total with clearer lines refreshes the itemization in place
+    assert conn.execute("SELECT breakdown_json FROM asset_week_scores WHERE asset_ref='g_rb'"
+                        ).fetchone()["breakdown_json"] == '[["80 rush yds", 2], ["1 rushing TD", 6]]'
+    scoring._check_locked(conn, sid, 1, "PLAYER", "g_rb", None,
+                          bd(10, [("110 rush yds", 3), ("1 rushing TD", 6), ("1 reception", 1)]),
+                          "nflverse")
+    row = conn.execute("SELECT locked_points, other_points, other_breakdown FROM stat_checks").fetchone()
     assert (row["locked_points"], row["other_points"]) == (8, 10)
+    assert "1 reception" in row["other_breakdown"]          # kept, for the box score on Change
     assert conn.execute("SELECT points FROM asset_week_scores WHERE asset_ref='g_rb'").fetchone()["points"] == 8
 
 

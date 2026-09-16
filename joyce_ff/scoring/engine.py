@@ -133,11 +133,11 @@ def score_player_game(g: PlayerGame, assumptions: dict | None = None) -> ScoreBr
     b.add(f"{_n(g.receiving_yards)} rec yds", receiving_yard_points(g.receiving_yards))
     b.add(_pl(g.receptions, "reception"), reception_points(g.receptions))
 
-    # Any TD the player scores is 6.
-    td_count = g.rushing_tds + g.receiving_tds
+    # Any TD the player scores is 6, listed by how he scored it.
+    b.add(_pl(g.rushing_tds, "rushing TD"), g.rushing_tds * rules.TD_ANY)
+    b.add(_pl(g.receiving_tds, "receiving TD"), g.receiving_tds * rules.TD_ANY)
     if a.get("RETURN_TD_COUNTS_FOR_INDIVIDUAL", True):
-        td_count += g.return_tds
-    b.add(_pl(td_count, "TD"), td_count * rules.TD_ANY)
+        b.add(_pl(g.return_tds, "return TD"), g.return_tds * rules.TD_ANY)
 
     b.add(_pl(g.two_point_conversions, "2-pt conversion"),
           g.two_point_conversions * rules.TWO_POINT_CONVERSION)
@@ -165,8 +165,8 @@ def score_qb_unit_game(g: QBUnitGame, assumptions: dict | None = None) -> ScoreB
     b.add(f"{_n(g.rushing_yards)} QB rush yds", rushing_yard_points(g.rushing_yards))
     b.add(f"{_n(g.receiving_yards)} QB rec yds", receiving_yard_points(g.receiving_yards))
     b.add(_pl(g.receptions, "QB reception"), reception_points(g.receptions))
-    tds = g.rushing_tds + g.receiving_tds
-    b.add(_pl(tds, "QB TD"), tds * rules.TD_ANY)
+    b.add(_pl(g.rushing_tds, "QB rushing TD"), g.rushing_tds * rules.TD_ANY)
+    b.add(_pl(g.receiving_tds, "QB receiving TD"), g.receiving_tds * rules.TD_ANY)
     b.add(_pl(g.two_point_conversions, "QB 2-pt conversion"),
           g.two_point_conversions * rules.TWO_POINT_CONVERSION)
 

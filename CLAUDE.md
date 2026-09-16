@@ -139,7 +139,13 @@ what the Phase-1 reconciliation is designed to arbitrate.
   new rule. Locked lines surface as stat checks for Change — the nflverse
   cross-check now re-compares EVERY locked game, not just ESPN-locked ones, so
   a rule change reaches lines that locked from nflverse (most of practice
-  Week 1 locked with source NULL, before that column existed).
+  Week 1 locked with source NULL, before that column existed). A stat check
+  keeps the other source's ITEMIZED lines (stat_checks.other_breakdown), so
+  Change replaces the whole breakdown and the box score explains the new total,
+  with a 0-point note line "corrected from nflverse · was N" (0-point items
+  render as notes). When totals already agree the itemization is refreshed in
+  place, notes kept. Breakdowns name TDs by how they were scored (rushing /
+  receiving / return / QB rushing).
 - 2026-09-15: COMMISSIONER TAB LAYOUT (commissioner). Order: Needs your
   attention (ties, stat checks with Change/Keep buttons, check-lineup notes;
   else a green "nothing") -> This week (lineups count, PIN count only while a

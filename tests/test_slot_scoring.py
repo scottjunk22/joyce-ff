@@ -36,7 +36,7 @@ def test_player_rushing_game_with_td():
     b = score_player_game(g)
     assert b.total == 9
     assert ("110 rush yds", 3) in b.items
-    assert ("1 TD", 6) in b.items
+    assert ("1 rushing TD", 6) in b.items   # TDs are listed by how they were scored
 
 
 def test_player_receiving_game_full_line():

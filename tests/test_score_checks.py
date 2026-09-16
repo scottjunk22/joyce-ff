@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 
 import pytest
 
@@ -90,8 +91,9 @@ def _stat_check(c, sid):
     c.execute("INSERT INTO asset_week_scores(season_id,ff_week,asset_kind,asset_ref,unit_type,points,"
               "breakdown_json,computed_at) VALUES (?,1,'PLAYER','p_jj','',18,'[[\"TD\",6]]','t')", (sid,))
     cid = c.execute("INSERT INTO stat_checks(season_id,ff_week,asset_kind,asset_ref,unit_type,locked_points,"
-                    "other_points,source,noted_at) VALUES (?,1,'PLAYER','p_jj','',18,20,'nflverse','t')",
-                    (sid,)).lastrowid
+                    "other_points,other_breakdown,source,noted_at) VALUES (?,1,'PLAYER','p_jj','',18,20,"
+                    "'[[\"2 receptions\",2],[\"1 receiving TD\",6],[\"1 2-pt conversion\",2],[\"120 rec yds\",10]]',"
+                    "'nflverse','t')", (sid,)).lastrowid
     c.commit()
     return t, cid
 
@@ -102,10 +104,23 @@ def test_changing_a_stat_check_rewrites_the_line_and_the_team_total(lg):
     team, cid = _stat_check(c, sid)
     score_checks.resolve_stat_check(c, sid, cid, "change", "Steve")
     line = c.execute("SELECT points, breakdown_json FROM asset_week_scores").fetchone()
-    assert line["points"] == 20 and "Stat correction (nflverse)" in line["breakdown_json"]
+    # nflverse's own lines explain the new total, with a note of what it was.
+    assert line["points"] == 20
+    assert json.loads(line["breakdown_json"]) == [
+        ["2 receptions", 2], ["1 receiving TD", 6], ["1 2-pt conversion", 2], ["120 rec yds", 10],
+        ["corrected from nflverse · was 18", 0]]
     assert c.execute("SELECT computed_points FROM team_week_scores WHERE team_id=?",
                      (team,)).fetchone()["computed_points"] == 20
     assert c.execute("SELECT resolution FROM stat_checks").fetchone()["resolution"] == "changed"
+    # A later cross-check refreshes the lines but keeps the "corrected" note.
+    from joyce_ff.scoring.models import ScoreBreakdown
+    b = ScoreBreakdown()
+    b.add("1 receiving TD", 6)
+    b.add("140 rec yds", 14)
+    from joyce_ff.league import scoring
+    scoring._check_locked(c, sid, 1, "PLAYER", "p_jj", None, b, "nflverse")
+    assert json.loads(c.execute("SELECT breakdown_json FROM asset_week_scores").fetchone()["breakdown_json"]) == [
+        ["1 receiving TD", 6], ["140 rec yds", 14], ["corrected from nflverse · was 18", 0]]
     with pytest.raises(ValueError):
         score_checks.resolve_stat_check(c, sid, cid, "keep", "Steve")
 

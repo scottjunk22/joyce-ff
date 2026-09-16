@@ -109,7 +109,7 @@ def ingest_asset_scores_from_nflverse(conn, season_id: int, ff_week: int) -> int
         if yards is not None and game_of.get(team) in finished:
             fill_yards_allowed(conn, season_id, ff_week, ref, yards)
         if game_of.get(team) in locked_games and game_of.get(team) in finished:
-            _check_locked(conn, season_id, ff_week, kind, ref, unit, b.total, "nflverse")
+            _check_locked(conn, season_id, ff_week, kind, ref, unit, b, "nflverse")
 
     pw = nv.player_week_stats(pbp)
     pw = pw[pw["week"] == wk]
@@ -178,10 +178,16 @@ def _lock_finished_games(conn, season_id, ff_week, finished, games, year, wk) ->
     return n
 
 
-def _check_locked(conn, season_id, ff_week, kind, ref, unit, points, source) -> None:
+def _check_locked(conn, season_id, ff_week, kind, ref, unit, breakdown, source) -> None:
     """Note it when another source's complete line for a LOCKED asset scores
     differently. Only for assets someone actually started that week — a
-    backup nobody owns isn't worth the commissioner's attention."""
+    backup nobody owns isn't worth the commissioner's attention.
+
+    The other source's itemized lines are kept with the note, so accepting it
+    replaces the whole breakdown and the box score explains the new number.
+    When the totals agree, the itemization is refreshed in place (same points):
+    it's how a line scored under a rule change reads its way rather than
+    carrying stale labels."""
     started = conn.execute(
         "SELECT 1 FROM weekly_lineups WHERE season_id=? AND ff_week=? AND asset_kind=? "
         "AND asset_ref=? AND (asset_kind='PLAYER' OR roster_slot=?) LIMIT 1",
@@ -189,14 +195,28 @@ def _check_locked(conn, season_id, ff_week, kind, ref, unit, points, source) -> 
     if not started:
         return
     row = conn.execute(
-        "SELECT points FROM asset_week_scores WHERE season_id=? AND ff_week=? AND asset_kind=? "
-        "AND asset_ref=? AND unit_type=?", (season_id, ff_week, kind, ref, unit or "")).fetchone()
+        "SELECT points, breakdown_json FROM asset_week_scores WHERE season_id=? AND ff_week=? "
+        "AND asset_kind=? AND asset_ref=? AND unit_type=?",
+        (season_id, ff_week, kind, ref, unit or "")).fetchone()
     locked = float(row["points"]) if row else 0.0
-    if locked != float(points):
+    if locked != float(breakdown.total):
         conn.execute(
             "INSERT OR IGNORE INTO stat_checks(season_id,ff_week,asset_kind,asset_ref,unit_type,"
-            "locked_points,other_points,source,noted_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (season_id, ff_week, kind, ref, unit or "", locked, float(points), source, _now()))
+            "locked_points,other_points,other_breakdown,source,noted_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (season_id, ff_week, kind, ref, unit or "", locked, float(breakdown.total),
+             json.dumps(breakdown.items), source, _now()))
+        return
+    if not row:
+        return
+    # Same total: refresh the lines, keeping any 0-point notes (a commissioner's
+    # "corrected from ..." line) so a refresh never erases what happened.
+    old = json.loads(row["breakdown_json"] or "[]")
+    items = json.dumps(list(breakdown.items) + [it for it in old if not it[1]])
+    if (row["breakdown_json"] or "") != items:
+        conn.execute(
+            "UPDATE asset_week_scores SET breakdown_json=? WHERE season_id=? AND ff_week=? "
+            "AND asset_kind=? AND asset_ref=? AND unit_type=?",
+            (items, season_id, ff_week, kind, ref, unit or ""))
 
 
 # --- ESPN: the fast source --------------------------------------------------

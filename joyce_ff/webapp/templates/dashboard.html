@@ -406,7 +406,10 @@ async function boxScore(homeId,awayId,final){
   const TB=((STATE.scoreboard||[]).find(x=>x.home.id===homeId&&x.away.id===awayId)||{}).tiebreak;
   const hw=!!final&&(th>ta||!!(TB&&TB.winner===homeId)), aw=!!final&&(ta>th||!!(TB&&TB.winner===awayId));
   const tie=!!final&&th===ta && (th>0||ta>0);
-  const bdLines=x=>(x.breakdown||[]).map(it=>`<div class="bdline"><span>${it[0]}</span><span class="p">+${+it[1]}</span></div>`).join('');
+  // A 0-point item is a note (e.g. a line the commissioner corrected), not a score.
+  const bdLines=x=>(x.breakdown||[]).map(it=>+it[1]
+    ? `<div class="bdline"><span>${it[0]}</span><span class="p">+${+it[1]}</span></div>`
+    : `<div class="bdline"><span>${it[0]}</span></div>`).join('');
   /* Every starter who isn't finished gets a tag; a row with none is final,
      even at 0 points. His points show as a dash until his game locks: a
      mid-game stats update can hold half a game, and a number a manager sees
@@ -938,7 +941,7 @@ function renderWP(){
   const body=rows.map(r=>`<tr class="bdrow" onclick="WP.open=WP.open===${r.i}?-1:${r.i};renderWP()">`
       +`<td>${r.breakdown.length?'<span class="ci">▸</span> ':''}${r.name} ${wpWhen(r)}</td><td>${r.team}</td>`
       +`<td style="text-align:right;font-weight:700">${r.points==null?'<span class="sub">–</span>':(+r.points).toFixed(0)}</td><td>${wpOwners(r)}</td></tr>`
-      +(WP.open===r.i&&r.breakdown.length?`<tr><td colspan="4">${r.breakdown.map(b=>`<div class="bdline"><span>${b[0]}</span><span class="p">+${+b[1]}</span></div>`).join('')}</td></tr>`:'')).join('')
+      +(WP.open===r.i&&r.breakdown.length?`<tr><td colspan="4">${r.breakdown.map(b=>`<div class="bdline"><span>${b[0]}</span>${+b[1]?`<span class="p">+${+b[1]}</span>`:''}</div>`).join('')}</td></tr>`:'')).join('')
     || '<tr><td colspan="4" class="sub" style="padding:10px">No one matches.</td></tr>';
   openM(`<h3>📋 Weekly points <span class="sub">· commissioner only</span></h3>
     <div class="sub" style="margin:4px 0 8px">Every team unit, and every RB and receiver who recorded a stat. “Owned by” is who held him that week; OPEN is a one-week rental.</div>

@@ -258,6 +258,7 @@ CREATE TABLE IF NOT EXISTS stat_checks (
     other_points   REAL NOT NULL,
     source         TEXT NOT NULL,      -- who reported other_points
     noted_at       TEXT NOT NULL,
+    other_breakdown TEXT,              -- the other source's itemized lines, used on 'changed'
     resolution     TEXT,               -- NULL = waiting on the commissioner; 'kept' / 'changed'
     resolved_by    TEXT,
     resolved_at    TEXT,
@@ -439,7 +440,7 @@ def migrate(conn: sqlite3.Connection) -> None:
                  "other_points REAL NOT NULL, source TEXT NOT NULL, noted_at TEXT NOT NULL, "
                  "UNIQUE(season_id, ff_week, asset_kind, asset_ref, unit_type))")
     ccols = {r["name"] for r in conn.execute("PRAGMA table_info(stat_checks)")}
-    for col in ("resolution", "resolved_by", "resolved_at"):
+    for col in ("resolution", "resolved_by", "resolved_at", "other_breakdown"):
         if col not in ccols:
             conn.execute(f"ALTER TABLE stat_checks ADD COLUMN {col} TEXT")
     conn.execute("CREATE TABLE IF NOT EXISTS nfl_week_games ("
