@@ -242,3 +242,20 @@ def test_a_box_score_keeps_nine_slots_with_an_extra_starter_in_the_slot_he_fills
     qb_row = box[3]
     assert (qb_row["asset_ref"], qb_row["roster_slot"], qb_row["fills_as"]) == ("rb3", "RB", "RB")
     assert qb_row["flex_short"].startswith("for ") and "(bye)" in qb_row["flex_note"]
+
+
+def test_rosters_page_lists_every_team_by_conference_with_the_player_pool(client):
+    assert client.get("/rosters").status_code == 200
+    d = client.get("/api/rosters").get_json()
+    blue = {t["name"]: t for t in d["conferences"]["BLUE"]}
+    assert len(d["conferences"]["BLUE"]) == 11 and len(d["conferences"]["RED"]) == 11
+    names = [t["name"] for t in d["conferences"]["BLUE"]]
+    assert names == sorted(names, key=str.lower)                            # alphabetical
+    assert [p["ref"] for p in blue["OT Blitz"]["players"]] == ["p_bijan"]
+    assert {"p_bijan", "p_warren"} <= {p["ref"] for p in d["pool"]}          # searchable, owned or not
+    # a trade shows immediately
+    client.post(f"/api/team/{client.otb}/trade",
+                json={"passcode": "otblitz", "position": "RB", "out": "p_bijan", "in": "p_warren"})
+    d = client.get("/api/rosters").get_json()
+    ot = next(t for t in d["conferences"]["BLUE"] if t["name"] == "OT Blitz")
+    assert [p["ref"] for p in ot["players"]] == ["p_warren"]

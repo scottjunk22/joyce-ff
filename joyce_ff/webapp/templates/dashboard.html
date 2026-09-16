@@ -231,6 +231,7 @@
   <div class="txlist"><div class="cap" style="color:var(--red)">RED</div><div id="txRed"></div></div>
  </div>
  <footer class="foot">
+   <a id="lnkRosters">Rosters</a> ·
    <a id="lnkScoring">Point System</a> ·
    <a id="lnkHistory">B-ski Trophy</a> ·
    <a onclick="commishModal()">Commissioner</a>
@@ -312,7 +313,8 @@ function renderChrome(){
            band.classList.add('on'); }
     else band.classList.remove('on');
   }
-  const sc=$('lnkScoring'), hi=$('lnkHistory');
+  const sc=$('lnkScoring'), hi=$('lnkHistory'), ro=$('lnkRosters');
+  if(ro) ro.href=(API||'')+'/rosters';
   if(sc) sc.href=(API||'')+'/scoring';
   if(hi) hi.href=(API||'')+'/history';
 }

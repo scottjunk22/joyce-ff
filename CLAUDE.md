@@ -128,6 +128,13 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-16: ROSTERS PAGE (/rosters, footer link "Rosters"). All 22 rosters
+  from the live roster tables (a trade shows immediately), Blue then Red, teams
+  alphabetical, no manager names. Card header tinted by conference with
+  "#seed · W-L" (seed green in playoff position) and the defending-champion
+  trophy only (titles.ALIASES for renamed champions). Lineup-week tags: BYE,
+  OPEN rental under the covered player, NEW for a player traded in that week.
+  "Find a player" searches the whole pool: "Blue: OT Blitz · Red: available".
 - 2026-09-16: BYE QB/K FLEX (commissioner). A QB or K on bye and NOT covered by
   an Open may give its slot to an extra rostered RB or receiver (manager's
   choice); both on bye frees two. Still 9 starters; C and DEF/ST always start.

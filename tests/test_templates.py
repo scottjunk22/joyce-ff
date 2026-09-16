@@ -27,11 +27,12 @@ def _inline_scripts(html: str) -> list[str]:
                                             html, re.S)]
 
 
-@pytest.mark.parametrize("name", ["dashboard.html", "otblitz.html"])
+@pytest.mark.parametrize("name", ["dashboard.html", "otblitz.html", "rosters.html"])
 def test_template_javascript_parses(name, tmp_path):
     if not NODE:
         pytest.skip("node not installed")
-    html = (TEMPLATES / name).read_text(encoding="utf-8")
+    # Jinja values inside a script ({{ api|tojson }}) stand in as a string literal.
+    html = re.sub(r"\{\{.*?\}\}", '""', (TEMPLATES / name).read_text(encoding="utf-8"))
     scripts = _inline_scripts(html)
     assert scripts, f"{name}: expected inline JavaScript"
     for i, js in enumerate(scripts):

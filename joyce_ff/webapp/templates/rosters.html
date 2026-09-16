@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rosters — Steve Joyce Fantasy Football</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏈</text></svg>">
+<style>
+ :root{--bg:#0f1216;--panel:#161b22;--panel2:#1d242d;--line:#2b333d;--text:#e7eaf0;--bright:#fff;
+   --dim:#9aa4b2;--blue:#4c8dff;--red:#ff5d6c;--good:#4ade80;--warn:#fbbf24}
+ @media(prefers-color-scheme:light){:root{--bg:#eef1f6;--panel:#fff;--panel2:#f0f3f8;--line:#d9e0ea;
+   --text:#131922;--bright:#000;--dim:#5c6673;--blue:#1663d6;--red:#d62b3b}}
+ *{box-sizing:border-box}body{margin:0;font:14px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+ header{background:var(--panel);border-bottom:1px solid var(--line);padding:12px 16px;text-align:center}
+ h1{margin:0;font-size:18px}.hsub{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
+ .wrap{max-width:1120px;margin:0 auto;padding:16px}
+ .lead{color:var(--dim);font-size:13px;margin-bottom:10px}
+ .search{width:100%;max-width:380px;padding:8px 11px;font-size:15px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--text)}
+ .search:focus{outline:2px solid var(--blue);outline-offset:1px}
+ .results{margin:10px 0 4px;display:grid;gap:4px}
+ .res{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13.5px}
+ .res b{color:var(--bright)}.res .avail{color:var(--good)}.res .who{font-weight:700}
+ .conf{margin:22px 0 10px;padding:8px 12px;border-radius:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;font-size:13px}
+ .conf.BLUE{color:var(--blue);background:color-mix(in srgb,var(--blue) 14%,var(--panel))}
+ .conf.RED{color:var(--red);background:color-mix(in srgb,var(--red) 14%,var(--panel))}
+ .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;align-items:start}
+ .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+ .card.hit{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue)}
+ .ch{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:8px 11px;font-weight:700;font-size:14.5px;border-bottom:1px solid var(--line)}
+ .BLUE .ch{color:var(--blue);background:color-mix(in srgb,var(--blue) 14%,var(--panel))}
+ .RED .ch{color:var(--red);background:color-mix(in srgb,var(--red) 14%,var(--panel))}
+ .rk{font-size:12px;font-weight:400;color:var(--dim);white-space:nowrap}.rk .seed{font-weight:700;color:var(--dim)}.rk .seed.po{color:var(--good)}
+ .r{display:flex;align-items:center;gap:7px;padding:3px 11px;font-size:13px;border-bottom:1px solid var(--line)}
+ .r:last-child{border-bottom:0}
+ .r.hit{background:color-mix(in srgb,var(--blue) 18%,transparent)}
+ .s{width:42px;flex:none;font-size:10.5px;color:var(--dim);font-weight:700}
+ .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .tm{font-size:11px;color:var(--dim)}
+ .cov .nm{padding-left:4px;color:var(--dim)}
+ .tag{font-size:10px;font-weight:700;border:1px solid;border-radius:5px;padding:0 5px;margin-left:4px}
+ .tag.bye{color:var(--warn)}.tag.open{color:var(--blue)}.tag.new{color:var(--good)}
+ .empty{color:var(--dim);padding:10px 0}
+ .foot{margin:26px 0 12px;padding-top:14px;border-top:1px solid var(--line);text-align:center;color:var(--dim);font-size:12px}
+ .foot a{color:var(--dim)}
+</style></head><body>
+<header>
+  <h1>🏈 Rosters</h1>
+  <div class="hsub">Steve Joyce Fantasy Football</div>
+</header>
+<div class="wrap">
+  <div class="lead" id="lead">Loading…</div>
+  <label for="q" class="lead" style="display:block;margin-bottom:4px">Find a player</label>
+  <input id="q" class="search" type="search" placeholder="Player or NFL team, e.g. Kelce or Buffalo" autocomplete="off">
+  <div class="results" id="results"></div>
+  <div id="confs"></div>
+  <div class="foot"><a href="{{ home }}">← back to the league</a></div>
+</div>
+<script>
+const API={{ api|tojson }};
+let DATA=null;
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const CONF_NAME={BLUE:'Blue',RED:'Red'};
+
+/* One card per team. The trophy follows the rest of the site: defending
+   champion only. */
+function card(conf,t,hits){
+  const trophy=t.titles&&t.titles.defending?' <span title="Defending champion">\u{1F3C6}</span>':'';
+  const rank=t.seed?`<span class="rk"><span class="seed${t.playoffs?' po':''}">#${t.seed}</span> · ${t.wins}-${t.losses}</span>`:'';
+  const rows=t.players.map(p=>{
+    const key=p.slot+'|'+p.ref, hit=hits.has(key);
+    return `<div class="r${hit?' hit':''}"><span class="s">${esc(p.slot)}</span><span class="nm">${esc(p.name)}`
+      +(p.team?` <span class="tm">${esc(p.team)}</span>`:'')
+      +(p.bye?' <span class="tag bye">BYE</span>':'')+(p.new?' <span class="tag new">NEW</span>':'')+`</span></div>`
+      +p.opens.map(o=>`<div class="r cov${hits.has(p.slot+'|'+o.ref)?' hit':''}"><span class="s"></span><span class="nm">↳ ${esc(o.name)}`
+        +(o.team?` <span class="tm">${esc(o.team)}</span>`:'')+' <span class="tag open">OPEN</span></span></div>').join('');
+  }).join('');
+  const any=t.players.some(p=>hits.has(p.slot+'|'+p.ref)||p.opens.some(o=>hits.has(p.slot+'|'+o.ref)));
+  return `<div class="card${any?' hit':''}"><div class="ch"><span>${esc(t.name)}${trophy}</span>${rank}</div>${rows}</div>`;
+}
+
+/* Search the whole pool (rostered or not), then say who has each match in each
+   conference — or that he's available there. */
+function render(){
+  const q=$('q').value.trim().toLowerCase(), hits=new Set();
+  let res='';
+  if(q.length>=2){
+    const owners={};
+    for(const cc of ['BLUE','RED']) for(const t of DATA.conferences[cc]||[]) for(const p of t.players){
+      (owners[p.slot+'|'+p.ref]=owners[p.slot+'|'+p.ref]||{})[cc]=t.name;
+      for(const o of p.opens) ((owners[p.slot+'|'+o.ref]=owners[p.slot+'|'+o.ref]||{})[cc+'_open']=t.name);
+    }
+    const matches=DATA.pool.filter(p=>(p.name||'').toLowerCase().includes(q)||(p.team||'').toLowerCase()===q).slice(0,12);
+    matches.forEach(p=>hits.add(p.slot+'|'+p.ref));
+    res=matches.map(p=>{const o=owners[p.slot+'|'+p.ref]||{};
+      const side=cc=>`${CONF_NAME[cc]}: `+(o[cc]?`<span class="who">${esc(o[cc])}</span>`
+        :o[cc+'_open']?`<span class="who">${esc(o[cc+'_open'])}</span> (Open, this week)`:'<span class="avail">available</span>');
+      return `<div class="res"><b>${esc(p.name)}</b>${p.team?` <span class="tm">${esc(p.team)}</span>`:''} <span class="tm">· ${esc(p.slot)}</span> — ${side('BLUE')} · ${side('RED')}</div>`;}).join('')
+      ||`<div class="res">No player or team matches “${esc(q)}”.</div>`;
+  }
+  $('results').innerHTML=res;
+  $('confs').innerHTML=['BLUE','RED'].map(cc=>`<div class="conf ${cc}">${CONF_NAME[cc]} Conference</div>`
+    +`<div class="grid ${cc}">${(DATA.conferences[cc]||[]).map(t=>card(cc,t,hits)).join('')||'<div class="empty">No teams yet.</div>'}</div>`).join('');
+}
+
+(async function(){
+  const r=await fetch(API+'/api/rosters'); const j=await r.json().catch(()=>({}));
+  if(!r.ok){ $('lead').textContent=j.error||'Rosters are not available right now.'; return; }
+  DATA=j;
+  $('lead').textContent=`Week ${j.week} · every team's current roster. A trade shows here the moment it's made.`;
+  $('q').addEventListener('input',render);
+  render();
+})();
+</script>
+</body></html>

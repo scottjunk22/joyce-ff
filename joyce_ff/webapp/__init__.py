@@ -175,6 +175,66 @@ def create_app(db_path: str | None = None) -> Flask:
         from .scoring_page import build_cards
         return render_template("scoring.html", cards=build_cards(), home=_home())
 
+    @app.get("/rosters")
+    def rosters_page():
+        """Every team's roster, Blue and Red, with a player search."""
+        return render_template("rosters.html", home=_home(), api=DARK_PREFIX if _is_dark() else "")
+
+    @app.get("/api/rosters")
+    def rosters_api():
+        """All 22 rosters, read from the same tables as the team roster, box
+        score and Set Lineup — a trade shows here the moment it's made. Tags are
+        for the lineup week: BYE, the OPEN rental under the player it covers,
+        NEW for a player traded in that week. Plus the player pool, so a search
+        can say a player is available in a conference."""
+        conn = db()
+        s, err = _need_season()
+        if err:
+            return err
+        sid = s["id"]
+        wk = progress.lineup_week(conn, sid)
+        stand = st.compute_standings(conn, sid, progress.scoreboard_week(conn, sid))
+        rank = {t["team_id"]: t for cc in ("BLUE", "RED") for t in stand[cc]}
+        crowns = titles.for_season(conn, sid)
+        byes = {r["abbr"] for r in conn.execute(
+            "SELECT abbr FROM nfl_teams WHERE season_id=? AND bye_ff_week=?", (sid, wk))}
+        opens = {}
+        for t in conn.execute("SELECT team_id, position, out_asset_ref, in_asset_ref, in_asset_kind "
+                              "FROM transactions WHERE season_id=? AND ff_week=? AND type='OPEN' "
+                              "AND reversed=0", (sid, wk)):
+            in_team = _asset_team(conn, sid, t["in_asset_kind"], t["in_asset_ref"])
+            opens.setdefault((t["team_id"], t["position"], t["out_asset_ref"]), []).append({
+                "ref": t["in_asset_ref"], "team": display.team(in_team) if in_team else None,
+                "name": _dname(conn, sid, t["in_asset_kind"], t["in_asset_ref"],
+                               t["position"] if t["in_asset_kind"] == "TEAM_UNIT" else None)})
+        confs = {"BLUE": [], "RED": []}
+        for team in conn.execute("SELECT t.id, t.name, c.code FROM teams t JOIN conferences c "
+                                 "ON c.id=t.conference_id WHERE t.season_id=? ORDER BY t.name COLLATE NOCASE",
+                                 (sid,)):
+            players = []
+            for e in repo.current_roster(conn, team["id"]):
+                club = _asset_team(conn, sid, e["asset_kind"], e["asset_ref"])
+                players.append({
+                    "slot": e["roster_slot"], "ref": e["asset_ref"], "kind": e["asset_kind"],
+                    "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"], e["unit_type"]),
+                    "team": display.team(club) if (club and e["asset_kind"] == "PLAYER") else None,
+                    "bye": club in byes,
+                    "new": e["acquired_via"] == "TRADE" and e["acquired_ff_week"] == wk,
+                    "opens": opens.get((team["id"], e["roster_slot"], e["asset_ref"]), [])})
+            r = rank.get(team["id"], {})
+            confs.setdefault(team["code"], []).append({
+                "id": team["id"], "name": team["name"], "players": players,
+                "seed": r.get("seed"), "wins": r.get("wins", 0), "losses": r.get("losses", 0),
+                "playoffs": bool(r.get("playoffs")), "titles": crowns.get(team["id"])})
+        pool = [{"ref": p["gsis_id"], "name": p["name"], "slot": "RB" if p["position"] == "RB" else "R",
+                 "team": display.team(p["nfl_team_abbr"]) if p["nfl_team_abbr"] else None}
+                for p in conn.execute("SELECT gsis_id, name, position, nfl_team_abbr FROM nfl_players "
+                                      "WHERE season_id=? AND position IN ('RB','WR','TE')", (sid,))]
+        pool += [{"ref": u["abbr"], "slot": slot, "name": display.unit(u["abbr"], slot), "team": None}
+                 for u in conn.execute("SELECT abbr FROM nfl_teams WHERE season_id=?", (sid,))
+                 for slot in ("C", "K", "DEF/ST", "QB")]
+        return jsonify(week=wk, conferences=confs, pool=pool)
+
     @app.get("/history")
     def history_page():
         rows = list(db().execute(
