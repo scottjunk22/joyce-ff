@@ -206,7 +206,7 @@
   <div class="lg blue"><div class="cap">BLUE CONFERENCE</div><div class="tblwrap"><table><thead><tr><th>#</th><th>Team</th><th>W-L</th><th>Conf</th><th>PF</th><th>PA</th></tr></thead><tbody id="blue"></tbody></table></div></div>
   <div class="lg red"><div class="cap">RED CONFERENCE</div><div class="tblwrap"><table><thead><tr><th>#</th><th>Team</th><th>W-L</th><th>Conf</th><th>PF</th><th>PA</th></tr></thead><tbody id="red"></tbody></table></div></div>
  </div>
- <p class="sub">Click a team for its roster. Buttons: ⚙ lineup · ⇄＋ trade/open (each asks that team's PIN). <span style="color:var(--good);font-weight:700">Green</span> rank = top 8 → playoffs.</p>
+ <p class="sub">Click a team for its roster. The <b>Lineup</b> and <b>Trade/Open</b> buttons each ask that team's PIN. <span style="color:var(--good);font-weight:700">Green</span> rank = top 8 → playoffs.</p>
 
  <div class="elim" id="elimBox" style="margin-top:22px"></div>
 
@@ -364,8 +364,8 @@ function renderByes(){
 function teamRow(t){
   return `<tr class="${t.playoffs?'playoff':''}"><td>${t.seed}</td>
     <td><span class="tname" onclick="roster(${t.team_id})">${t.name}</span>${crown(t.team_id)}
-    <span class="acts"><span class="chip" onclick="event.stopPropagation();lineupModal(${t.team_id})">⚙</span>
-    <span class="chip" onclick="event.stopPropagation();txModal(${t.team_id})">⇄＋</span></span></td>
+    <span class="acts"><span class="chip" onclick="event.stopPropagation();lineupModal(${t.team_id})">Lineup</span>
+    <span class="chip" onclick="event.stopPropagation();txModal(${t.team_id})">Trade/Open</span></span></td>
     <td>${t.wins}-${t.losses}</td><td>${t.conf_wins}-${t.conf_losses}</td>
     <td>${t.pf.toFixed(0)}</td><td>${t.pa.toFixed(0)}</td></tr>`;
 }
@@ -697,7 +697,7 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
   const txSection = txs.length ? `<div style="margin:14px 0 4px;font-weight:800">Recent moves <span class="sub">— convert a mis-toggled Trade/Open, or reverse it</span></div>`
     +txs.map(t=>`<div class="frow"><span><span class="wk">W${t.week}</span> ${t.type==='TRADE'?'⇄':'＋'} <b>${t.team}</b> — ${txSwap(t)}</span>
       <span style="display:flex;gap:5px;white-space:nowrap"><button class="chip" onclick="convertTx(${t.id},'${t.type}')">→ ${t.type==='TRADE'?'Open':'Trade'}</button><button class="chip" style="border-color:var(--bad);color:var(--bad)" onclick="reverseTx(${t.id})">reverse</button></span></div>`).join('')
-    +`<div class="sub" style="margin-top:6px">To fix the wrong player: reverse the move, then redo it correctly from the team's ⇄＋.</div>` : '';
+    +`<div class="sub" style="margin-top:6px">To fix the wrong player: reverse the move, then redo it correctly from the team's Trade/Open button.</div>` : '';
   const allT=[...STATE.standings.BLUE,...STATE.standings.RED];
   const noPin=allT.filter(t=>!t.has_pin), PO=!!(STATE.season&&STATE.season.pin_setup_open);
   const pinBar=`<div class="lsum" style="border-color:${PO?'var(--warn)':'var(--line)'}">`
@@ -757,7 +757,7 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
     +cfold('score','Scores seem stuck? Score now',`<div class="sub" style="margin-bottom:8px">Scores post on their own about 10–15 minutes after each game ends. Use this only if one hasn't shown up.</div><button class="btn" onclick="runCurrent()">▶ Score now</button>`)
     +cfold('earlier','Earlier score checks',`<div id="earlierBox"><span class="sub">loading…</span></div>`)
     +cfold('moves','Recent moves and entries for managers',(txSection||'<div class="sub">No moves yet.</div>')+`<div id="auditBox"></div>`)
-    +cfold('act','Acting for a manager — how to',`<div class="sub">Open the team on the main page and use ⚙ lineup or ⇄＋ trade exactly as a manager would — enter <b>your commissioner passcode</b> where it asks for the PIN. You can also set past weeks and start players whose game has already kicked off.</div>`)
+    +cfold('act','Acting for a manager — how to',`<div class="sub">Open the team on the main page and use its <b>Lineup</b> or <b>Trade/Open</b> button exactly as a manager would — enter <b>your commissioner passcode</b> where it asks for the PIN. You can also set past weeks and start players whose game has already kicked off.</div>`)
     +cfold('pins','PIN setup (draft day)',pinBar)
     +cfold('season','Season setup — team names, new or delete season',lockBar+seasonBar)
     +`</div>`;
@@ -815,7 +815,7 @@ async function loadAudit(){
   const box=$('auditBox'); if(!box) return;
   const j=await apost('/api/admin/audit',{}); if(!j||!box) return;
   const rows=[...(j.transactions||[]).map(t=>`<div class="frow"><span><span class="wk">W${t.week}</span> ${t.type==='TRADE'?'⇄':'＋'} <b>${t.team}</b></span><span class="sub">entered by ${t.entered_by}</span></div>`),
-              ...(j.lineups||[]).map(l=>`<div class="frow"><span><span class="wk">W${l.week}</span> ⚙ <b>${l.team}</b> lineup</span><span class="sub">entered by ${l.by}</span></div>`)];
+              ...(j.lineups||[]).map(l=>`<div class="frow"><span><span class="wk">W${l.week}</span> <b>${l.team}</b> lineup</span><span class="sub">entered by ${l.by}</span></div>`)];
   box.innerHTML = rows.length
     ? `<div style="margin-top:8px;font-weight:800;font-size:12px">Entered on a manager's behalf <span class="sub">(only you see this)</span></div>`+rows.join('')
     : `<div class="sub" style="margin-top:6px">Nothing entered on a manager's behalf yet.</div>`;
