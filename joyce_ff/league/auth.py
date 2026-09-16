@@ -66,57 +66,71 @@ def team_has_pin(conn, team_id: int) -> bool:
     return bool(row and row["passcode_hash"])
 
 
-def _pin_window_key(season_id: int) -> str:
-    return f"pin_setup_open:{season_id}"
+# A team is OPEN for PIN setup only when the commissioner opens it — one team,
+# or every PIN-less team in a conference at its draft — and it stays open until
+# its manager sets a PIN, then closes on its own (commissioner, 2026-09-16:
+# many managers set theirs at home after the draft). There is no league-wide
+# switch: at the Blue draft, Red teams must not be claimable. A reset is the
+# same thing for a team that had a PIN. The commissioner never picks or learns
+# a manager's PIN.
+
+def _pin_open_key(season_id: int, team_id: int) -> str:
+    return f"pin_reset:{season_id}:{team_id}"          # key name predates opening by conference
 
 
-def pin_setup_open(conn, season_id: int) -> bool:
-    row = conn.execute("SELECT value FROM settings WHERE key=?",
-                       (_pin_window_key(season_id),)).fetchone()
-    return bool(row) and row["value"] == "1"
-
-
-def set_pin_setup_open(conn, season_id: int, is_open: bool) -> None:
+def open_team_pin(conn, season_id: int, team_id: int, kind: str = "open") -> None:
+    """Open one team; kind is 'open' (never had a PIN) or 'reset'."""
     conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)",
-                 (_pin_window_key(season_id), "1" if is_open else "0"))
+                 (_pin_open_key(season_id, team_id), kind))
     conn.commit()
-
-
-# A commissioner reset clears one team's PIN and opens THAT team alone for its
-# manager to set a new one, closing the moment they do (commissioner,
-# 2026-09-15). The commissioner never picks or learns the new PIN.
-
-def _pin_reset_key(season_id: int, team_id: int) -> str:
-    return f"pin_reset:{season_id}:{team_id}"
 
 
 def reset_team_pin(conn, season_id: int, team_id: int) -> None:
     conn.execute("UPDATE teams SET passcode_hash=NULL WHERE id=?", (team_id,))
-    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,'1')",
-                 (_pin_reset_key(season_id, team_id),))
+    open_team_pin(conn, season_id, team_id, "reset")
+
+
+def open_conference_pins(conn, season_id: int, conference_code: str) -> int:
+    """Open every team in the conference that has no PIN. Returns how many."""
+    ids = [r["id"] for r in conn.execute(
+        "SELECT t.id FROM teams t JOIN conferences c ON c.id=t.conference_id "
+        "WHERE t.season_id=? AND c.code=? AND t.passcode_hash IS NULL", (season_id, conference_code))]
+    for tid in ids:
+        conn.execute("INSERT OR IGNORE INTO settings(key,value) VALUES(?,'open')",
+                     (_pin_open_key(season_id, tid),))
+    conn.commit()
+    return len(ids)
+
+
+def close_team_pin(conn, season_id: int, team_id: int) -> None:
+    conn.execute("DELETE FROM settings WHERE key=?", (_pin_open_key(season_id, team_id),))
     conn.commit()
 
 
-def pin_resets(conn, season_id: int) -> set[int]:
-    """Teams reset by the commissioner whose manager hasn't set a new PIN yet."""
+def close_all_pins(conn, season_id: int) -> None:
+    conn.execute("DELETE FROM settings WHERE key LIKE ?", (f"pin_reset:{season_id}:%",))
+    conn.commit()
+
+
+def pin_opens(conn, season_id: int) -> dict[int, str]:
+    """{team_id: 'open' | 'reset'} for teams waiting on their manager to set a PIN."""
     prefix = f"pin_reset:{season_id}:"
-    return {int(r["key"][len(prefix):]) for r in conn.execute(
-        "SELECT key FROM settings WHERE key LIKE ?", (prefix + "%",))}
+    return {int(r["key"][len(prefix):]): ("reset" if r["value"] == "reset" else "open")
+            for r in conn.execute("SELECT key, value FROM settings WHERE key LIKE ?", (prefix + "%",))}
 
 
 def claim_team_pin(conn, season_id: int, team_id: int, pin: str) -> None:
-    """First-time claim: a manager sets their own PIN. Only possible while the
-    team has no PIN AND either the commissioner has the setup window open or
-    has reset this team — so an unclaimed team isn't left open to whoever
-    wanders by."""
-    if not (pin_setup_open(conn, season_id) or team_id in pin_resets(conn, season_id)):
-        raise PinError("PIN setup isn't open right now — ask the commissioner to open it")
+    """A manager sets their own PIN. Only possible while the commissioner has
+    this team open and it has no PIN — so an unclaimed team isn't left open to
+    whoever wanders by."""
+    if team_id not in pin_opens(conn, season_id):
+        raise PinError("PIN setup isn't open for this team — ask the commissioner to open it")
     if team_has_pin(conn, team_id):
         raise PinError("this team already has a PIN — use Change PIN, or ask the "
                        "commissioner to reset it")
     pin = validate_pin(pin)
     conn.execute("UPDATE teams SET passcode_hash=? WHERE id=?", (hash_passcode(pin), team_id))
-    conn.execute("DELETE FROM settings WHERE key=?", (_pin_reset_key(season_id, team_id),))
+    conn.execute("DELETE FROM settings WHERE key=?", (_pin_open_key(season_id, team_id),))
     conn.commit()
 
 

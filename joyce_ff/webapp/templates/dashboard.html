@@ -136,6 +136,8 @@
  .cgame .gi{width:14px;text-align:center}.cgame .gm{min-width:96px}.cgame .gt{color:var(--dim);font-size:12px}
  .cgame.s-checked .gi{color:var(--good)}.cgame.s-diff .gi,.cgame.s-diff .gt{color:var(--warn)}
  .lsum .nchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+ .pinconf{padding:6px 0;border-bottom:1px solid var(--line)}.pinconf:last-of-type{border-bottom:0}
+ .pinhd{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:14px}.pinhd .btn{margin-left:auto;font-size:13px}
  .svok{color:var(--good);font-weight:800;margin-left:4px;font-size:12px}
  .nchip{border:1px solid var(--bad);color:var(--bad);background:var(--panel);border-radius:999px;padding:2px 10px;font-size:12px;white-space:nowrap}
  /* box score */
@@ -459,17 +461,17 @@ async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?we
    the current PIN). Forgotten PINs are a commissioner reset, by design: PINs are
    hashed, so nobody can look one up. */
 function pinBox(id){
-  const t=TEAMS[id]||{}, open=!!(STATE.season&&STATE.season.pin_setup_open)||!!t.pin_reset;
+  const t=TEAMS[id]||{}, open=!!t.pin_open;
   if(!t.has_pin && open) return `<div class="fees" id="pinbox">
     <div class="fhd"><span>🔑 Set your PIN</span></div>
-    <div class="sub" style="padding:2px 10px 8px">${t.pin_reset?'Your PIN was reset — pick a new':'First time — pick a'} 4-6 digit PIN you'll remember.
+    <div class="sub" style="padding:2px 10px 8px">${t.pin_open==='reset'?'Your PIN was reset — pick a new':'First time — pick a'} 4-6 digit PIN you'll remember.
       You'll use it to submit lineups and make moves.</div>
     <div class="pass"><input type="password" id="pin1" inputmode="numeric" placeholder="PIN" style="width:80px">
       <input type="password" id="pin2" inputmode="numeric" placeholder="again" style="width:80px">
       <button class="go" onclick="claimPin(${id})">Set PIN</button></div>
     <div class="err" id="pinerr"></div></div>`;
   if(!t.has_pin) return `<div class="fees"><div class="fhd"><span>🔑 No PIN set</span></div>
-    <div class="sub" style="padding:2px 10px 8px">Ask the commissioner to open PIN setup, then set yours here.</div></div>`;
+    <div class="sub" style="padding:2px 10px 8px">Ask the commissioner to open PIN setup for your team, then set yours here.</div></div>`;
   return `<div class="fees" id="pinbox"><div class="fhd"><span>🔑 PIN</span>
       <button class="chip" onclick="showChangePin(${id})">change</button></div>
     <div id="pinchange"></div></div>`;
@@ -684,9 +686,9 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
   const LK=!!(STATE.season&&STATE.season.setup_locked), dis=LK?' disabled':'';
   const row=t=>{const f=STATE.fees[t.team_id]||{net_cents:0}, sc=scoreMap[t.team_id];
     return `<tr><td><input id="nm_${t.team_id}" style="width:108px" value="${t.name}"${dis} onchange="autoSaveTeam(${t.team_id})"><span class="svok" id="sv_${t.team_id}"></span></td><td><input id="tn_${t.team_id}" style="width:34px" value="${t.team_number??''}"${dis} onchange="autoSaveTeam(${t.team_id})"></td>
-      <td style="white-space:nowrap">${t.pin_reset?'<span class="sub">waiting for manager</span>'
+      <td style="white-space:nowrap">${t.pin_open?`<span class="sub">waiting for manager</span> <button class="chip" onclick="teamPin(${t.team_id},'close-pin')">close</button>`
         :t.has_pin?`<button class="chip" onclick="resetPin(${t.team_id},'${t.name.replace(/'/g,"\\'")}')">Reset PIN</button>`
-        :'<span class="sub">no PIN</span>'}</td>
+        :`<button class="chip" onclick="teamPin(${t.team_id},'open-pin')">Open PIN</button>`}</td>
       <td><input id="sc_${t.team_id}" style="width:42px" placeholder="${sc==null?'—':(+sc).toFixed(0)}"><button class="chip" onclick="setScore(${t.team_id})">set</button></td>
       <td>${bal(f.net_cents)}</td>
       <td><input id="pay_${t.team_id}" style="width:36px" placeholder="$"><button class="chip" onclick="applyPay(${t.team_id})">pay</button></td></tr>`;};
@@ -702,17 +704,27 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
       <span style="display:flex;gap:5px;white-space:nowrap"><button class="chip" onclick="convertTx(${t.id},'${t.type}')">→ ${t.type==='TRADE'?'Open':'Trade'}</button><button class="chip" style="border-color:var(--bad);color:var(--bad)" onclick="reverseTx(${t.id})">reverse</button></span></div>`).join('')
     +`<div class="sub" style="margin-top:6px">To fix the wrong player: reverse the move, then redo it correctly from the team's Trade/Open button.</div>` : '';
   const allT=[...STATE.standings.BLUE,...STATE.standings.RED];
-  const noPin=allT.filter(t=>!t.has_pin), PO=!!(STATE.season&&STATE.season.pin_setup_open);
-  const pinBar=`<div class="lsum" style="border-color:${PO?'var(--warn)':'var(--line)'}">`
-    +`<b>🔑 Manager PINs:</b> <span style="color:var(--good)">${allT.length-noPin.length}</span>/${allT.length} set`
-    +(noPin.length?`<div class="nchips">${noPin.map(t=>`<span class="nchip">${TRI} ${t.name}${t.pin_reset?' <span class="sub">· reset, waiting for the manager</span>':''}</span>`).join('')}</div>`:' <span class="sub">— everyone\'s in ✓</span>')
-    +`<div style="margin-top:6px">`
-    +(PO?`<b style="color:var(--warn)">Managers can set their PIN right now.</b> `
-        +`<button class="chip" onclick="pinSetup(false)">Turn this off</button>`
-      :`Managers cannot set a PIN right now. `
-        +`<button class="chip" onclick="pinSetup(true)">Let managers set their PIN</button>`)
-    +`</div><div class="sub" style="margin-top:4px">Turn this on at the draft so each manager picks their own 4-6 digit PIN, then turn it off. `
-    +`Forgot a PIN? Press Reset PIN beside the team below — only that team can then set a new PIN, until its manager does. PINs are stored scrambled, so nobody — not even you — can look one up.</div></div>`;
+  const noPin=allT.filter(t=>!t.has_pin);
+  const pinTag=t=>t.pin_open==='reset'?' <span class="sub">· reset, waiting for the manager</span>'
+    :t.pin_open?' <span class="sub">· open, waiting for the manager</span>':' <span class="sub">· not opened</span>';
+  /* PIN setup opens by conference at its draft, or one team at a time — never
+     league-wide, so the Blue draft can't expose Red teams. An opened team stays
+     open until its manager sets a PIN (many do it at home), then closes itself. */
+  const confPins=cc=>{const ts=STATE.standings[cc], set=ts.filter(t=>t.has_pin).length,
+      waiting=ts.filter(t=>!t.has_pin&&t.pin_open), unopened=ts.filter(t=>!t.has_pin&&!t.pin_open);
+    const label=cc==='BLUE'?'Blue':'Red';
+    return `<div class="pinconf"><div class="pinhd"><b>${label}</b> <span style="color:var(--good)">${set} set</span>`
+      +(waiting.length?` · <span style="color:var(--warn)">${waiting.length} open, waiting</span>`:'')
+      +(unopened.length?` · <span class="sub">${unopened.length} not opened</span>`:'')
+      +(unopened.length?` <button class="btn" onclick="openConfPins('${cc}')">Open PINs for ${label}</button>`:'')+`</div>`
+      +(waiting.length?waiting.map(t=>`<div class="frow"><span>${t.name}${t.pin_open==='reset'?' <span class="sub">· reset</span>':''}</span><button class="chip" onclick="teamPin(${t.team_id},'close-pin')">close</button></div>`).join(''):'')
+      +`</div>`;};
+  const anyOpen=allT.some(t=>t.pin_open);
+  const pinBar=`<div class="lsum">`
+    +confPins('BLUE')+confPins('RED')
+    +(anyOpen?`<div style="margin-top:8px"><button class="btn" onclick="closeAllPins()">Close PIN setup</button> <span class="sub">— closes every team still waiting</span></div>`:'')
+    +`<div class="sub" style="margin-top:8px">At each conference's draft, press <b>Open PINs for Blue</b> or <b>Red</b>. Each manager taps their team and picks a 4-6 digit PIN — at the draft or later at home; their team closes as soon as they do. `
+    +`Forgot a PIN? Press Reset PIN beside the team in the teams table. PINs are stored scrambled, so nobody — not even you — can look one up.</div></div>`;
   const lockBar=`<div class="lsum" style="border-color:${LK?'var(--good)':'var(--warn)'}">`
     +(LK?`✔ <b>Setup is finished.</b> Team names and numbers are set for the season, so they can't be changed by accident. `
         +`<button class="chip" onclick="toggleLock(false)">Make changes…</button>`
@@ -750,7 +762,7 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
   const attention=`<div class="csec">Needs your attention</div>`
     +(att.length?att.join(''):`<div class="cclear">✓ Nothing needs your attention</div>`);
   const pinGlance=noPin.length?ctile('pinmiss',`${allT.length-noPin.length} of ${allT.length}`,'manager PINs set',
-    `<div class="nchips">${noPin.map(t=>`<span class="nchip">${TRI} ${t.name}${t.pin_reset?' <span class="sub">· reset, waiting for the manager</span>':''}</span>`).join('')}</div>`,'','k-pins','🔑'):'';
+    `<div class="nchips">${noPin.map(t=>`<span class="nchip">${TRI} ${t.name}${pinTag(t)}</span>`).join('')}</div>`,'','k-pins','🔑'):'';
   const thisWeek=`<div class="csec">This week</div>${lsum}${pinGlance}`
     +`<div class="cglance cchk k-checks"><div class="cl" style="width:100%"><span class="cic">🔍</span>Scores double-checked against a second source (nflverse)</div><div id="checksBox" style="width:100%"><span class="sub">loading…</span></div></div>`;
   const tools=`<div class="csec">Tools</div><button class="cbig" onclick="weeklyPoints()">📋 Weekly points<span>Every player's points and who owned him</span></button>`;
@@ -901,9 +913,17 @@ async function newSeason(){ const yr=prompt('Start a new season — enter the st
     +`\n\nThe site will reload on the new season.`); location.reload(); } }
 async function applyPay(id){ const a=$('pay_'+id).value; if(!a)return; const j=await apost(`/api/team/${id}/payment`,{amount_cents:Math.round(parseFloat(a)*100),note:'commissioner'}); if(j){alert('Payment recorded');await load(VIEW, SEASON);renderCommish();} }
 async function setScore(id){ const v=$('sc_'+id).value; if(v==='')return; const j=await apost(`/api/admin/team/${id}/score`,{week:VIEW,points:parseFloat(v)}); if(j){alert('Score set for Week '+VIEW);await load(VIEW, SEASON);renderCommish();} }
-async function pinSetup(open){
-  if(open && !confirm('Open PIN setup?\n\nWhile it is open, any team WITHOUT a PIN can have one set by whoever is on the site. Do this with your managers present, then close it.')) return;
-  const j=await apost('/api/admin/pin-setup',{open});
+async function openConfPins(cc){
+  const label=cc==='BLUE'?'Blue':'Red';
+  if(!confirm(`Open PIN setup for ${label}?\n\nEvery ${label} team without a PIN can set one — at the draft or later from home. Each team closes as soon as its PIN is set. ${label==='Blue'?'Red':'Blue'} teams stay closed.`)) return;
+  const j=await apost('/api/admin/pins/open',{conf:cc});
+  if(j){ await load(VIEW, SEASON); renderCommish(); } }
+async function closeAllPins(){
+  if(!confirm('Close PIN setup for every team still waiting?\n\nA manager who hasn\'t set a PIN yet will need you to press Open PIN on their team.')) return;
+  const j=await apost('/api/admin/pins/close',{});
+  if(j){ await load(VIEW, SEASON); renderCommish(); } }
+async function teamPin(id,action){
+  const j=await apost(`/api/admin/team/${id}/${action}`,{});
   if(j){ await load(VIEW, SEASON); renderCommish(); } }
 async function deleteSeason(){
   const lbl=STATE.season?STATE.season.label:'';

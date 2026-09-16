@@ -483,7 +483,7 @@ def create_app(db_path: str | None = None) -> Flask:
         meta = {r["id"]: r for r in conn.execute(
             "SELECT id, alive, eliminated_ff_week, team_number, draft_slot, "
             "(passcode_hash IS NOT NULL) has_pin FROM teams WHERE season_id=?", (sid,))}
-        resets = auth.pin_resets(conn, sid)
+        pin_open = auth.pin_opens(conn, sid)
         for cc in ("BLUE", "RED"):
             for t in stand[cc]:
                 m = meta.get(t["team_id"])
@@ -493,7 +493,8 @@ def create_app(db_path: str | None = None) -> Flask:
                     t["team_number"] = m["team_number"]
                     t["draft_slot"] = m["draft_slot"]
                     t["has_pin"] = bool(m["has_pin"])
-                    t["pin_reset"] = t["team_id"] in resets
+                    t["pin_open"] = pin_open.get(t["team_id"])      # None / 'open' / 'reset'
+                    t["conf"] = cc
         scores, adjusted = {}, set()
         for r in conn.execute("SELECT team_id, computed_points, adjusted FROM team_week_scores "
                               "WHERE season_id=? AND ff_week=?", (sid, wk)):
@@ -623,7 +624,6 @@ def create_app(db_path: str | None = None) -> Flask:
                                "weeks": weeks, "last_updated": last,
                                "ordinal": rules.season_ordinal(s["year"]),
                                "setup_locked": repo.is_setup_locked(conn, sid),
-                               "pin_setup_open": auth.pin_setup_open(conn, sid),
                                "seasons": [{"id": r["id"], "year": r["year"], "label": r["label"]}
                                            for r in all_seasons]},
                        standings=stand, scoreboard=board, fees=fees, pool=pool,
@@ -938,16 +938,29 @@ def create_app(db_path: str | None = None) -> Flask:
                   "ORDER BY wl.ff_week DESC LIMIT 40", (sid,))]
         return jsonify(ok=True, transactions=tx, lineups=lu)
 
-    @app.post("/api/admin/pin-setup")
-    def admin_pin_setup():
+    # PIN setup opens by conference (at its draft) or one team at a time — never
+    # league-wide, so the Blue draft can't expose Red teams (2026-09-16).
+    @app.post("/api/admin/pins/open")
+    def admin_pins_open():
         if (bad := _commish()):
             return bad
-        is_open = bool(request.get_json(force=True).get("open"))
+        conf = str(request.get_json(force=True).get("conf") or "").upper()
+        if conf not in ("BLUE", "RED"):
+            return jsonify(error="choose Blue or Red"), 400
         s, err = _need_season()
         if err:
             return err
-        auth.set_pin_setup_open(db(), s["id"], is_open)
-        return jsonify(ok=True, open=is_open)
+        return jsonify(ok=True, opened=auth.open_conference_pins(db(), s["id"], conf))
+
+    @app.post("/api/admin/pins/close")
+    def admin_pins_close():
+        if (bad := _commish()):
+            return bad
+        s, err = _need_season()
+        if err:
+            return err
+        auth.close_all_pins(db(), s["id"])
+        return jsonify(ok=True)
 
     @app.post("/api/admin/season/delete")
     def admin_delete_season():
@@ -989,8 +1002,9 @@ def create_app(db_path: str | None = None) -> Flask:
         return jsonify(ok=True, season_id=sid, label=row["label"], teams=teams,
                        ff_start_nfl_week=offset)
 
-    @app.post("/api/admin/team/<int:team_id>/reset-pin")
-    def admin_reset_pin(team_id):
+    @app.post("/api/admin/team/<int:team_id>/<any('reset-pin','open-pin','close-pin'):action>")
+    def admin_team_pin(team_id, action):
+        """Reset (clear a PIN and open the team), open a PIN-less team, or close one."""
         if (bad := _commish()):
             return bad
         s, err = _need_season()
@@ -998,7 +1012,14 @@ def create_app(db_path: str | None = None) -> Flask:
             return err
         if not db().execute("SELECT 1 FROM teams WHERE id=? AND season_id=?", (team_id, s["id"])).fetchone():
             return jsonify(error="no such team"), 404
-        auth.reset_team_pin(db(), s["id"], team_id)
+        if action == "reset-pin":
+            auth.reset_team_pin(db(), s["id"], team_id)
+        elif action == "open-pin":
+            if auth.team_has_pin(db(), team_id):
+                return jsonify(error="this team already has a PIN — use Reset PIN"), 400
+            auth.open_team_pin(db(), s["id"], team_id)
+        else:
+            auth.close_team_pin(db(), s["id"], team_id)
         return jsonify(ok=True)
 
     @app.post("/api/admin/team/<int:team_id>/score")

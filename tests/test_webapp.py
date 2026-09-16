@@ -155,6 +155,37 @@ def test_admin_endpoints_require_commissioner(client):
     assert ok.status_code == 200
 
 
+def test_pins_open_by_conference_and_stay_open_until_each_manager_sets_one(client):
+    """At the Blue draft only Blue teams open; a team closes itself once its PIN
+    is set, and the commissioner can close or open a single team (2026-09-16)."""
+    conn = schema.connect(client.dbpath)
+    blue = conn.execute("SELECT t.id FROM teams t JOIN conferences c ON c.id=t.conference_id "
+                        "WHERE c.code='BLUE' AND t.name<>'OT Blitz' ORDER BY t.id").fetchall()
+    red = conn.execute("SELECT t.id FROM teams t JOIN conferences c ON c.id=t.conference_id "
+                       "WHERE c.code='RED' ORDER BY t.id").fetchall()
+    conn.close()
+    b1, b2, r1 = blue[0]["id"], blue[1]["id"], red[0]["id"]
+    claim = lambda tid, pin: client.post(f"/api/team/{tid}/claim-pin", json={"pin": pin}).status_code
+
+    assert claim(b1, "1234") == 400                                   # nothing open yet
+    assert client.post("/api/admin/pins/open", json={"passcode": "otblitz", "conf": "BLUE"}).status_code == 403
+    r = client.post("/api/admin/pins/open", json={"passcode": "commish", "conf": "BLUE"})
+    assert r.status_code == 200 and r.get_json()["opened"] == 10      # OT Blitz already has a PIN
+    assert claim(r1, "1234") == 400                                   # Red stays closed
+    assert claim(b1, "1234") == 200
+    assert claim(b1, "9999") == 400                                   # closed itself once set
+
+    assert client.post(f"/api/admin/team/{b2}/close-pin", json={"passcode": "commish"}).status_code == 200
+    assert claim(b2, "2468") == 400
+    assert client.post(f"/api/admin/team/{r1}/open-pin", json={"passcode": "commish"}).status_code == 200
+    assert claim(r1, "1357") == 200
+    assert client.post(f"/api/admin/team/{client.otb}/open-pin",
+                       json={"passcode": "commish"}).status_code == 400   # has a PIN: use Reset
+    client.post("/api/admin/pins/open", json={"passcode": "commish", "conf": "BLUE"})
+    client.post("/api/admin/pins/close", json={"passcode": "commish"})
+    assert claim(b2, "2468") == 400
+
+
 def test_a_pin_reset_lets_only_that_manager_set_a_new_pin_once(client):
     assert client.post(f"/api/admin/team/{client.otb}/reset-pin",
                        json={"passcode": "otblitz"}).status_code == 403   # commissioner only

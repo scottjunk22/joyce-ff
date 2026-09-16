@@ -161,9 +161,14 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-09-15: PIN RESET (commissioner). "Reset PIN" clears one team's PIN and
   opens only that team to set a new one from its roster, closing when the
   manager does (auth.reset_team_pin / pin_resets). The commissioner never picks
-  a manager's PIN; the old type-a-PIN box is gone. The draft-day "Let managers
-  set their PIN" switch still opens every PIN-less team. MuddyChicks is the
+  a manager's PIN; the old type-a-PIN box is gone. MuddyChicks is the
   renamed Muddy Chickens (champions list stays verbatim).
+  2026-09-16: the league-wide "Let managers set their PIN" switch is GONE (it
+  opened Red teams at the Blue draft). PIN setup opens by conference ("Open
+  PINs for Blue/Red", at each draft night) or per team ("Open PIN" on a PIN-less
+  team); an opened team STAYS open until its manager sets a PIN (many do it at
+  home), then closes itself. "Close PIN setup" / per-team close exist but are
+  optional. Code: auth.open_conference_pins / open_team_pin / pin_opens.
 - 2026-09-15: OPENS IN LINEUPS (commissioner). Buying an Open swaps the rental
   into an already-saved lineup that starts the bye player it covers (no
   resubmit); reversing the Open swaps him back (repo.do_open /
