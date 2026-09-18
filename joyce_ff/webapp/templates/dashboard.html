@@ -90,9 +90,14 @@
  .txlist .cap{padding:8px 13px;font-weight:800;border-bottom:2px solid var(--line)}
  .tx{padding:7px 13px;border-bottom:1px solid var(--line);font-size:13px}.tx .wk{color:var(--dim)}
  /* modal */
- .mb{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;padding:12px;z-index:20}
- .mb.show{display:flex}.modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:760px;width:100%;max-height:90vh;overflow:auto;padding:16px 18px}
- .modal h3{margin:0 0 3px}.modal .x{float:right;cursor:pointer;color:var(--dim);font-size:24px;line-height:1}
+ /* The BACKDROP scrolls, not just the panel: on iPhone Safari 90vh is the tall
+    viewport behind the toolbars, so a modal that "fits" could still run off the
+    visible screen with nothing to scroll — the ✕ above it and the PIN box below
+    it both out of reach (MuddyChicks, 2026-09-17). dvh tracks the real visible
+    height; vh stays as the fallback for older browsers. */
+ .mb{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center;padding:12px;z-index:20;overflow-y:auto;-webkit-overflow-scrolling:touch}
+ .mb.show{display:flex}.modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:760px;width:100%;margin:auto;max-height:90vh;max-height:90dvh;overflow:auto;padding:16px 18px}
+ .modal h3{margin:0 0 3px}.modal .x{float:right;cursor:pointer;color:var(--dim);font-size:26px;line-height:1;padding:0 4px 6px 12px}
  .tielbl{color:var(--text);font-weight:700}
  .tbnote{font-size:11px;color:var(--dim);margin-top:3px}
  .srow{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:5px 2px;font-size:13px}.srow .slot{min-width:52px;color:var(--dim);font-weight:700;font-size:11px}.srow .nm{flex:1}.srow .pts{font-weight:700}
@@ -189,6 +194,9 @@
  /* mobile */
  @media(max-width:760px){
    .leagues{grid-template-columns:1fr}.cols{grid-template-columns:1fr}
+   /* one column on a phone, so each list gets its own scroll and the PIN row
+      below them stays close enough to reach */
+   .plist{max-height:32dvh}
    .box{grid-template-columns:1fr}.boxcol:first-child{border-right:0;border-bottom:1px solid var(--line)}
    th,td{padding:5px 5px;font-size:13px}.acts{display:flex;margin:5px 0 1px 0}
    /* the name is the row's heading — on a phone it wraps above its own
