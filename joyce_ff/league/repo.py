@@ -605,6 +605,27 @@ def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
     if problem:
         raise RuleError(problem)
 
+    # A player traded IN this week can only start if the player he replaced
+    # hadn't played yet (commissioner, 2026-09-16). Otherwise the team would
+    # have both: the man it traded away, locked into this week's lineup with his
+    # points, and his replacement starting somewhere else — an extra player for
+    # the week (Scott, 2026-09-18).
+    if locked_refs:
+        locked = set(locked_refs)
+        started = {(s["roster_slot"], s["asset_ref"]) for s in starters}
+        for t in conn.execute(
+                "SELECT position, out_asset_ref, in_asset_ref FROM transactions WHERE season_id=? "
+                "AND team_id=? AND ff_week=? AND type='TRADE' AND reversed=0",
+                (season_id, team_id, ff_week)):
+            if t["out_asset_ref"] in locked and (t["position"], t["in_asset_ref"]) in started:
+                came_in = _asset_label(conn, season_id, _kind_for(t["position"]),
+                                       t["in_asset_ref"], t["position"])
+                went_out = _asset_label(conn, season_id, _kind_for(t["position"]),
+                                        t["out_asset_ref"], t["position"])
+                raise RuleError(
+                    f"{came_in} can't start this week — {went_out}'s game had already started when "
+                    f"you traded him, so he keeps week {ff_week} and {came_in} starts next week")
+
     rentals = _open_rentals(conn, season_id, team_id, ff_week)
     # A starter traded away after his game kicked off stays in this week's
     # lineup (he keeps his points), so a resubmitted lineup may still name him.

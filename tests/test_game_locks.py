@@ -687,3 +687,20 @@ def test_a_reversed_trade_does_not_start_the_48_hours(lg):
     tx = repo.do_trade(conn, sid, otb, "R", "w4", "fa_r", 4)
     repo.reverse_transaction(conn, tx)
     assert repo.recently_traded_away(conn, sid, otb) == {}
+
+
+def test_the_replacement_cannot_start_anywhere_when_the_man_he_replaced_has_played(lg):
+    """Scott, 2026-09-18: St. Brown played Thursday, was traded for Parkinson, and
+    stayed locked in the lineup — Parkinson must not start in another slot too."""
+    conn, sid, otb = lg
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])
+    repo.do_trade(conn, sid, otb, "R", "w3", "fa_r", 4, locked_refs={"w3"})   # w3 keeps week 4
+    units = [{"roster_slot": s, "asset_ref": r}
+             for s, r in (("C", "KC"), ("K", "BAL"), ("DEF/ST", "PIT"), ("QB", "CIN"))]
+    rbs = [{"roster_slot": "RB", "asset_ref": r} for r in ("r1", "r2")]
+    starting = lambda *rs: units + rbs + [{"roster_slot": "R", "asset_ref": r} for r in rs]
+    with pytest.raises(repo.RuleError, match="can't start this week"):
+        repo.set_lineup(conn, sid, otb, 4, starting("w3", "w1", "fa_r"), locked_refs={"w3"})
+    repo.set_lineup(conn, sid, otb, 4, starting("w3", "w1", "w2"), locked_refs={"w3"})   # fine
+    # next week he's just a normal starter
+    repo.set_lineup(conn, sid, otb, 5, starting("fa_r", "w1", "w2"), locked_refs={"w3"})
