@@ -719,7 +719,11 @@ async function pickOut(ref,pos,byeWeek){
   TX.avail=(await (await fetch(`/api/team/${TX.team}/available?position=${encodeURIComponent(pos)}`)).json()).available;
   renderTxBuild();
 }
-function pickIn(key){ const x=TX.avail.find(a=>(a.gsis_id||a.abbr)===key)||{}; TX.in=key;TX.inName=x.name||x.abbr||key; renderTxBuild(); }
+/* Tapping an available player used to redraw the whole screen, which threw a
+   phone back to the top with the selection out of sight (Scott, 2026-09-17).
+   Selection is a class now; only the steps that change the screen redraw it. */
+function pickIn(key){ const x=TX.avail.find(a=>(a.gsis_id||a.abbr)===key)||{}; TX.in=key;TX.inName=x.name||x.abbr||key;
+  document.querySelectorAll('#avail .pl').forEach(el=>el.classList.toggle('sel',el.dataset.key===key)); }
 function txFilter(v){ TX.filter=v; const el=$('avail'); if(el)el.innerHTML=availHtml(); }
 function availHtml(){ if(!TX.out)return '<div class="sub" style="padding:14px;text-align:center">← pick a player on the left</div>';
   const nm=x=>x.name||x.abbr, list=TX.avail.filter(x=>nm(x).toLowerCase().includes((TX.filter||'').toLowerCase()));
@@ -728,9 +732,10 @@ function availHtml(){ if(!TX.out)return '<div class="sub" style="padding:14px;te
     // Traded away by this team in the last 48 hours: can't come back by Trade
     // yet (an Open is a rental, so it's still allowed).
     const wait=TX.mode==='trade'&&x.back_at;
-    return `<div class="pl ${TX.in===key?'sel':''}${wait?' plwait':''}" ${wait?'':`onclick='pickIn(${JSON.stringify(key)})'`}><span><span class="pos">${TX.outPos}</span>${nm(x)}${x.nfl_team_abbr?` <span class="team">${x.nfl_team_abbr}</span>`:''}</span>${wait?`<span class="sub">you traded him · back ${x.back_at}</span>`:''}</div>`;}).join('');
+    return `<div class="pl ${TX.in===key?'sel':''}${wait?' plwait':''}" data-key="${key}" ${wait?'':`onclick='pickIn(${JSON.stringify(key)})'`}><span><span class="pos">${TX.outPos}</span>${nm(x)}${x.nfl_team_abbr?` <span class="team">${x.nfl_team_abbr}</span>`:''}</span>${wait?`<span class="sub">you traded him · back ${x.back_at}</span>`:''}</div>`;}).join('');
 }
 function renderTxBuild(){ if(TX.step==='review')return renderTxReview();
+  const modal=document.querySelector('.modal'), keep=modal?modal.scrollTop:0;
   const openOk=TX.out&&TX.outBye;
   const rosterList=TX.roster.map(r=>`<div class="pl ${TX.out===r.asset_ref&&TX.outPos===r.slot?'sel':''}" onclick='pickOut(${JSON.stringify(r.asset_ref)},${JSON.stringify(r.slot)},${r.bye_week||0})'><span><span class="pos">${r.slot}</span>${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}${r.bye_week?` <span class="tag-bye${r.bye_week===LW?'':' next'}">BYE Wk ${r.bye_week}</span>`:''}</span></div>`).join('');
   const hint=TX.out?(TX.outBye?`<div class="txhint">💡 ${TX.outName} is on bye in <b>Week ${TX.openWeek}</b> — most managers <b>Open</b> (rent) a bye player rather than Trade him away. An Open here is for Week ${TX.openWeek}.</div>`:`<div class="sub" style="margin-top:8px">Open is unavailable — ${TX.outName} isn't on bye ${(TX.roster.some(x=>x.bye_week&&x.bye_week!==LW))?'this week or next':'this week'}, so only Trade applies.</div>`):'';
@@ -743,6 +748,7 @@ function renderTxBuild(){ if(TX.step==='review')return renderTxReview();
       <div><h4>${TX.out?'Available '+TX.outPos:'Available'}</h4><input class="searchbox" id="asearch" placeholder="search…" ${TX.out?'':'disabled'} oninput="txFilter(this.value)" value="${TX.filter||''}"><div class="plist" id="avail">${availHtml()}</div></div></div>
     ${hint}
     <div class="pass"><span>PIN:</span><input type="password" id="txpc" inputmode="numeric" placeholder="4-6 digits" value="${TX.pc||''}"><button class="go" onclick="txReview()">Review →</button></div>`;
+  if(modal) modal.scrollTop=keep;
 }
 function txReview(){ if(!TX.out||!TX.in){alert('Pick a player to move out and one to bring in.');return;}
   TX.pc=$('txpc').value; TX.step='review'; renderTxReview(); }
