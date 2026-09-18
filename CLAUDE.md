@@ -128,6 +128,24 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-18: UNFINISHED DRAFT SLOTS (commissioner). A manager may leave the
+  draft with a slot empty and settle it days later; Scott enters it in the Draft
+  Room whenever, no time gate. (1) Nobody drafts a player he wants to start
+  after that player's game has kicked off. (2) A late pick whose Week-1 game has
+  started may NOT start that week — already enforced: the kickoff lock refuses
+  him in set_lineup whether he arrived by draft, trade or Open. (3) A missing
+  RB or receiver is harmless (3 R rostered = 3 started); a missing C/K/DEF/QB
+  makes EVERY lineup illegal (lineup_problem), so that team can't submit at all
+  and scores 0 for the week, not 0 for the slot. (4) Fix for a Red manager with
+  a Thursday player and no DEF/ST: draft him a placeholder unit so he can
+  submit, then before the placeholder's game starts ✕ it in the Draft Room,
+  enter the real one, AND RESUBMIT that team's lineup as commissioner — the
+  removed unit stays in the saved lineup otherwise and would score (same shape
+  as the Judkins row). Draft-Room ✕/Undo are free: no fee, no move against the
+  5, nothing in the moves list. (5) All empty draft slots settled by NOON CT
+  SUNDAY 2026-09-27 (FF Week 1's Sunday), which is why "play 8 starters with an
+  empty unit slot" was considered and NOT built — no team reaches a kickoff
+  without a DEF/ST. Revisit only if someone misses the deadline.
 - 2026-09-16: ROSTERS PAGE (/rosters, footer link "Rosters"). All 22 rosters
   from the live roster tables (a trade shows immediately), Blue then Red, teams
   alphabetical, no manager names. Card header tinted by conference with
