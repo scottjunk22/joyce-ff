@@ -138,6 +138,7 @@
  .cbig span{display:block;font-size:12px;font-weight:400;color:var(--dim);margin-top:2px}
  .cfold{border-top:1px solid var(--line)}.cfold>summary{cursor:pointer;padding:10px 2px;font-size:14px;list-style-position:inside}
  .cfold .cfbody{padding:2px 2px 12px}
+ .mvwk{margin:10px 0 2px;font-weight:800;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--dim)}
  .cfold.cmini{border-top:0;margin:-4px 0 8px}.cfold.cmini>summary{padding:2px 0;font-size:12px;color:var(--blue)}
  .cchk{display:block}.cweek{display:flex;align-items:flex-start;gap:8px}.cweek>.cfold{flex:1}
  .cweek>.cfold>summary{display:list-item}.cwk{font-weight:700;margin-right:8px}.cweek .sub{margin-left:6px}
@@ -596,14 +597,15 @@ async function lineupModal(id, wk){
     for(let i=tradedLeft.length-1;i>=0;i--){ const t=tradedLeft[i];
       if(t.replaced_by===r.asset_ref&&t.slot===r.slot){ items.push(tradedItem(t)); tradedLeft.splice(i,1); } }
     items.push({slot:r.slot,ref:r.asset_ref,name:r.name+(r.new?' <span class="tag-new">NEW</span>':''),
-                game_state:r.game_state,game_at:r.game_at,blocked:r.blocked_by||null});
+                plain:r.name,game_state:r.game_state,game_at:r.game_at,blocked:r.blocked_by||null});
     for(let i=opensLeft.length-1;i>=0;i--){ const o=opensLeft[i];
       if(o.covering===r.asset_ref&&o.position===r.slot){ items.push(rental(o)); opensLeft.splice(i,1); } }
   });
   opensLeft.forEach(o=>items.push(rental(o)));
   tradedLeft.forEach(t=>items.push(tradedItem(t)));
   const covered=new Set((d.opens||[]).map(o=>LUKEY(o.position,o.covering)));
-  LU={team:id,week:wk,sel:new Set(),items,flex:d.bye_flex||{}};
+  LU={team:id,week:wk,sel:new Set(),items,flex:d.bye_flex||{},
+      lastWeek:!!(d.last_week&&wk>=d.last_week)};
   // Key every selection by SLOT + REF. A team unit's ref is just the NFL club
   // (BAL), so a roster holding BAL's coach and BAL's QB room has two starters
   // sharing one ref — keyed by ref alone they collapse into one, the lineup
@@ -637,10 +639,11 @@ async function lineupModal(id, wk){
   // Traded in for a starter whose game had already kicked off: the locked man
   // keeps the week, so his replacement can't play until next week. Saying it
   // here (and not only when a submit is rejected) is the whole point.
-  const waiting=items.filter(i=>i.blocked);
+  const waiting=items.filter(i=>i.blocked), lastWk=d.last_week||null;
   const waitBan=wk<LW||!waiting.length?'':`<div class="lban warn">${TRI}<span>`
-    +waiting.map(i=>`<b>${i.name.replace(/<[^>]*>/g,'').trim()} can't start in Week ${wk}</b> — ${i.blocked}'s game had `
-      +`already started when you traded him, so ${i.blocked} keeps this week. He can start in Week ${wk+1}.`).join(' ')
+    +waiting.map(i=>lastWk&&wk>=lastWk
+      ? `<b>${i.plain} can't start in Week ${wk}</b> — you traded for him after ${i.blocked}'s game had kicked off, so ${i.blocked} keeps the week.`
+      : `<b>${i.plain} can't start until Week ${wk+1}</b> — you traded for him after ${i.blocked}'s game had kicked off, so ${i.blocked} keeps Week ${wk}.`).join(' ')
     +`</span></div>`;
   let wkOpts='';for(let w=LW;w>=1;w--)wkOpts+=`<option value="${w}" ${w===wk?'selected':''}>${w}</option>`;
   openM(`<h3>${d.name} — Set Lineup</h3>
@@ -666,7 +669,7 @@ function renderLineup(){ const ord={'C':0,'K':1,'DEF/ST':2,'QB':3,'RB':4,'R':5},
   const clickable=i=> !unit(i.slot) || cnt[i.slot]>1 || (['QB','K'].includes(i.slot)&&(LU.flex||{})[i.slot]);
   $('luRows').innerHTML=items.map(i=>{const key=LUKEY(i.slot,i.ref), on=LU.sel.has(key);
     // Blocked: don't offer a button he can't use — say which week he's for.
-    if(i.blocked) return `<div class="srow off"><span class="slot">${i.slot}</span><span class="nm">${i.name}${luGame(i)}</span><span class="st off">NEXT WEEK</span></div>`;
+    if(i.blocked) return `<div class="srow off"><span class="slot">${i.slot}</span><span class="nm">${i.name}${luGame(i)}</span><span class="st off">${LU.lastWeek?"CAN'T START":'NEXT WEEK'}</span></div>`;
     return `<div class="srow"><span class="slot">${i.slot}</span><span class="nm">${i.name}${luGame(i)}</span><span class="st ${on?'start':'bench'}" ${clickable(i)?`onclick="toggleStart('${encodeURIComponent(key)}')"`:''}>${on?'START':'BENCH'}</span></div>`;}).join('');
   const c=s=>[...LU.sel].filter(k=>k.startsWith(s+'|')).length;
   $('luHint').innerHTML=lineupCheck(c);
@@ -906,12 +909,13 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
     +cfold('score','Scores seem stuck? Score now',`<div class="sub" style="margin-bottom:8px">Scores post on their own about 10–15 minutes after each game ends. Use this only if one hasn't shown up.</div><button class="btn" onclick="runCurrent()">▶ Score now</button>`)
     +cfold('earlier','Earlier score checks',`<div id="earlierBox"><span class="sub">loading…</span></div>`)
     +cfold('moves','Recent moves and entries for managers',(txSection||'<div class="sub">No moves yet.</div>')+`<div id="auditBox"></div>`)
+    +cfold('moveall','All moves this season<span id="allMovesN"></span>',`<div id="allMovesBox"><span class="sub">loading…</span></div>`)
     +cfold('act','Acting for a manager — how to',`<div class="sub">Open the team on the main page and use its <b>Lineup</b> or <b>Trade/Open</b> button exactly as a manager would — enter <b>your commissioner passcode</b> where it asks for the PIN. You can also set past weeks and start players whose game has already kicked off.</div>`)
     +cfold('pins','PIN setup (draft day)',pinBar)
     +cfold('season','Season setup — team names, new or delete season',lockBar+seasonBar)
     +`</div>`;
   $('commBody').innerHTML=attention+thisWeek+tools+teams+folds;
-  loadAudit(); loadScoreChecks();
+  loadAudit(); loadScoreChecks(); loadAllMoves();
 }
 /* A folded section. Which ones are open survives a redraw (every button press
    reloads the page data and redraws the tab). */
@@ -968,6 +972,23 @@ async function loadAudit(){
   box.innerHTML = rows.length
     ? `<div style="margin-top:8px;font-weight:800;font-size:12px">Entered on a manager's behalf <span class="sub">(only you see this)</span></div>`+rows.join('')
     : `<div class="sub" style="margin-top:6px">Nothing entered on a manager's behalf yet.</div>`;
+}
+/* Every move of the season, grouped by week. The main page's feed only keeps
+   the recent ones, so this is where Week 3 still lives in Week 8 — and the
+   free-move count per team is the audit of the five that come with the entry
+   fee (Scott, 2026-09-18). */
+async function loadAllMoves(){
+  const box=$('allMovesBox'); if(!box) return;
+  const j=await apost('/api/admin/moves',{}); if(!j||!$('allMovesBox')) return;
+  const mv=j.moves||[];
+  const n=$('allMovesN'); if(n) n.innerHTML=mv.length?` <span class="sub">· ${mv.length}</span>`:'';
+  if(!mv.length){ $('allMovesBox').innerHTML='<div class="sub">No moves yet.</div>'; return; }
+  const cost=m=>m.free_n?`<span class="sub">free ${m.free_n}/${m.free_of}</span>`
+    :`<span class="sub">$${(m.fee_cents/100).toFixed(0)}</span>`;
+  let out='', wk=null;
+  mv.forEach(m=>{ if(m.week!==wk){ wk=m.week; out+=`<div class="mvwk">Week ${wk}</div>`; }
+    out+=`<div class="frow"><span>${txTag(m.type)}<b>${m.team}</b> — ${txSwap(m)}</span>${cost(m)}</div>`; });
+  $('allMovesBox').innerHTML=out;
 }
 async function convertTx(id,type){ if(!confirm(`Convert this ${type} to ${type==='TRADE'?'an Open (1-week rental)':'a permanent Trade'}?`))return;
   const j=await apost(`/api/admin/convert/${id}`,{}); if(j){alert('Converted.');await load(VIEW, SEASON);renderCommish();} }

@@ -184,6 +184,25 @@ def test_a_player_traded_in_for_someone_who_already_played_is_flagged(client):
     assert came_in["blocked_by"] == "Bijan Robinson"
 
 
+def test_the_commissioner_can_see_every_move_of_the_season(client):
+    """The main feed only keeps recent moves; this one keeps all of them, with
+    the running count against the five free ones (Scott, 2026-09-18)."""
+    conn = schema.connect(client.dbpath)
+    sid = conn.execute("SELECT id FROM seasons ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    conn.execute("INSERT INTO nfl_players(season_id,gsis_id,name,position,nfl_team_abbr) "
+                 "VALUES (?,'p_hall','Breece Hall','RB','ATL')", (sid,))
+    conn.commit()
+    conn.close()
+    for out, inn in (("p_bijan", "p_warren"), ("p_warren", "p_hall")):
+        r = client.post(f"/api/team/{client.otb}/trade",
+                        json={"passcode": "commish", "position": "RB", "out": out,
+                              "in": inn, "week": 3})
+        assert r.status_code == 200, r.get_json()
+    assert client.post("/api/admin/moves", json={"passcode": "otblitz"}).status_code == 403
+    mv = client.post("/api/admin/moves", json={"passcode": "commish"}).get_json()["moves"]
+    assert [(m["week"], m["team"], m["free_n"]) for m in mv] ==         [(3, "OT Blitz", 2), (3, "OT Blitz", 1)]            # newest first, counted oldest first
+
+
 def test_pins_open_by_conference_and_stay_open_until_each_manager_sets_one(client):
     """At the Blue draft only Blue teams open; a team closes itself once its PIN
     is set, and the commissioner can close or open a single team (2026-09-16)."""

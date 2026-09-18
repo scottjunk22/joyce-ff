@@ -873,7 +873,9 @@ def create_app(db_path: str | None = None) -> Flask:
         box = _box_in_slots(box, unit_names) if box else box
         carried = conn.execute("SELECT MAX(carried_from) cf, MAX(carry_note) cn FROM weekly_lineups "
                                "WHERE season_id=? AND ff_week=? AND team_id=?", (sid, wk, team_id)).fetchone()
-        return jsonify(name=row["name"], managers=row["manager_names"],
+        last_wk = conn.execute("SELECT MAX(ff_week) m FROM matchups WHERE season_id=? "
+                               "AND kind<>'NO_PLAY'", (sid,)).fetchone()["m"]
+        return jsonify(name=row["name"], managers=row["manager_names"], last_week=last_wk,
                        roster=roster, fees=fees, history=hist, payments=pays, opens=opens,
                        traded_out=traded_out, open_weeks=open_wks,
                        box=box, carried_from=carried["cf"], carry_note=carried["cn"],
@@ -1142,6 +1144,35 @@ def create_app(db_path: str | None = None) -> Flask:
                   "GROUP BY t.name, wl.ff_week, wl.submitted_by "
                   "ORDER BY wl.ff_week DESC LIMIT 40", (sid,))]
         return jsonify(ok=True, transactions=tx, lineups=lu)
+
+    @app.post("/api/admin/moves")
+    def admin_moves():
+        """Every move of the season, oldest first, with what each one cost.
+
+        The main page's feed is deliberately recent-only, so by Week 8 nobody
+        can see Week 3 any more — this is the audit copy, and the running
+        count is how the commissioner checks the five free moves per team."""
+        if (bad := _commish()):
+            return bad
+        s, err = _need_season()
+        if err:
+            return err
+        conn, sid = db(), s["id"]
+        used, out = {}, []
+        for r in conn.execute(
+                "SELECT tr.id id, tr.ff_week w, tr.type, tr.position pos, tr.fee_cents fee, "
+                "tr.out_asset_kind ok, tr.out_asset_ref oref, tr.in_asset_kind ik, "
+                "tr.in_asset_ref iref, t.name team, c.code conf FROM transactions tr "
+                "JOIN teams t ON t.id=tr.team_id JOIN conferences c ON c.id=t.conference_id "
+                "WHERE tr.season_id=? AND tr.reversed=0 ORDER BY tr.id", (sid,)):
+            used[r["team"]] = n = used.get(r["team"], 0) + 1
+            out.append({"id": r["id"], "week": r["w"], "team": r["team"], "conf": r["conf"],
+                        "type": r["type"], "fee_cents": r["fee"],
+                        "free_n": n if n <= repo.FREE_TRADES else None,
+                        "free_of": repo.FREE_TRADES,
+                        **_tx_parts(conn, sid, r["pos"], r["ok"], r["oref"], r["ik"], r["iref"])})
+        out.reverse()                       # newest first for reading
+        return jsonify(ok=True, moves=out)
 
     # PIN setup opens by conference (at its draft) or one team at a time — never
     # league-wide, so the Blue draft can't expose Red teams (2026-09-16).
