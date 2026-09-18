@@ -97,6 +97,9 @@
     height; vh stays as the fallback for older browsers. */
  .mb{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center;padding:12px;z-index:20;overflow-y:auto;-webkit-overflow-scrolling:touch}
  .mb.show{display:flex}.modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:760px;width:100%;margin:auto;max-height:90vh;max-height:90dvh;overflow:auto;padding:16px 18px}
+ /* a scroll that reaches the end of a list stays there instead of moving the page */
+ .mb,.modal,.plist,.modal .bd{overscroll-behavior:contain}
+ body.mopen{position:fixed;left:0;right:0;width:100%;overflow:hidden}
  .modal h3{margin:0 0 3px}.modal .x{float:right;cursor:pointer;color:var(--dim);font-size:26px;line-height:1;padding:0 4px 6px 12px}
  .tielbl{color:var(--text);font-weight:700}
  .tbnote{font-size:11px;color:var(--dim);margin-top:3px}
@@ -420,8 +423,26 @@ function renderTx(){ const row=t=>`<div class="tx"><span class="wk">W${t.week}</
 
 function toggleBd(row){ const bd=row.nextElementSibling;
   if(bd&&bd.classList.contains('bd')){ const show=bd.style.display==='none'; bd.style.display=show?'block':'none'; row.classList.toggle('open',show); } }
-function openM(h){ $('mbody').innerHTML=h; $('mb').classList.add('show'); }
-function closeM(){ $('mb').classList.remove('show'); }
+/* While a pop-up is open the page behind is FROZEN in place. On a phone,
+   Safari otherwise hands a swipe that starts on a non-scrolling part of the
+   pop-up (a heading, the gap between lists), or one that reaches the end of a
+   list, to the page behind — the background moves, the pop-up doesn't, and it
+   comes and goes depending on where your finger lands (Scott, 2026-09-17).
+   The body is pinned at its current scroll and put back on close. */
+let _pageY=0;
+function openM(h){
+  if(!$('mb').classList.contains('show')){
+    _pageY=window.scrollY||document.documentElement.scrollTop||0;
+    document.body.style.top=`-${_pageY}px`;
+    document.body.classList.add('mopen');
+  }
+  $('mbody').innerHTML=h; $('mb').classList.add('show');
+}
+function closeM(){
+  $('mb').classList.remove('show');
+  document.body.classList.remove('mopen'); document.body.style.top='';
+  window.scrollTo(0,_pageY);
+}
 $('mb').addEventListener('click',e=>{if(e.target===$('mb'))closeM();});
 
 /* final: the card's own verdict (both teams done). The box score only calls a
