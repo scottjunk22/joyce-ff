@@ -115,13 +115,67 @@ def _find_on_roster(conn, team_id, position, asset_ref):
     return None
 
 
-def _assert_available(conn, season_id, conf_id, position, asset_ref):
+def _owner_of(conn, season_id, conf_id, position, asset_ref):
+    """The team in this conference holding that asset right now, or None. A team
+    unit's ref is just the club (BAL), so the slot has to match too — BAL's coach
+    and BAL's QB room are different assets with the same ref."""
+    kind = _kind_for(position)
+    return conn.execute(
+        "SELECT t.id tid, t.name tname FROM roster_entries r JOIN teams t ON t.id=r.team_id "
+        "WHERE r.season_id=? AND t.conference_id=? AND r.asset_ref=? AND r.asset_kind=? "
+        "AND r.released_ff_week IS NULL AND (?='PLAYER' OR r.roster_slot=?) LIMIT 1",
+        (season_id, conf_id, asset_ref, kind, kind, position)).fetchone()
+
+
+def _took_when(conn, season_id, team_id, position, asset_ref) -> str | None:
+    """When that team picked him up, Central, or None if he was drafted (a draft
+    pick isn't a transaction, so there's nothing to point at)."""
+    r = conn.execute(
+        "SELECT created_at FROM transactions WHERE season_id=? AND team_id=? AND position=? "
+        "AND in_asset_ref=? AND reversed=0 ORDER BY id DESC LIMIT 1",
+        (season_id, team_id, position, asset_ref)).fetchone()
+    try:
+        return _ct_when(datetime.fromisoformat(r["created_at"])) if r else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _assert_available(conn, season_id, conf_id, position, asset_ref, team_id=None):
+    """He's free in this conference — checked again here, against the database,
+    because the list a manager is looking at is a photograph of when his screen
+    loaded. Two guys can pick the same player on a Sunday morning; the second
+    one to press confirm gets told who beat him to it, not "not available"
+    (Scott, 2026-09-18)."""
     if position in INDIVIDUAL_POS:
         refs = {p["gsis_id"] for p in available_players(conn, season_id, conf_id, position)}
     else:
         refs = {u["abbr"] for u in available_units(conn, season_id, conf_id, position)}
-    if asset_ref not in refs:
-        raise RuleError("that player isn't available in your conference")
+    if asset_ref in refs:
+        return
+    kind = _kind_for(position)
+    who = _asset_label(conn, season_id, kind, asset_ref, position)
+    gone = " — he's no longer available" if kind == "PLAYER" else " — no longer available"
+    owner = _owner_of(conn, season_id, conf_id, position, asset_ref)
+    if not owner:
+        # Shouldn't happen: an unowned asset is in the list. Say only what we know.
+        raise RuleError("that didn't go through — this screen was out of date")
+    if team_id is not None and owner["tid"] == team_id:
+        # Nearly always a double-tap on a phone: the first press worked.
+        raise RuleError(f"{who} is already on your roster")
+    when = _took_when(conn, season_id, owner["tid"], position, asset_ref)
+    raise RuleError(f"{owner['tname']} took {who} {when}{gone}" if when
+                    else f"{owner['tname']} has {who}{gone}")
+
+
+def _claim_lock(conn) -> bool:
+    """Take SQLite's write lock before checking whether an asset is free, so two
+    managers confirming at the same instant can't both pass the check and both
+    end up owning him. Returns whether we opened the transaction (the caller
+    rolls back only what it started)."""
+    if conn.in_transaction:
+        return False
+    conn.execute("BEGIN IMMEDIATE")
+    return True
 
 
 # --- transactions --------------------------------------------------------
@@ -206,33 +260,40 @@ def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
     rule (_trade_into_lineup); its sentence is appended to `notes` if given."""
     if position not in INDIVIDUAL_POS | UNIT_POS:
         raise RuleError(f"invalid position {position!r}")
-    out = _find_on_roster(conn, team_id, position, out_ref)
-    if not out:
-        raise RuleError("you don't own that player at that position")
-    back = recently_traded_away(conn, season_id, team_id, now).get((position, in_ref))
-    if back:
-        who = _asset_label(conn, season_id, _kind_for(position), in_ref, position)
-        raise RuleError(f"{who} was traded away by this team in the last 48 hours — "
-                        f"he can't come back until {_ct_when(back)}")
-    conf = _team_conf(conn, team_id)
-    _assert_available(conn, season_id, conf, position, in_ref)
+    mine = _claim_lock(conn)
+    try:
+        out = _find_on_roster(conn, team_id, position, out_ref)
+        if not out:
+            raise RuleError("you don't own that player at that position")
+        back = recently_traded_away(conn, season_id, team_id, now).get((position, in_ref))
+        if back:
+            who = _asset_label(conn, season_id, _kind_for(position), in_ref, position)
+            raise RuleError(f"{who} was traded away by this team in the last 48 hours — "
+                            f"he can't come back until {_ct_when(back)}")
+        conf = _team_conf(conn, team_id)
+        _assert_available(conn, season_id, conf, position, in_ref, team_id)
 
-    conn.execute("UPDATE roster_entries SET released_ff_week=? WHERE id=?", (ff_week, out["id"]))
-    kind = _kind_for(position)
-    # Take the outgoing player's exact spot within its position group.
-    order = out["slot_order"] if out["slot_order"] is not None else out["id"]
-    conn.execute(
-        "INSERT INTO roster_entries(season_id,team_id,asset_kind,asset_ref,unit_type,"
-        "roster_slot,acquired_ff_week,acquired_via,slot_order,created_at) "
-        "VALUES (?,?,?,?,?,?,?, 'TRADE', ?, ?)",
-        (season_id, team_id, kind, in_ref, position if kind == "TEAM_UNIT" else None,
-         position, ff_week, order, _now()))
-    note = _trade_into_lineup(conn, season_id, team_id, ff_week, position, out_ref, in_ref,
-                              locked_refs)
-    if note and notes is not None:
-        notes.append(note)
-    return _log_tx(conn, season_id, team_id, ff_week, "TRADE", position,
-                   out_ref, in_ref, kind, entered_by=actor)
+        conn.execute("UPDATE roster_entries SET released_ff_week=? WHERE id=?",
+                     (ff_week, out["id"]))
+        kind = _kind_for(position)
+        # Take the outgoing player's exact spot within its position group.
+        order = out["slot_order"] if out["slot_order"] is not None else out["id"]
+        conn.execute(
+            "INSERT INTO roster_entries(season_id,team_id,asset_kind,asset_ref,unit_type,"
+            "roster_slot,acquired_ff_week,acquired_via,slot_order,created_at) "
+            "VALUES (?,?,?,?,?,?,?, 'TRADE', ?, ?)",
+            (season_id, team_id, kind, in_ref, position if kind == "TEAM_UNIT" else None,
+             position, ff_week, order, _now()))
+        note = _trade_into_lineup(conn, season_id, team_id, ff_week, position, out_ref, in_ref,
+                                  locked_refs)
+        if note and notes is not None:
+            notes.append(note)
+        return _log_tx(conn, season_id, team_id, ff_week, "TRADE", position,
+                       out_ref, in_ref, kind, entered_by=actor)
+    except Exception:
+        if mine:                       # never leave the write lock held
+            conn.rollback()
+        raise
 
 
 def do_open(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
@@ -251,25 +312,31 @@ def do_open(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
                          (season_id, in_ref)).fetchone()
         who = p["name"] if p else f"{in_ref} {position}"
         raise RuleError(f"{who}'s game has already started — he can't be Opened for Week {ff_week}")
-    out = _find_on_roster(conn, team_id, position, out_ref)
-    if not out:
-        raise RuleError("you don't own that player at that position")
-    if not is_on_bye(conn, season_id, out["asset_kind"], out_ref, ff_week):
-        raise RuleError("Open is only allowed to cover a player on his NFL bye that week")
-    conf = _team_conf(conn, team_id)
-    _assert_available(conn, season_id, conf, position, in_ref)
-    tx = _log_tx(conn, season_id, team_id, ff_week, "OPEN", position,
-                 out_ref, in_ref, _kind_for(position), entered_by=actor)
-    # A lineup already saved for the week that starts the bye player now starts
-    # the rental in his place (commissioner, 2026-09-15): an Open is only ever
-    # bought to start it, and the manager shouldn't have to resubmit.
-    conn.execute("UPDATE weekly_lineups SET asset_ref=?, asset_kind=?, unit_type=?, is_rental=1 "
-                 "WHERE season_id=? AND team_id=? AND ff_week=? AND roster_slot=? "
-                 "AND asset_ref=? AND is_rental=0",
-                 (in_ref, _kind_for(position), position if position in UNIT_POS else None,
-                  season_id, team_id, ff_week, position, out_ref))
-    conn.commit()
-    return tx
+    mine = _claim_lock(conn)
+    try:
+        out = _find_on_roster(conn, team_id, position, out_ref)
+        if not out:
+            raise RuleError("you don't own that player at that position")
+        if not is_on_bye(conn, season_id, out["asset_kind"], out_ref, ff_week):
+            raise RuleError("Open is only allowed to cover a player on his NFL bye that week")
+        conf = _team_conf(conn, team_id)
+        _assert_available(conn, season_id, conf, position, in_ref, team_id)
+        tx = _log_tx(conn, season_id, team_id, ff_week, "OPEN", position,
+                     out_ref, in_ref, _kind_for(position), entered_by=actor)
+        # A lineup already saved for the week that starts the bye player now starts
+        # the rental in his place (commissioner, 2026-09-15): an Open is only ever
+        # bought to start it, and the manager shouldn't have to resubmit.
+        conn.execute("UPDATE weekly_lineups SET asset_ref=?, asset_kind=?, unit_type=?, is_rental=1 "
+                     "WHERE season_id=? AND team_id=? AND ff_week=? AND roster_slot=? "
+                     "AND asset_ref=? AND is_rental=0",
+                     (in_ref, _kind_for(position), position if position in UNIT_POS else None,
+                      season_id, team_id, ff_week, position, out_ref))
+        conn.commit()
+        return tx
+    except Exception:
+        if mine:
+            conn.rollback()
+        raise
 
 
 DRAFT_SLOT_MAX = {"C": 1, "K": 1, "DEF/ST": 1, "QB": 1, "RB": 3, "R": 4}

@@ -907,6 +907,23 @@ def create_app(db_path: str | None = None) -> Flask:
             x["back_at"] = repo._ct_when(back) if back else None
         return jsonify(position=pos, available=data)
 
+    @app.get("/api/team/<int:team_id>/claim-check")
+    def claim_check(team_id):
+        """Is this asset still free for this team, right now? Asked when a
+        manager moves to the review step, so someone who was beaten to a player
+        hears about it before he types his PIN — and hears who beat him, in the
+        same words the confirm would have used (Scott, 2026-09-18)."""
+        conn, s = db(), season()
+        pos, ref = request.args.get("position", ""), request.args.get("ref", "")
+        conf = conn.execute("SELECT conference_id FROM teams WHERE id=?", (team_id,)).fetchone()
+        if not conf or pos not in repo.INDIVIDUAL_POS | repo.UNIT_POS:
+            return jsonify(error="unknown team or position"), 404
+        try:
+            repo._assert_available(conn, s["id"], conf["conference_id"], pos, ref, team_id)
+        except repo.RuleError as e:
+            return jsonify(available=False, error=str(e))
+        return jsonify(available=True)
+
     # ---- write API (passcode-gated) ----
     def _guard(team_id):
         if not _team_authed(team_id):

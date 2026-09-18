@@ -273,3 +273,62 @@ def test_overpayment_leaves_a_credit(db):
     owed = repo.fee_balance_cents(conn, otb)["owed_cents"]            # $80 entry fee
     repo.record_payment(conn, sid, otb, owed + 500, note="overpay")   # pays $5 over
     assert repo.fee_balance_cents(conn, otb)["balance_cents"] == -500  # $5 credit
+
+
+# --- two managers, one player (Scott, 2026-09-18) ------------------------
+
+def _other_blue_team(conn, sid, otb):
+    return conn.execute("SELECT t.id FROM teams t JOIN conferences c ON c.id=t.conference_id "
+                        "WHERE t.season_id=? AND c.code='BLUE' AND t.id<>? LIMIT 1",
+                        (sid, otb)).fetchone()["id"]
+
+
+def test_a_player_someone_else_just_took_says_who_took_him(db):
+    """The list on a manager's screen is a photograph. When two of them pick the
+    same player, the second one is told who beat him to it, not 'not available'."""
+    conn, sid, otb = db
+    rival = _other_blue_team(conn, sid, otb)
+    conn.execute("INSERT INTO roster_entries(season_id,team_id,asset_kind,asset_ref,roster_slot,"
+                 "acquired_ff_week,acquired_via,created_at) "
+                 "VALUES (?,?,'PLAYER','p_kyren','RB',1,'DRAFT','t')", (sid, rival))
+    conn.commit()
+    repo.do_trade(conn, sid, rival, "RB", "p_kyren", "p_warren", 2)     # rival grabs Warren
+    with pytest.raises(repo.RuleError) as e:
+        repo.do_trade(conn, sid, otb, "RB", "p_bijan", "p_warren", 2)
+    msg = str(e.value)
+    name = conn.execute("SELECT name FROM teams WHERE id=?", (rival,)).fetchone()["name"]
+    assert msg.startswith(f"{name} took Jaylen Warren ")
+    assert msg.endswith("he's no longer available")
+
+
+def test_a_team_unit_says_it_the_same_way_without_calling_it_he(db):
+    conn, sid, otb = db
+    rival = _other_blue_team(conn, sid, otb)
+    conn.execute("INSERT INTO roster_entries(season_id,team_id,asset_kind,asset_ref,unit_type,"
+                 "roster_slot,acquired_ff_week,acquired_via,created_at) "
+                 "VALUES (?,?,'TEAM_UNIT','KC','QB','QB',1,'DRAFT','t')", (sid, rival))
+    conn.commit()
+    with pytest.raises(repo.RuleError) as e:
+        repo.do_trade(conn, sid, otb, "QB", "CIN", "KC", 2)
+    name = conn.execute("SELECT name FROM teams WHERE id=?", (rival,)).fetchone()["name"]
+    assert str(e.value) == f"{name} has KC QB — no longer available"     # drafted: no time to cite
+
+
+def test_the_double_tap_is_told_the_first_press_worked(db):
+    """Same request twice from a phone: the second finds him already there."""
+    conn, sid, otb = db
+    repo.do_trade(conn, sid, otb, "RB", "p_bijan", "p_warren", 2)
+    with pytest.raises(repo.RuleError) as e:
+        repo.do_trade(conn, sid, otb, "RB", "p_kyren", "p_warren", 2)
+    assert str(e.value) == "Jaylen Warren is already on your roster"
+
+
+def test_a_refused_trade_leaves_no_write_lock_behind(db):
+    """The claim takes SQLite's write lock before it checks. A refusal has to
+    give it back, or the next write on that connection would hang."""
+    conn, sid, otb = db
+    with pytest.raises(repo.RuleError):
+        repo.do_trade(conn, sid, otb, "RB", "p_bijan", "p_puka", 2)     # already ours (as an R)
+    assert not conn.in_transaction
+    repo.do_trade(conn, sid, otb, "RB", "p_bijan", "p_warren", 2)       # still works
+    assert any(e["asset_ref"] == "p_warren" for e in repo.current_roster(conn, otb))

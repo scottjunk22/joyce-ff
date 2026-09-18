@@ -203,6 +203,15 @@ def test_the_commissioner_can_see_every_move_of_the_season(client):
     assert [(m["week"], m["team"], m["free_n"]) for m in mv] ==         [(3, "OT Blitz", 2), (3, "OT Blitz", 1)]            # newest first, counted oldest first
 
 
+def test_review_can_ask_whether_a_player_is_still_free(client):
+    """Set before the PIN step, so a manager who was beaten to a player hears it
+    before he types anything (Scott, 2026-09-18)."""
+    free = client.get(f"/api/team/{client.otb}/claim-check?position=RB&ref=p_warren").get_json()
+    assert free == {"available": True}
+    mine = client.get(f"/api/team/{client.otb}/claim-check?position=RB&ref=p_bijan").get_json()
+    assert mine == {"available": False, "error": "Bijan Robinson is already on your roster"}
+
+
 def test_pins_open_by_conference_and_stay_open_until_each_manager_sets_one(client):
     """At the Blue draft only Blue teams open; a team closes itself once its PIN
     is set, and the commissioner can close or open a single team (2026-09-16)."""

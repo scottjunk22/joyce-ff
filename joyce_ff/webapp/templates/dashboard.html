@@ -189,6 +189,7 @@
  .txmode.o.on{border-color:var(--blue);background:color-mix(in srgb,var(--blue) 12%,transparent)}
  .txmode.dis{opacity:.4;pointer-events:none}
  .txmode .t1{font-weight:700}.txmode .t2{font-size:11px;color:var(--dim)}
+ .txerr{border:1px solid var(--bad);color:var(--bad);border-radius:8px;padding:8px 10px;margin:8px 0;font-size:13px;line-height:1.5}
  .txhint{font-size:12px;color:var(--warn);margin-top:8px}
  .txwarn{border:2px solid var(--warn);border-radius:9px;padding:11px;background:color-mix(in srgb,var(--warn) 10%,transparent);margin:0 0 12px}
  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}.col h4{margin:0 0 6px;font-size:12px;color:var(--dim)}
@@ -763,13 +764,16 @@ async function pickOut(ref,pos,byeWeek){
   TX.out=ref;TX.outPos=pos;TX.outName=r.name||ref;TX.outBye=!!byeWeek;TX.openWeek=byeWeek||null;TX.in=null;TX.inName='';TX.filter='';
   if(!TX.outBye&&TX.mode==='open')TX.mode='trade';
   renderTxBuild();
-  TX.avail=(await (await fetch(`/api/team/${TX.team}/available?position=${encodeURIComponent(pos)}`)).json()).available;
+  await txLoadAvail();
   renderTxBuild();
 }
+async function txLoadAvail(){ if(!TX.outPos) return;
+  TX.avail=(await (await fetch(`/api/team/${TX.team}/available?position=${encodeURIComponent(TX.outPos)}`)).json()).available; }
 /* Tapping an available player used to redraw the whole screen, which threw a
    phone back to the top with the selection out of sight (Scott, 2026-09-17).
    Selection is a class now; only the steps that change the screen redraw it. */
 function pickIn(key){ const x=TX.avail.find(a=>(a.gsis_id||a.abbr)===key)||{}; TX.in=key;TX.inName=x.name||x.abbr||key;
+  if(TX.err){ TX.err=null; const e=$('txerr'); if(e) e.remove(); }
   document.querySelectorAll('#avail .pl').forEach(el=>el.classList.toggle('sel',el.dataset.key===key)); }
 function txFilter(v){ TX.filter=v; const el=$('avail'); if(el)el.innerHTML=availHtml(); }
 /* No "on the left" — on a phone the roster sits above this, not beside it. And
@@ -796,6 +800,7 @@ function renderTxBuild(){ if(TX.step==='review')return renderTxReview();
   const rosterList=TX.roster.map(r=>`<div class="pl ${TX.out===r.asset_ref&&TX.outPos===r.slot?'sel':''}" onclick='pickOut(${JSON.stringify(r.asset_ref)},${JSON.stringify(r.slot)},${r.bye_week||0})'><span><span class="pos">${r.slot}</span>${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}${r.bye_week?` <span class="tag-bye${r.bye_week===LW?'':' next'}">BYE Wk ${r.bye_week}</span>`:''}</span></div>`).join('');
   const hint=TX.out?(TX.outBye?`<div class="txhint">💡 ${TX.outName} is on bye in <b>Week ${TX.openWeek}</b> — most managers <b>Open</b> (rent) a bye player rather than Trade him away. An Open here is for Week ${TX.openWeek}.</div>`:`<div class="sub" style="margin-top:8px">Open is unavailable — ${TX.outName} isn't on bye ${(TX.roster.some(x=>x.bye_week&&x.bye_week!==LW))?'this week or next':'this week'}, so only Trade applies.</div>`):'';
   $('txbody').innerHTML=`<h3>${TX.teamName} — Move a player</h3>
+    ${TX.err?`<div class="txerr" id="txerr">⚠ ${TX.err}</div>`:''}
     <div class="txseg">
       <div class="txmode t ${TX.mode==='trade'?'on':''}" onclick="txSetMode('trade')"><div class="t1">⇄ Trade</div><div class="t2">permanent · can't undo</div></div>
       <div class="txmode o ${TX.mode==='open'?'on':''} ${openOk?'':'dis'}" onclick="txSetMode('open')"><div class="t1">＋ Open</div><div class="t2">${TX.out?(TX.outBye?'1-week rental · Week '+TX.openWeek:'bye players only'):'1-week rental'}</div></div>
@@ -808,8 +813,16 @@ function renderTxBuild(){ if(TX.step==='review')return renderTxReview();
   document.querySelectorAll('#txbody .plist').forEach((el,i)=>{ if(lists[i]) el.scrollTop=lists[i]; });
   if(modal) modal.scrollTop=keep;
 }
-function txReview(){ if(!TX.out||!TX.in){alert('Pick a player to move out and one to bring in.');return;}
-  TX.pc=$('txpc').value; TX.step='review'; renderTxReview(); }
+async function txReview(){ if(!TX.out||!TX.in){alert('Pick a player to move out and one to bring in.');return;}
+  TX.pc=$('txpc').value;
+  // The list on screen is a photograph of when it loaded. Ask the server whether
+  // he's still free before showing the PIN step (Scott, 2026-09-18) — the confirm
+  // still checks too, since someone can take him in the seconds in between.
+  const q=`position=${encodeURIComponent(TX.outPos)}&ref=${encodeURIComponent(TX.in)}`;
+  const c=await (await fetch(`/api/team/${TX.team}/claim-check?${q}`)).json().catch(()=>({available:true}));
+  if(c&&c.available===false){ TX.err=c.error||'He is no longer available.'; TX.in=null;TX.inName='';
+    await txLoadAvail(); renderTxBuild(); return; }
+  TX.step='review'; renderTxReview(); }
 function txBack(){ TX.step='build'; renderTxBuild(); }
 function txSwitchOpen(){ TX.mode='open'; renderTxReview(); }
 function renderTxReview(){ const isTrade=TX.mode==='trade', mismatch=isTrade&&TX.outBye;
@@ -825,7 +838,8 @@ async function submitTx(){
   if(res.ok){ const isTrade=TX.mode==='trade';
     const feeMsg=j.fee_cents?`$${(j.fee_cents/100).toFixed(0)} fee`:`free move · ${j.free_left} left`;
     alert((isTrade?'Traded — permanent. ':`Opened for Week ${TX.openWeek} — 1 week only. `)+feeMsg+(j.lineup_note?'\n\n'+j.lineup_note:'')); closeM(); load(VIEW, SEASON);
-  } else { alert('⚠ '+(j.error||'error')); TX.step='build'; renderTxBuild(); } }
+  } else { TX.err=j.error||'That move did not go through.'; TX.in=null;TX.inName='';
+    TX.step='build'; await txLoadAvail(); renderTxBuild(); } }
 
 let COMMISH_PC='';
 function commishModal(){ openM(`<h3>🛠 Commissioner <span class="sub">Steve &amp; Scott</span></h3>
