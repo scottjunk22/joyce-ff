@@ -725,7 +725,8 @@ async function pickOut(ref,pos,byeWeek){
 function pickIn(key){ const x=TX.avail.find(a=>(a.gsis_id||a.abbr)===key)||{}; TX.in=key;TX.inName=x.name||x.abbr||key;
   document.querySelectorAll('#avail .pl').forEach(el=>el.classList.toggle('sel',el.dataset.key===key)); }
 function txFilter(v){ TX.filter=v; const el=$('avail'); if(el)el.innerHTML=availHtml(); }
-function availHtml(){ if(!TX.out)return '<div class="sub" style="padding:14px;text-align:center">← pick a player on the left</div>';
+// No "on the left" — on a phone the roster sits above this, not beside it.
+function availHtml(){ if(!TX.out)return '<div class="sub" style="padding:14px;text-align:center">First pick the player you\'re moving out, from your roster</div>';
   const nm=x=>x.name||x.abbr, list=TX.avail.filter(x=>nm(x).toLowerCase().includes((TX.filter||'').toLowerCase()));
   if(!list.length)return '<div class="sub" style="padding:14px;text-align:center">no matches</div>';
   return list.map(x=>{const key=x.gsis_id||x.abbr;
