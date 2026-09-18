@@ -735,7 +735,11 @@ function availHtml(){ if(!TX.out)return '<div class="sub" style="padding:14px;te
     return `<div class="pl ${TX.in===key?'sel':''}${wait?' plwait':''}" data-key="${key}" ${wait?'':`onclick='pickIn(${JSON.stringify(key)})'`}><span><span class="pos">${TX.outPos}</span>${nm(x)}${x.nfl_team_abbr?` <span class="team">${x.nfl_team_abbr}</span>`:''}</span>${wait?`<span class="sub">you traded him · back ${x.back_at}</span>`:''}</div>`;}).join('');
 }
 function renderTxBuild(){ if(TX.step==='review')return renderTxReview();
+  // Keep every scroll position across a redraw: the panel's, and each list's own
+  // (the roster list has its own scrollbar, and rebuilding it snapped it back to
+  // the top when you picked someone from further down — Scott, 2026-09-17).
   const modal=document.querySelector('.modal'), keep=modal?modal.scrollTop:0;
+  const lists=[...document.querySelectorAll('#txbody .plist')].map(el=>el.scrollTop);
   const openOk=TX.out&&TX.outBye;
   const rosterList=TX.roster.map(r=>`<div class="pl ${TX.out===r.asset_ref&&TX.outPos===r.slot?'sel':''}" onclick='pickOut(${JSON.stringify(r.asset_ref)},${JSON.stringify(r.slot)},${r.bye_week||0})'><span><span class="pos">${r.slot}</span>${r.name}${r.kind==='PLAYER'&&r.team?` <span class="team">${r.team}</span>`:''}${r.bye_week?` <span class="tag-bye${r.bye_week===LW?'':' next'}">BYE Wk ${r.bye_week}</span>`:''}</span></div>`).join('');
   const hint=TX.out?(TX.outBye?`<div class="txhint">💡 ${TX.outName} is on bye in <b>Week ${TX.openWeek}</b> — most managers <b>Open</b> (rent) a bye player rather than Trade him away. An Open here is for Week ${TX.openWeek}.</div>`:`<div class="sub" style="margin-top:8px">Open is unavailable — ${TX.outName} isn't on bye ${(TX.roster.some(x=>x.bye_week&&x.bye_week!==LW))?'this week or next':'this week'}, so only Trade applies.</div>`):'';
@@ -748,6 +752,7 @@ function renderTxBuild(){ if(TX.step==='review')return renderTxReview();
       <div><h4>${TX.out?'Available '+TX.outPos:'Available'}</h4><input class="searchbox" id="asearch" placeholder="search…" ${TX.out?'':'disabled'} oninput="txFilter(this.value)" value="${TX.filter||''}"><div class="plist" id="avail">${availHtml()}</div></div></div>
     ${hint}
     <div class="pass"><span>PIN:</span><input type="password" id="txpc" inputmode="numeric" placeholder="4-6 digits" value="${TX.pc||''}"><button class="go" onclick="txReview()">Review →</button></div>`;
+  document.querySelectorAll('#txbody .plist').forEach((el,i)=>{ if(lists[i]) el.scrollTop=lists[i]; });
   if(modal) modal.scrollTop=keep;
 }
 function txReview(){ if(!TX.out||!TX.in){alert('Pick a player to move out and one to bring in.');return;}
