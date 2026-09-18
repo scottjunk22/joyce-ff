@@ -108,6 +108,8 @@
  .poschip{font-size:10px;color:var(--text);background:var(--line);border-radius:5px;padding:1px 6px;font-weight:700;white-space:nowrap}
  .st{font-size:11px;border:1px solid var(--line);border-radius:6px;padding:2px 8px;margin-left:auto;cursor:pointer}.st.start{color:var(--good);border-color:var(--good)}.st.bench{color:var(--warn);border-color:var(--warn)}
  .st.off{color:var(--dim);border-style:dashed;cursor:default;white-space:nowrap}
+ .st.lk{border-style:dashed;opacity:.55;cursor:default}
+ .lnote{min-height:17px;font-size:12px;color:var(--warn);padding:5px 2px 0;transition:opacity .2s}
  .srow.off .nm{color:var(--dim)}
  .lban{border-radius:10px;padding:8px 11px;font-size:12.5px;margin:2px 0 10px;display:flex;gap:6px;align-items:flex-start}
  .lban.ok{border:1px solid var(--good);color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent)}
@@ -583,7 +585,7 @@ async function lineupModal(id, wk){
   // Each rental goes directly under the bye player it covers.
   const opensLeft=[...(d.opens||[])];
   const rental=o=>({slot:o.position,ref:o.asset_ref,name:'<span class="covarrow">↳</span> '+o.name+' <span class="tag-open">OPEN</span>',
-    game_state:o.game_state,game_at:o.game_at,rental:true});
+    plain:o.name,game_state:o.game_state,game_at:o.game_at,rental:true});
   const items=[];
   // A starter traded away after kickoff stays (locked, keeps his points) just
   // above the player who replaced him; a player traded in this week is NEW.
@@ -592,7 +594,8 @@ async function lineupModal(id, wk){
   // count then asks for one more at his slot, which is the player he was traded
   // for. (Leaving him listed let a manager submit a lineup the rules reject.)
   const tradedLeft=(d.traded_out||[]).filter(t=>STARTED.includes(t.game_state));
-  const tradedItem=t=>({slot:t.slot,ref:t.asset_ref,name:t.name+' <span class="tag-traded">TRADED</span>',game_state:t.game_state,game_at:t.game_at,traded:true});
+  const tradedItem=t=>({slot:t.slot,ref:t.asset_ref,name:t.name+' <span class="tag-traded">TRADED</span>',
+    plain:t.name,game_state:t.game_state,game_at:t.game_at,traded:true});
   d.roster.forEach(r=>{
     for(let i=tradedLeft.length-1;i>=0;i--){ const t=tradedLeft[i];
       if(t.replaced_by===r.asset_ref&&t.slot===r.slot){ items.push(tradedItem(t)); tradedLeft.splice(i,1); } }
@@ -639,17 +642,14 @@ async function lineupModal(id, wk){
   // Traded in for a starter whose game had already kicked off: the locked man
   // keeps the week, so his replacement can't play until next week. Saying it
   // here (and not only when a submit is rejected) is the whole point.
-  const waiting=items.filter(i=>i.blocked), lastWk=d.last_week||null;
+  const waiting=items.filter(i=>i.blocked);
   const waitBan=wk<LW||!waiting.length?'':`<div class="lban warn">${TRI}<span>`
-    +waiting.map(i=>lastWk&&wk>=lastWk
-      ? `<b>${i.plain} can't start in Week ${wk}</b> — you traded for him after ${i.blocked}'s game had kicked off, so ${i.blocked} keeps the week.`
-      : `<b>${i.plain} can't start until Week ${wk+1}</b> — you traded for him after ${i.blocked}'s game had kicked off, so ${i.blocked} keeps Week ${wk}.`).join(' ')
-    +`</span></div>`;
+    +waiting.map(i=>blockedText(i,wk,!!(d.last_week&&wk>=d.last_week),true)).join(' ')+`</span></div>`;
   let wkOpts='';for(let w=LW;w>=1;w--)wkOpts+=`<option value="${w}" ${w===wk?'selected':''}>${w}</option>`;
   openM(`<h3>${d.name} — Set Lineup</h3>
     <div style="margin:2px 0 8px"><label class="sub">Week <select id="luwk" onchange="lineupModal(${id},+this.value)">${wkOpts}</select></label> <span class="sub">· earlier weeks are view only (the commissioner can change them)</span></div>
     ${banner}${waitBan}
-    <div id="luRows" style="margin-top:10px"></div><div class="explain" id="luHint"></div>
+    <div id="luRows" style="margin-top:10px"></div><div class="lnote" id="luNote"></div><div class="explain" id="luHint"></div>
     <div class="pass"><span>PIN:</span><input type="password" id="lpc" inputmode="numeric" placeholder="4-6 digits"><button class="go" onclick="submitLineup()">Submit lineup</button></div>`);
   renderLineup();
 }
@@ -667,12 +667,37 @@ function renderLineup(){ const ord={'C':0,'K':1,'DEF/ST':2,'QB':3,'RB':4,'R':5},
   // A unit toggles only when an Open gives it a choice — or, for a QB or K on
   // bye with no Open, so it can be benched for an extra RB or receiver.
   const clickable=i=> !unit(i.slot) || cnt[i.slot]>1 || (['QB','K'].includes(i.slot)&&(LU.flex||{})[i.slot]);
-  $('luRows').innerHTML=items.map(i=>{const key=LUKEY(i.slot,i.ref), on=LU.sel.has(key);
+  $('luRows').innerHTML=items.map(i=>{const key=LUKEY(i.slot,i.ref), on=LU.sel.has(key), n=LU.items.indexOf(i);
     // Blocked: don't offer a button he can't use — say which week he's for.
-    if(i.blocked) return `<div class="srow off"><span class="slot">${i.slot}</span><span class="nm">${i.name}${luGame(i)}</span><span class="st off">${LU.lastWeek?"CAN'T START":'NEXT WEEK'}</span></div>`;
+    if(i.blocked) return `<div class="srow off"><span class="slot">${i.slot}</span><span class="nm">${i.name}${luGame(i)}</span><span class="st off" onclick="luWhy(${n})">${LU.lastWeek?"CAN'T START":'NEXT WEEK'}</span></div>`;
+    // Kicked off: nothing about him can change, so the chip keeps its word (who
+    // is actually playing for you is the point of this screen) but stops being
+    // a button. The commissioner, signed in, can still change him.
+    if(luLocked(i)) return `<div class="srow"><span class="slot">${i.slot}</span><span class="nm">${i.name}${luGame(i)}</span><span class="st lk ${on?'start':'bench'}" onclick="luWhy(${n})">${on?'START':'BENCH'}</span></div>`;
     return `<div class="srow"><span class="slot">${i.slot}</span><span class="nm">${i.name}${luGame(i)}</span><span class="st ${on?'start':'bench'}" ${clickable(i)?`onclick="toggleStart('${encodeURIComponent(key)}')"`:''}>${on?'START':'BENCH'}</span></div>`;}).join('');
   const c=s=>[...LU.sel].filter(k=>k.startsWith(s+'|')).length;
   $('luHint').innerHTML=lineupCheck(c);
+}
+/* His game has kicked off: the lineup can't change him either way. The
+   commissioner, once signed in, still can — he enters moves phoned in late. */
+function luLocked(i){ return !COMMISH_PC && STARTED.includes(i.game_state); }
+/* The sentence for a player traded in after the man he replaced had played.
+   The banner at the top of Set Lineup and a tap on his chip say the same thing;
+   in the season's last week there is no next week to send him to. */
+function blockedText(i,wk,last,bold){
+  const head=last?`${i.plain} can't start in Week ${wk}`:`${i.plain} can't start until Week ${wk+1}`;
+  return (bold?`<b>${head}</b>`:head)+` — you traded for him after ${i.blocked}'s game had kicked off, `
+    +`so ${i.blocked} keeps ${last?'the week':'Week '+wk}.`;
+}
+/* A chip that can't be pressed still answers when you press it — under the
+   rows, above the count, where a rejected submit used to put it (2026-09-18). */
+let LUNOTE=null;
+function luWhy(n){ const i=LU.items[n], el=$('luNote'); if(!i||!el) return;
+  const who=i.plain||i.name.replace(/<[^>]*>/g,'').trim();
+  el.innerHTML = i.blocked ? blockedText(i,LU.week,LU.lastWeek,false)
+    : LU.week<LW ? `Week ${LU.week} has been played — it can't be changed now.`
+    : `${who}'s game has started — he's locked in for this week.`;
+  clearTimeout(LUNOTE); LUNOTE=setTimeout(()=>{const e=$('luNote'); if(e) e.innerHTML='';},6000);
 }
 /* The count under Set Lineup: a green check only for a lineup submitting will
    accept (the same rules as repo.set_lineup, bye-week flex included), otherwise
@@ -910,7 +935,7 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
     +cfold('earlier','Earlier score checks',`<div id="earlierBox"><span class="sub">loading…</span></div>`)
     +cfold('moves','Recent moves and entries for managers',(txSection||'<div class="sub">No moves yet.</div>')+`<div id="auditBox"></div>`)
     +cfold('moveall','All moves this season<span id="allMovesN"></span>',`<div id="allMovesBox"><span class="sub">loading…</span></div>`)
-    +cfold('act','Acting for a manager — how to',`<div class="sub">Open the team on the main page and use its <b>Lineup</b> or <b>Trade/Open</b> button exactly as a manager would — enter <b>your commissioner passcode</b> where it asks for the PIN. You can also set past weeks and start players whose game has already kicked off.</div>`)
+    +cfold('act','Acting for a manager — how to',`<div class="sub">Open the team on the main page and use its <b>Lineup</b> or <b>Trade/Open</b> button exactly as a manager would — enter <b>your commissioner passcode</b> where it asks for the PIN. You can also set past weeks and start players whose game has already kicked off: sign in here first and those players stay changeable for you, where a manager sees them locked.</div>`)
     +cfold('pins','PIN setup (draft day)',pinBar)
     +cfold('season','Season setup — team names, new or delete season',lockBar+seasonBar)
     +`</div>`;
