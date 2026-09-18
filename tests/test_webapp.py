@@ -166,6 +166,24 @@ def test_an_open_reports_who_it_covers_for_the_roster_lineup_and_box_score(clien
         ("Jaylen Warren", "DEN", "p_bijan", "Bijan Robinson", "Robinson")
 
 
+def test_a_player_traded_in_for_someone_who_already_played_is_flagged(client):
+    """His replacement can't start this week, so Set Lineup can dim the button
+    and say why instead of only rejecting the submit (Scott, 2026-09-18)."""
+    conn = schema.connect(client.dbpath)
+    sid = conn.execute("SELECT id FROM seasons ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    conn.execute("INSERT INTO nfl_week_games(season_id,ff_week,game_id,home_team,away_team,"
+                 "kickoff,final) VALUES (?,3,'g3','ATL','DEN','2026-09-20T12:00:00-05:00',1)", (sid,))
+    conn.commit()
+    conn.close()
+    r = client.post(f"/api/team/{client.otb}/trade",      # commissioner: files against week 3
+                    json={"passcode": "commish", "position": "RB", "out": "p_bijan",
+                          "in": "p_warren", "week": 3})
+    assert r.status_code == 200, r.get_json()
+    d = client.get(f"/api/team/{client.otb}/detail?week=3").get_json()
+    (came_in,) = [e for e in d["roster"] if e["asset_ref"] == "p_warren"]
+    assert came_in["blocked_by"] == "Bijan Robinson"
+
+
 def test_pins_open_by_conference_and_stay_open_until_each_manager_sets_one(client):
     """At the Blue draft only Blue teams open; a team closes itself once its PIN
     is set, and the commissioner can close or open a single team (2026-09-16)."""

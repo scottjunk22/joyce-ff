@@ -107,6 +107,8 @@
  .team{font-size:10px;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:0 5px;margin-left:3px;font-weight:600;white-space:nowrap}
  .poschip{font-size:10px;color:var(--text);background:var(--line);border-radius:5px;padding:1px 6px;font-weight:700;white-space:nowrap}
  .st{font-size:11px;border:1px solid var(--line);border-radius:6px;padding:2px 8px;margin-left:auto;cursor:pointer}.st.start{color:var(--good);border-color:var(--good)}.st.bench{color:var(--warn);border-color:var(--warn)}
+ .st.off{color:var(--dim);border-style:dashed;cursor:default;white-space:nowrap}
+ .srow.off .nm{color:var(--dim)}
  .lban{border-radius:10px;padding:8px 11px;font-size:12.5px;margin:2px 0 10px;display:flex;gap:6px;align-items:flex-start}
  .lban.ok{border:1px solid var(--good);color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent)}
  .lban.warn{border:1px solid var(--warn);color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent)}
@@ -572,6 +574,7 @@ async function changePin(id){
   if(j){ alert('PIN changed.'); roster(id); }
 }
 const LUKEY=(slot,ref)=>slot+'|'+ref;
+const STARTED=['playing','over','final'];        // his game has kicked off
 let LU={team:null,sel:new Set(),items:[]};
 async function lineupModal(id, wk){
   wk = wk || LW;
@@ -583,12 +586,17 @@ async function lineupModal(id, wk){
   const items=[];
   // A starter traded away after kickoff stays (locked, keeps his points) just
   // above the player who replaced him; a player traded in this week is NEW.
-  const tradedLeft=[...(d.traded_out||[])];
+  // Only a traded-away starter whose game HAS started belongs here: he's locked
+  // in and keeps his points. One whose game hasn't started is simply gone — the
+  // count then asks for one more at his slot, which is the player he was traded
+  // for. (Leaving him listed let a manager submit a lineup the rules reject.)
+  const tradedLeft=(d.traded_out||[]).filter(t=>STARTED.includes(t.game_state));
   const tradedItem=t=>({slot:t.slot,ref:t.asset_ref,name:t.name+' <span class="tag-traded">TRADED</span>',game_state:t.game_state,game_at:t.game_at,traded:true});
   d.roster.forEach(r=>{
     for(let i=tradedLeft.length-1;i>=0;i--){ const t=tradedLeft[i];
       if(t.replaced_by===r.asset_ref&&t.slot===r.slot){ items.push(tradedItem(t)); tradedLeft.splice(i,1); } }
-    items.push({slot:r.slot,ref:r.asset_ref,name:r.name+(r.new?' <span class="tag-new">NEW</span>':''),game_state:r.game_state,game_at:r.game_at});
+    items.push({slot:r.slot,ref:r.asset_ref,name:r.name+(r.new?' <span class="tag-new">NEW</span>':''),
+                game_state:r.game_state,game_at:r.game_at,blocked:r.blocked_by||null});
     for(let i=opensLeft.length-1;i>=0;i--){ const o=opensLeft[i];
       if(o.covering===r.asset_ref&&o.position===r.slot){ items.push(rental(o)); opensLeft.splice(i,1); } }
   });
@@ -603,8 +611,8 @@ async function lineupModal(id, wk){
   const started=new Set((d.box||[]).map(x=>LUKEY(x.roster_slot,x.asset_ref)));
   if(started.size) items.forEach(i=>{if(started.has(LUKEY(i.slot,i.ref)))LU.sel.add(LUKEY(i.slot,i.ref));});
   else{ // No lineup yet: an Open starts ahead of the bye player it covers — it was bought to start.
-       const pool=s=>[...items.filter(i=>i.slot===s&&i.rental),
-                      ...items.filter(i=>i.slot===s&&!i.rental&&!covered.has(LUKEY(i.slot,i.ref)))];
+       const pool=s=>[...items.filter(i=>i.slot===s&&i.rental&&!i.blocked),
+                      ...items.filter(i=>i.slot===s&&!i.rental&&!i.blocked&&!covered.has(LUKEY(i.slot,i.ref)))];
        [['C',1],['K',1],['DEF/ST',1],['QB',1],['RB',2],['R',3]].forEach(([s,n])=>
          pool(s).slice(0,n).forEach(i=>LU.sel.add(LUKEY(i.slot,i.ref))));}
   // A copied lineup is never described as submitted. Most managers set theirs
@@ -626,10 +634,18 @@ async function lineupModal(id, wk){
     : early.length
     ? `<div class="lban warn">${TRI}<span>No lineup set for Week ${wk} yet. ${earlyText()}</span></div>`
     : `<div class="lban info"><span>No lineup set for Week ${wk} yet.</span></div>`;
+  // Traded in for a starter whose game had already kicked off: the locked man
+  // keeps the week, so his replacement can't play until next week. Saying it
+  // here (and not only when a submit is rejected) is the whole point.
+  const waiting=items.filter(i=>i.blocked);
+  const waitBan=wk<LW||!waiting.length?'':`<div class="lban warn">${TRI}<span>`
+    +waiting.map(i=>`<b>${i.name.replace(/<[^>]*>/g,'').trim()} can't start in Week ${wk}</b> — ${i.blocked}'s game had `
+      +`already started when you traded him, so ${i.blocked} keeps this week. He can start in Week ${wk+1}.`).join(' ')
+    +`</span></div>`;
   let wkOpts='';for(let w=LW;w>=1;w--)wkOpts+=`<option value="${w}" ${w===wk?'selected':''}>${w}</option>`;
   openM(`<h3>${d.name} — Set Lineup</h3>
     <div style="margin:2px 0 8px"><label class="sub">Week <select id="luwk" onchange="lineupModal(${id},+this.value)">${wkOpts}</select></label> <span class="sub">· earlier weeks are view only (the commissioner can change them)</span></div>
-    ${banner}
+    ${banner}${waitBan}
     <div id="luRows" style="margin-top:10px"></div><div class="explain" id="luHint"></div>
     <div class="pass"><span>PIN:</span><input type="password" id="lpc" inputmode="numeric" placeholder="4-6 digits"><button class="go" onclick="submitLineup()">Submit lineup</button></div>`);
   renderLineup();
@@ -640,7 +656,7 @@ function luGame(i){
   if(i.game_state==='bye') return ' <span class="tag-bye">BYE</span>';
   if(!i.game_at) return '';
   const t=new Date(i.game_at).toLocaleString([],{timeZone:'America/Chicago',weekday:'short',hour:'numeric',minute:'2-digit'});
-  return ` <span class="tag-when">${t}${['playing','over','final'].includes(i.game_state)?' · locked':''}</span>`;
+  return ` <span class="tag-when">${t}${STARTED.includes(i.game_state)?' · locked':''}</span>`;
 }
 function renderLineup(){ const ord={'C':0,'K':1,'DEF/ST':2,'QB':3,'RB':4,'R':5}, unit=s=>['C','K','DEF/ST','QB'].includes(s);
   const items=[...LU.items].sort((a,b)=>ord[a.slot]-ord[b.slot]);
@@ -649,6 +665,8 @@ function renderLineup(){ const ord={'C':0,'K':1,'DEF/ST':2,'QB':3,'RB':4,'R':5},
   // bye with no Open, so it can be benched for an extra RB or receiver.
   const clickable=i=> !unit(i.slot) || cnt[i.slot]>1 || (['QB','K'].includes(i.slot)&&(LU.flex||{})[i.slot]);
   $('luRows').innerHTML=items.map(i=>{const key=LUKEY(i.slot,i.ref), on=LU.sel.has(key);
+    // Blocked: don't offer a button he can't use — say which week he's for.
+    if(i.blocked) return `<div class="srow off"><span class="slot">${i.slot}</span><span class="nm">${i.name}${luGame(i)}</span><span class="st off">NEXT WEEK</span></div>`;
     return `<div class="srow"><span class="slot">${i.slot}</span><span class="nm">${i.name}${luGame(i)}</span><span class="st ${on?'start':'bench'}" ${clickable(i)?`onclick="toggleStart('${encodeURIComponent(key)}')"`:''}>${on?'START':'BENCH'}</span></div>`;}).join('');
   const c=s=>[...LU.sel].filter(k=>k.startsWith(s+'|')).length;
   $('luHint').innerHTML=lineupCheck(c);
@@ -697,7 +715,8 @@ function toggleStart(encKey){ const key=decodeURIComponent(encKey);
 async function submitLineup(){ const starters=[...LU.sel].map(k=>{const j=k.indexOf('|');
     return {roster_slot:k.slice(0,j), asset_ref:k.slice(j+1)};});
   const res=await fetch(`/api/team/${LU.team}/lineup`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:$('lpc').value,week:LU.week,starters})});
-  const j=await res.json(); if(res.ok){alert('Lineup saved!');closeM();load(VIEW, SEASON);}else alert('⚠ '+(j.error||'error')); }
+  const j=await res.json(); if(res.ok){alert('Lineup saved!');closeM();load(VIEW, SEASON);}
+  else { alert('⚠ '+(j.error||'error')); lineupModal(LU.team, LU.week); } }   // reload: the buttons must show what's actually saved
 
 let TX={};
 async function txModal(id){

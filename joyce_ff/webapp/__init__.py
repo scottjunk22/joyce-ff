@@ -678,13 +678,17 @@ def create_app(db_path: str | None = None) -> Flask:
                 ties_to_decide.append({"week": r["w"], "home_id": r["h"], "home": r["hn"],
                                        "away_id": r["a"], "away": r["an"], "why": d["text"]})
 
+        # Per conference, not 20 across both — a busy Blue week used to push every
+        # Red move off the list (Scott, 2026-09-18).
         tx = {"BLUE": [], "RED": []}
         for r in conn.execute(
+            "SELECT id, w, team, conf, type, pos, ok, oref, ik, iref FROM ("
             "SELECT tr.id id, tr.ff_week w, t.name team, c.code conf, tr.type, tr.position pos, "
-            "tr.out_asset_kind ok, tr.out_asset_ref oref, tr.in_asset_kind ik, tr.in_asset_ref iref "
+            "tr.out_asset_kind ok, tr.out_asset_ref oref, tr.in_asset_kind ik, tr.in_asset_ref iref, "
+            "ROW_NUMBER() OVER (PARTITION BY c.code ORDER BY tr.ff_week DESC, tr.id DESC) rn "
             "FROM transactions tr JOIN teams t ON t.id=tr.team_id "
-            "JOIN conferences c ON c.id=t.conference_id WHERE tr.season_id=? AND tr.reversed=0 "
-            "ORDER BY tr.ff_week DESC, tr.id DESC LIMIT 20", (sid,)):
+            "JOIN conferences c ON c.id=t.conference_id WHERE tr.season_id=? AND tr.reversed=0) "
+            "WHERE rn<=25 ORDER BY w DESC, id DESC", (sid,)):
             tx[r["conf"]].append({"id": r["id"], "week": r["w"], "team": r["team"], "type": r["type"],
                 **_tx_parts(conn, sid, r["pos"], r["ok"], r["oref"], r["ik"], r["iref"])})
 
@@ -791,9 +795,23 @@ def create_app(db_path: str | None = None) -> Flask:
         # Starters traded away after their game kicked off stay in the week's
         # lineup and keep their points — shown with a grey TRADED tag, just above
         # the player who replaced them.
-        replaced_by = {(t["position"], t["out_asset_ref"]): t["in_asset_ref"] for t in conn.execute(
-            "SELECT position, out_asset_ref, in_asset_ref FROM transactions WHERE season_id=? "
-            "AND team_id=? AND ff_week=? AND type='TRADE' AND reversed=0", (sid, team_id, wk))}
+        STARTED = ("playing", "over", "final")
+        replaced_by, blocked_by = {}, {}
+        for t in conn.execute(
+                "SELECT position, out_asset_kind, out_asset_ref, in_asset_ref FROM transactions "
+                "WHERE season_id=? AND team_id=? AND ff_week=? AND type='TRADE' AND reversed=0",
+                (sid, team_id, wk)):
+            replaced_by[(t["position"], t["out_asset_ref"])] = t["in_asset_ref"]
+            # ...and the man who came in for a starter whose game had already
+            # begun can't play this week at all: the one he replaced is locked
+            # into the lineup and keeps the points.
+            out_team = _asset_team(conn, sid, t["out_asset_kind"], t["out_asset_ref"])
+            if (games.get(out_team) or {}).get("state") in STARTED:
+                blocked_by[(t["position"], t["in_asset_ref"])] = _dname(
+                    conn, sid, t["out_asset_kind"], t["out_asset_ref"],
+                    t["position"] if t["out_asset_kind"] == "TEAM_UNIT" else None)
+        for e in roster:
+            e["blocked_by"] = blocked_by.get((e["slot"], e["asset_ref"]))
         traded_out = []
         for l in conn.execute("SELECT roster_slot, asset_kind, asset_ref, unit_type FROM weekly_lineups "
                               "WHERE season_id=? AND team_id=? AND ff_week=? AND is_rental=0",
