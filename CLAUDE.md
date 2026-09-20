@@ -128,6 +128,20 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-19/20: ECR ON THE BOARD (OT-Blitz platform only). FantasyPros
+  rest-of-season rankings are IMPORTED from a CSV Drew downloads while logged
+  in — never scraped (their ToS; their points are PPR and meaningless here). We
+  take the ORDER only: `manage.py import-ecr <csv>` -> data/ecr.json, then
+  `board-cache` merges it (joyce_ff/projections/ecr.py). Their positions map to
+  our slots: RB->RB, WR/TE->R, a ranked QB or K -> that TEAM's unit (best-ranked
+  of that kind), DST -> DEF/ST; nothing ranks coaches. Names match on squashed
+  case/punctuation/suffixes plus a hand-checked NAME_ALIAS, and an unmatched row
+  is REPORTED ("400 of 404 matched"), never guessed. The board opens sorted by
+  ECR when an import exists; the second column is Tier in VOR order and our
+  "VOR #" in any other, so their rank sits beside ours. Players with no NFL
+  history (rookies) have no VOR and now appear at the END of the merged Overall
+  list in ECR order, blank rank of ours. The Valuation Board also strikes
+  through whoever the draft has taken, refreshing every 30s while it's open.
 - 2026-09-18: UNFINISHED DRAFT SLOTS (commissioner). A manager may leave the
   draft with a slot empty and settle it days later; Scott enters it in the Draft
   Room whenever, no time gate. (1) Nobody drafts a player he wants to start
