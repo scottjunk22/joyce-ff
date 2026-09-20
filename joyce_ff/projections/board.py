@@ -159,6 +159,22 @@ def _overall_records(player_recs: list[dict], unit_recs: dict,
             tier += 1
         r["rank"] = i + 1
         r["tier"] = tier
+    # Players with no NFL history have no projection and so no VOR — which used
+    # to keep every rookie off the merged list entirely, on a draft night when
+    # the rest of the division is taking them. If an outside consensus has an
+    # opinion about them, they belong on the end of the board in ITS order,
+    # under everyone we can actually measure and with no tier of our own
+    # (Scott, 2026-09-19).
+    ranked = [p for p in player_recs
+              if p["vor"] is None and p.get("ecr") is not None]
+    ranked.sort(key=lambda p: p["ecr"])
+    for j, p in enumerate(ranked):
+        rows.append({**{k: p[k] for k in
+                        ("id", "slot", "name", "team", "position", "proj", "vor",
+                         "floor", "ceil", "bust", "games25", "low_sample",
+                         "no_history", "cur_ppg", "cur_g", "sos", "ecr", "ecr_pos",
+                         "ecr_kind")},
+                     "rank": len(rows) + 1, "tier": None})
     return rows
 
 

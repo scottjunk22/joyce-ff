@@ -46,6 +46,7 @@
  .vor{font-variant-numeric:tabular-nums;font-weight:800;color:var(--good)}
  .ecr{font-variant-numeric:tabular-nums;font-weight:700}
  .ecrpos{font-size:10px;color:var(--dim);margin-left:4px}
+ .decr{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;margin-right:6px;white-space:nowrap}
  .vor.lo{color:var(--dim);font-weight:600}
  .vorbar{display:inline-block;height:9px;background:color-mix(in srgb,var(--good) 55%,transparent);border-radius:2px;vertical-align:middle;margin-right:6px}
  .tier{color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:0 6px;font-size:11px}
@@ -376,6 +377,12 @@ function draftList(){
         .map(r=>({...r,slot:dtab,position:dtab,name:`${TM(r.team)} ${dtab}`,id:null}));
   else rws=BOARD.players.filter(r=>r.slot===dtab && !dp.has(r.id));
   if(dq){ const s=dq.toLowerCase(); rws=rws.filter(r=>(r.name||'').toLowerCase().includes(s)||TM(r.team||'').toLowerCase().includes(s)); }
+  // Everyone we can measure first, by VOR. Then the ones we can't — rookies —
+  // in the consensus's order rather than in no order at all.
+  rws=[...rws].sort((a,b)=>{
+    if(a.vor!=null&&b.vor!=null) return b.vor-a.vor;
+    if(a.vor!=null) return -1; if(b.vor!=null) return 1;
+    return (a.ecr??9999)-(b.ecr??9999); });
   rws=rws.slice(0,80);
   if(!rws.length) return '<div class="drow"><span class="sub">none available</span></div>';
   return rws.map(r=>{
@@ -384,6 +391,7 @@ function draftList(){
       +`<span class="postag ${ptClass(a.slot)}">${a.slot}</span>`
       +`<span style="flex:1;min-width:0"><span class="nm">${r.name}</span>`
       +(a.kind==='PLAYER'&&r.team?` <span class="tm">${TM(r.team)}</span>`:'')+`</span>`
+      +(ECR().available&&r.ecr!=null?`<span class="decr" title="FantasyPros consensus rank">#${r.ecr}</span>`:'')
       +`<span class="vor ${v==null||v<0.3?'lo':''}">${v==null?'—':(v>0?'+':'')+(+v).toFixed(2)}</span>`
       +`<button class="draftbtn" onclick="draftPick('${a.kind}','${a.ref}','${a.slot}')">${DASSIGN==null?'draft →':'add →'}</button></div>`;
   }).join('');
