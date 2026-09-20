@@ -169,7 +169,10 @@ what the Phase-1 reconciliation is designed to arbitrate.
   title, so position rows line up). Renamed champions via titles.ALIASES
   (commissioner 2026-09-16): Chaos=TightEnds, Sparky's Return=BigDitkas,
   TKatich=Juggernuts, RIP (Tallmans; co-owned by MuddyChicks & TallBears) =
-  TallBears. Lineup-week tags: BYE,
+  TallBears. A title whose winner SHARES a name with a different team playing
+  today can't use ALIASES (it would give both teams the same history) — those
+  move by year in titles.BY_YEAR: 2007-08's "Smith" is today's **Refs**, not
+  the Smith now playing (commissioner 2026-09-20). Lineup-week tags: BYE,
   OPEN rental under the covered player, NEW for a player traded in that week.
   "Find a player" searches the whole pool: "Blue: OT Blitz · Red: available".
 - 2026-09-16: BYE QB/K FLEX (commissioner). A QB or K on bye and NOT covered by

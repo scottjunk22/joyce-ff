@@ -99,3 +99,18 @@ def test_the_commissioners_renamed_champions_are_credited():
     assert titles.key_for("TKatich") == titles.key_for("Juggernuts")
     assert titles.key_for("RIP (Tallmans)") == titles.key_for("TallBears")
     assert titles.key_for("RIP (Tallmans)") != titles.key_for("MuddyChicks")
+
+
+def test_a_title_can_be_moved_to_the_team_that_holds_it_today(tmp_path):
+    """2007-08's "Smith" is today's Refs — and a DIFFERENT team called Smith is
+    playing now, so an alias would hand both of them the same history
+    (commissioner, 2026-09-20)."""
+    conn = schema.connect(":memory:")
+    schema.init_db(conn)
+    sid = schema.seed_reference(conn)
+    conn.executemany("INSERT INTO champions(year,label,team) VALUES (?,?,?)",
+                     [(2007, "2007-08", "Smith"), (2011, "2011-12", "Smith")])
+    conn.commit()
+    by_key = titles.titles_by_key(conn)
+    assert by_key[titles.key_for("Refs")] == ["2007-08"]      # moved
+    assert by_key[titles.key_for("Smith")] == ["2011-12"]     # and only that one moved

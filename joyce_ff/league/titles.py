@@ -39,6 +39,15 @@ ALIASES: dict[str, str] = {
     "RIP": "TallBears",
 }
 
+# A title whose winning NAME belongs to a different team today. ALIASES can't
+# say this: it rewrites a name everywhere, and 2007-08's "Smith" shares a name
+# with a team playing now under another manager — aliasing it would hand both
+# teams the same history. Keyed by the champion's year, so it moves that one
+# trophy and touches nothing else. Commissioner only, like ALIASES.
+BY_YEAR: dict[int, str] = {
+    2007: "Refs",      # commissioner 2026-09-20: 2007-08's Smith is today's Refs
+}
+
 _PAREN = re.compile(r"\s*\([^)]*\)\s*$")
 
 
@@ -63,11 +72,17 @@ def key_for(name: str | None) -> str:
     return _alias(norm(name))
 
 
+def key_for_win(year, team: str | None) -> str:
+    """The key a championship counts toward: the team that holds it TODAY."""
+    moved = BY_YEAR.get(year)
+    return key_for(moved if moved else team)
+
+
 def titles_by_key(conn: sqlite3.Connection) -> dict[str, list[str]]:
     """{comparison key: [season labels, newest first]} across all of history."""
     out: dict[str, list[str]] = {}
-    for r in conn.execute("SELECT label, team FROM champions ORDER BY year DESC"):
-        out.setdefault(key_for(r["team"]), []).append(r["label"])
+    for r in conn.execute("SELECT year, label, team FROM champions ORDER BY year DESC"):
+        out.setdefault(key_for_win(r["year"], r["team"]), []).append(r["label"])
     return out
 
 
@@ -77,11 +92,11 @@ def defending_key(conn: sqlite3.Connection, season_year: int | None = None) -> s
     today, so looking back at 2019-20 doesn't crown whoever happens to hold the
     trophy now."""
     if season_year is None:
-        r = conn.execute("SELECT team FROM champions ORDER BY year DESC LIMIT 1").fetchone()
+        r = conn.execute("SELECT year, team FROM champions ORDER BY year DESC LIMIT 1").fetchone()
     else:
-        r = conn.execute("SELECT team FROM champions WHERE year < ? ORDER BY year DESC LIMIT 1",
-                         (season_year,)).fetchone()
-    return key_for(r["team"]) if r else None
+        r = conn.execute("SELECT year, team FROM champions WHERE year < ? "
+                         "ORDER BY year DESC LIMIT 1", (season_year,)).fetchone()
+    return key_for_win(r["year"], r["team"]) if r else None
 
 
 def for_season(conn: sqlite3.Connection, season_id: int) -> dict[int, dict]:
