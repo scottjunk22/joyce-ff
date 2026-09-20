@@ -60,6 +60,23 @@ def cmd_board_cache(_argv: list[str]) -> int:
     return 0
 
 
+def cmd_refresh_players(_argv: list[str]) -> int:
+    """Bring the league's player list up to date with nflverse's roster now,
+    rather than waiting for the hourly job's once-a-day pass. Run it before a
+    draft: a rookie signed this week is on the board before he is in here."""
+    from joyce_ff.league import connect, setup
+
+    conn = connect()
+    s = conn.execute("SELECT id, year FROM seasons ORDER BY id DESC LIMIT 1").fetchone()
+    if not s:
+        print("no season yet — start one first", file=sys.stderr)
+        return 1
+    n = setup.refresh_nfl_players(conn, s["id"], s["year"])
+    conn.close()
+    print(f"Player list updated: {n['added']} added, {n['updated']} changed.")
+    return 0
+
+
 def cmd_import_ecr(argv: list[str]) -> int:
     """Import a FantasyPros rankings CSV (downloaded by a logged-in user — we
     never scrape them) so the board can show their consensus beside our VOR."""
@@ -367,6 +384,7 @@ COMMANDS = {
     "board": cmd_board,
     "board-cache": cmd_board_cache,
     "import-ecr": cmd_import_ecr,
+    "refresh-players": cmd_refresh_players,
     "set-platform-pass": cmd_set_platform_pass,
     "market": cmd_market,
     "schedule": cmd_schedule,

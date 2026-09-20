@@ -359,6 +359,22 @@ def draft_player(conn, season_id, team_id, kind, ref, slot) -> None:
              else _owned_refs(conn, season_id, conf, "PLAYER"))
     if ref in taken:
         raise RuleError("already drafted in this division")
+    # The draft board is built from nflverse's roster file; the league's own
+    # player list is refreshed daily from the same place but can be a day
+    # behind it, and a rookie signed since is on the board and not in the
+    # league. Drafting him would store an id nothing can turn back into a name,
+    # so say so instead (Scott, 2026-09-19).
+    if kind == "PLAYER":
+        known = conn.execute("SELECT 1 FROM nfl_players WHERE season_id=? AND gsis_id=?",
+                             (season_id, ref)).fetchone()
+        if not known:
+            raise RuleError(f"{ref} isn't in the league's player list yet — run "
+                            f"`manage.py refresh-players` and try again")
+    else:
+        known = conn.execute("SELECT 1 FROM nfl_teams WHERE season_id=? AND abbr=?",
+                             (season_id, ref)).fetchone()
+        if not known:
+            raise RuleError(f"{ref} isn't an NFL team in this season")
     conn.execute("INSERT INTO roster_entries(season_id,team_id,asset_kind,asset_ref,unit_type,"
                  "roster_slot,acquired_ff_week,acquired_via,created_at) "
                  "VALUES (?,?,?,?,?,?,0,'DRAFT',?)",

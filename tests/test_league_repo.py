@@ -332,3 +332,18 @@ def test_a_refused_trade_leaves_no_write_lock_behind(db):
     assert not conn.in_transaction
     repo.do_trade(conn, sid, otb, "RB", "p_bijan", "p_warren", 2)       # still works
     assert any(e["asset_ref"] == "p_warren" for e in repo.current_roster(conn, otb))
+
+
+def test_a_draft_pick_the_league_has_never_heard_of_is_refused(db):
+    """The board is built from nflverse's roster file and the league's player
+    list is refreshed from it daily, so a rookie signed since can be on one and
+    not the other. Storing him would leave an id nothing can name."""
+    conn, sid, otb = db
+    empty = _other_blue_team(conn, sid, otb)          # OT Blitz's own slots are full
+    with pytest.raises(repo.RuleError) as e:
+        repo.draft_player(conn, sid, empty, "PLAYER", "00-9999999", "RB")
+    assert "refresh-players" in str(e.value)
+    with pytest.raises(repo.RuleError):
+        repo.draft_player(conn, sid, empty, "TEAM_UNIT", "LAR", "QB")  # stored code is LA
+    repo.draft_player(conn, sid, empty, "PLAYER", "p_warren", "RB")    # a known player is fine
+    assert any(e["asset_ref"] == "p_warren" for e in repo.current_roster(conn, empty))
