@@ -13,6 +13,7 @@ from pathlib import Path
 from ..data_sources import nflverse as nv
 from ..draft import order as draft_order
 from ..scoring import rules
+from . import ecr as ecr_mod
 from . import history
 from . import sos
 from . import valuation as val
@@ -132,7 +133,8 @@ def _overall_records(player_recs: list[dict], unit_recs: dict,
         rows.append({k: p[k] for k in
                      ("id", "slot", "name", "team", "position", "proj", "vor",
                       "floor", "ceil", "bust", "games25", "low_sample",
-                      "no_history", "cur_ppg", "cur_g", "sos")})
+                      "no_history", "cur_ppg", "cur_g", "sos", "ecr", "ecr_pos",
+                      "ecr_kind")})
     for unit, lst in unit_recs.items():
         for u in lst:
             if u["vor"] is None:
@@ -144,6 +146,8 @@ def _overall_records(player_recs: list[dict], unit_recs: dict,
                          "bust": u.get("bust"),
                          "cur_ppg": u.get("cur_ppg"), "cur_g": u.get("cur_g"),
                          "sos": None,
+                         "ecr": u.get("ecr"), "ecr_pos": u.get("ecr_pos"),
+                         "ecr_kind": u.get("ecr_kind"),
                          "games25": u["games25"], "low_sample": False,
                          "no_history": False})
 
@@ -156,6 +160,42 @@ def _overall_records(player_recs: list[dict], unit_recs: dict,
         r["rank"] = i + 1
         r["tier"] = tier
     return rows
+
+
+def _merge_ecr(player_recs: list[dict], unit_recs: dict) -> dict:
+    """Attach imported FantasyPros ranks to the records, in place.
+
+    Their consensus is the only thing on this board that has an opinion about a
+    rookie or a changed role; ours is the only thing that knows what a point is
+    worth here. Neither is folded into the other — the ECR is its own column,
+    and how far the two disagree is the thing worth looking at.
+
+    No import, no column: every record simply keeps ecr = None.
+    """
+    for r in player_recs:
+        r["ecr"], r["ecr_pos"], r["ecr_kind"] = None, None, None
+    for rows in unit_recs.values():
+        for r in rows:
+            r["ecr"], r["ecr_pos"], r["ecr_kind"] = None, None, None
+    data = ecr_mod.load()
+    if not data:
+        return {"available": False}
+    pool = [{"player_id": r["id"], "name": r["name"], "team": r["team"]} for r in player_recs]
+    m = ecr_mod.match(data.get("rows", []), pool)
+    for r in player_recs:
+        hit = m["players"].get(r["id"])
+        if hit:
+            r["ecr"], r["ecr_pos"], r["ecr_kind"] = hit["ecr"], hit["ecr_pos"], hit["ecr_pos_kind"]
+    for unit, rows in unit_recs.items():
+        for r in rows:
+            hit = m["units"].get((unit, r["team"]))
+            if hit:
+                r["ecr"], r["ecr_pos"], r["ecr_kind"] = (hit["ecr"], hit["ecr_pos"],
+                                                         hit["ecr_pos_kind"])
+    return {"available": True, "source": data.get("source"),
+            "imported_at": data.get("imported_at"),
+            "matched": m["matched"], "total": m["total"],
+            "unmatched": sorted(m["unmatched"])}
 
 
 def build_all(seasons=history.SEASONS_DEFAULT, draft_season=DRAFT_SEASON) -> dict:
@@ -184,6 +224,7 @@ def build_all(seasons=history.SEASONS_DEFAULT, draft_season=DRAFT_SEASON) -> dic
         sos_data = {"ratings": {}, "sos": {}, "basis": {}, "weeks": [], "seasons": []}
     precs = _player_records(pboard, pform, sos_data.get("sos"))
     urecs = _unit_records(uboard, uform)
+    ecr_meta = _merge_ecr(precs, urecs)
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -205,6 +246,7 @@ def build_all(seasons=history.SEASONS_DEFAULT, draft_season=DRAFT_SEASON) -> dic
             "started_rb": rules.STARTED_RB_DIVISION,
             "started_r": rules.STARTED_R_DIVISION,
         },
+        "ecr": ecr_meta,
         "replacement": replacement,
         "players": precs,
         "units": urecs,

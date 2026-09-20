@@ -60,6 +60,32 @@ def cmd_board_cache(_argv: list[str]) -> int:
     return 0
 
 
+def cmd_import_ecr(argv: list[str]) -> int:
+    """Import a FantasyPros rankings CSV (downloaded by a logged-in user — we
+    never scrape them) so the board can show their consensus beside our VOR."""
+    from joyce_ff.projections import ecr
+
+    if not argv:
+        print("usage: import-ecr <FantasyPros_....csv>", file=sys.stderr)
+        return 1
+    path = argv[0]
+    try:
+        rows = ecr.parse_csv(path)
+    except (OSError, ecr.EcrError) as e:
+        print(f"could not read that rankings file: {e}", file=sys.stderr)
+        return 1
+    import os
+
+    data = ecr.save(rows, source=os.path.basename(path))
+    kinds = {}
+    for r in rows:
+        kinds[r["pos"]] = kinds.get(r["pos"], 0) + 1
+    print(f"Imported {len(rows)} ranked rows from {data['source']}: "
+          + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())))
+    print("Now run  python manage.py board-cache  to put them on the board.")
+    return 0
+
+
 def cmd_set_platform_pass(argv: list[str]) -> int:
     """Set the private OT-Blitz platform passcode (Scott's eyes only)."""
     from joyce_ff.league import connect
@@ -340,6 +366,7 @@ COMMANDS = {
     "validate": cmd_validate,
     "board": cmd_board,
     "board-cache": cmd_board_cache,
+    "import-ecr": cmd_import_ecr,
     "set-platform-pass": cmd_set_platform_pass,
     "market": cmd_market,
     "schedule": cmd_schedule,
