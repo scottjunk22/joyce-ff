@@ -264,14 +264,40 @@ async function init(){
   if(saved){ const res=await fetchBoard(saved); if(res&&typeof res!=='string'){ BOARD=res; defaultSort(); showBoard(); return; } }
   $('gate').style.display='block';
 }
-function showBoard(){ $('gate').style.display='none'; $('board').style.display='block'; paint(); startChat(); }
+function showBoard(){ $('gate').style.display='none'; $('board').style.display='block'; paint(); startChat();
+  refreshTaken(); watchTaken(); }
 function updateNav(){ $('navBoard').className=SECTION==='board'?'on':''; $('navDraft').className=SECTION==='draft'?'on':''; }
 function paint(){ updateNav(); if(SECTION==='draft'){ if(!DRAFT){ loadDraft(); return; } renderDraft(); } else render(); }
 function setSection(s){ if(SECTION===s) return; SECTION=s;
   if(s==='draft'&&!DRAFT){ updateNav(); loadDraft(); return; }
   if(s==='board'){ paint(); refreshTaken(); return; }      // draw now, mark as soon as it lands
   paint(); }
-async function refreshTaken(){ await loadTaken(); if(SECTION==='board') render(); }
+const takenSig=()=>Object.keys(TAKEN.players).sort().join(',')+'|'+Object.keys(TAKEN.units).sort().join(',');
+async function refreshTaken(){
+  const before=takenSig();
+  await loadTaken();
+  if(SECTION!=='board') return;
+  if(takenSig()===before){ paintTakenNote(); return; }     // nothing new — don't move the page
+  // Something changed: redraw, but put the reader back where he was. A board
+  // that jumps to the top mid-search is worse than a stale one.
+  const wrap=$('tbl'), top=wrap?wrap.scrollTop:0, y=window.scrollY;
+  const onSearch=document.activeElement&&document.activeElement.id==='q';
+  const caret=onSearch?document.activeElement.selectionStart:null;
+  render();
+  const w2=$('tbl'); if(w2) w2.scrollTop=top;
+  window.scrollTo(0,y);
+  if(onSearch){ const el=$('q'); if(el){ el.focus(); try{ el.setSelectionRange(caret,caret); }catch(e){} } }
+}
+function paintTakenNote(){ const el=$('takenNote'); if(el) el.innerHTML=takenNote(); }
+/* During a draft the picks come from the other tab, or from Scott's phone —
+   so the board checks every half minute while you're looking at it, and again
+   the moment the window comes back to the front. */
+let TAKEN_TIMER=null;
+function watchTaken(){
+  if(TAKEN_TIMER) return;
+  TAKEN_TIMER=setInterval(()=>{ if(SECTION==='board'&&!document.hidden) refreshTaken(); },30000);
+  window.addEventListener('focus',()=>{ if(SECTION==='board') refreshTaken(); });
+}
 
 function rows(){
   if(tab==='overall') return BOARD.overall;
@@ -336,7 +362,7 @@ function render(){
       <span>Replacement: RB <b>${fmt(repl.RB)}</b> · R <b>${fmt(repl.R)}</b></span>
       ${CUR().available?`<span style="color:var(--warn)">'${String(CUR().year).slice(2)} form (wk 1–${CUR().weeks}) shown separately — <b>not</b> in Proj/VOR</span>`:''}
       ${ECR().available?`<span title="${(ECR().unmatched||[]).join(', ')||'every ranked player matched'}">ECR <b>${ECR().source||'imported'}</b> · ${ECR().matched} of ${ECR().total} matched${(ECR().unmatched||[]).length?` · ${ECR().unmatched.length} not on an NFL roster`:''}</span>`:''}
-      ${takenNote()}
+      <span id="takenNote">${takenNote()}</span>
     </div>`;
   const toolbar=`<div class="toolbar">${SLOT_TABS.map(([k,lbl])=>`<span class="tab ${tab===k?'on':''}" onclick="setTab('${k}')">${lbl}</span>`).join('')}
     <button class="help" onclick="toggleHelp()">❔ ${showHelp?'hide':'how to read'}</button>
@@ -346,11 +372,12 @@ function render(){
 /* How many are gone, from which draft, and when we last looked — with a way
    to look again without leaving the board. */
 function takenNote(){
+  if(!TAKEN.at) return '';                                  // haven't looked yet
   const n=Object.keys(TAKEN.players).length+Object.keys(TAKEN.units).length;
-  if(!n) return '';
-  const t=TAKEN.at?TAKEN.at.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
-  return `<span><b>${n}</b> drafted in ${TAKEN.conf||DCONF} · struck through`
-    +`${t?` · as of ${t}`:''} <a class="relink" onclick="refreshTaken()">refresh</a></span>`;
+  const t=TAKEN.at.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+  return (n?`<b>${n}</b> drafted in ${TAKEN.conf||DCONF} · struck through`
+            :`no picks yet in ${TAKEN.conf||DCONF}`)
+    + ` · as of ${t} <a class="relink" onclick="refreshTaken()">refresh</a>`;
 }
 function setTab(t){ tab=t; render(); if($('q'))$('q').focus(); }
 function setQ(v){ q=v; const w=$('tbl'); if(w)w.innerHTML=UNIT_TABS.has(tab)?unitTable():playerTable(); }
