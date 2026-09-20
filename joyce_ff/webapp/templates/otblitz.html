@@ -46,6 +46,7 @@
  .vor{font-variant-numeric:tabular-nums;font-weight:800;color:var(--good)}
  .ecr{font-variant-numeric:tabular-nums;font-weight:700}
  .ecrpos{font-size:10px;color:var(--dim);margin-left:4px}
+ .ourrank{font-variant-numeric:tabular-nums;font-weight:700;color:var(--dim)}
  .decr{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;margin-right:6px;white-space:nowrap}
  .vor.lo{color:var(--dim);font-weight:600}
  .vorbar{display:inline-block;height:9px;background:color-mix(in srgb,var(--good) 55%,transparent);border-radius:2px;vertical-align:middle;margin-right:6px}
@@ -189,7 +190,7 @@ const $=id=>document.getElementById(id);
 const getPC=()=>sessionStorage.getItem('otbpc')||'';
 const SLOT_TABS=[['overall','★ Overall'],['RB','RB'],['R','R (WR/TE)'],['QB','QB units'],['K','Kickers'],['DEF/ST','DEF/ST'],['C','Coaches']];
 const UNIT_TABS=new Set(['QB','K','DEF/ST','C']);
-const TIP={rank:'Strict rank by the current sort (no ties)',tier:'Value groups between cliffs — same tier ≈ interchangeable',
+const TIP={rank:'Our rank by VOR in this tab',tier:'Value groups between cliffs — same tier ≈ interchangeable',
   slot:'Roster slot / asset type',name:'Asset name; flags mark thin or missing history',team:'NFL team',
   proj:"Projected points per game in this league's threshold scoring",vor:'Value Over Replacement — pts/game above the best player still available for free at this slot (34th RB / 45th receiver / 12th team unit)',
   floor:'A typical bad week (25th percentile)',ceil:'A typical good week (75th percentile)',
@@ -227,11 +228,11 @@ async function unlock(){
   const res=await fetchBoard(pc);
   if(res==='locked'){ $('gerr').textContent='Wrong passcode.'; return; }
   if(typeof res==='string'){ $('gerr').textContent=res; return; }
-  sessionStorage.setItem('otbpc',pc); BOARD=res; showBoard();
+  sessionStorage.setItem('otbpc',pc); BOARD=res; defaultSort(); showBoard();
 }
 async function init(){
   const saved=sessionStorage.getItem('otbpc');
-  if(saved){ const res=await fetchBoard(saved); if(res&&typeof res!=='string'){ BOARD=res; showBoard(); return; } }
+  if(saved){ const res=await fetchBoard(saved); if(res&&typeof res!=='string'){ BOARD=res; defaultSort(); showBoard(); return; } }
   $('gate').style.display='block';
 }
 function showBoard(){ $('gate').style.display='none'; $('board').style.display='block'; paint(); startChat(); }
@@ -243,6 +244,23 @@ function rows(){
   if(tab==='overall') return BOARD.overall;
   if(UNIT_TABS.has(tab)) return (BOARD.units[tab]||[]);
   return BOARD.players.filter(p=>p.slot===tab);
+}
+/* The board opens in the consensus's order when one has been imported: at a
+   draft you're reading against the room, and where their order and ours
+   disagree is the whole point of having both. No import, no ECR column, and
+   it opens in ours (Scott, 2026-09-20). */
+function defaultSort(){ if(ECR().available){ sortCol='ecr'; sortDir=1; } else { sortCol='vor'; sortDir=-1; } }
+/* Our own second column. In VOR order the tier is the useful thing — it shows
+   where the cliffs are. Sorted any other way (their consensus above all) a tier
+   is just a grouping, and what belongs beside their rank is OURS: their #5 is
+   our #23. A player with no NFL history has no VOR and so no rank of ours —
+   that cell stays blank rather than printing where he happens to sit. */
+const inOurOrder=()=>sortCol==='vor';
+function ourHead(){ return inOurOrder()?th('tier','Tier')
+  :`<th class="sortable" title="Our rank by VOR in this tab — click to put the list back in our order" onclick="clickSort('vor')">VOR #</th>`; }
+function ourCell(r){
+  if(inOurOrder()) return `<td><span class="tier">T${r.tier??'—'}</span></td>`;
+  return `<td>${r.vor==null?'<span class="sub">—</span>':`<span class="ourrank">${r.rank}</span>`}</td>`;
 }
 function sortRows(list){
   return [...list].sort((a,b)=>{
@@ -304,18 +322,18 @@ function playerTable(){
   const curHead=C.available?`${th('cur_ppg',`'${yy} P/G`)}${th('cur_g',`'${yy} G`)}`:'';
   const sosHead=SOS().available?th('sos','SoS'):'';
   const ecrHead=ECR().available?th('ecr','ECR'):'';
-  const head=`<tr><th title="${TIP.rank}">#</th>${th('tier','Tier')}${isOverall?th('slot','Pos','l'):''}${th('name','Asset','l')}<th class="l">Tm</th>${th('proj','Proj/g')}${th('vor','VOR')}${ecrHead}${th('floor','Flr')}${th('ceil','Ceil')}${th('bust','Bust%')}${th('games25','G25')}${sosHead}${curHead}</tr>`;
-  const body=list.map((r,i)=>{
+  const head=`<tr>${ourHead()}${isOverall?th('slot','Pos','l'):''}${th('name','Asset','l')}<th class="l">Tm</th>${th('proj','Proj/g')}${th('vor','VOR')}${ecrHead}${th('floor','Flr')}${th('ceil','Ceil')}${th('bust','Bust%')}${th('games25','G25')}${sosHead}${curHead}</tr>`;
+  const body=list.map(r=>{
     const brk=(tierGroup&&prev!=null&&r.tier!=null&&r.tier!==prev)?' tierbreak':''; prev=r.tier;
     const flags=(r.no_history?'<span class="flag rk">no NFL history</span>':'')+(r.low_sample&&!r.no_history?'<span class="flag lo">small sample</span>':'');
     const curCells=C.available?`<td class="cur">${fmt(r.cur_ppg)}</td><td class="cur">${r.cur_g??'<span class="sub">—</span>'}</td>`:'';
-    return `<tr class="${brk}"><td>${i+1}</td><td><span class="tier">T${r.tier??'—'}</span></td>
+    return `<tr class="${brk}">${ourCell(r)}
       ${isOverall?`<td class="l"><span class="postag ${ptClass(r.slot)}">${r.slot}</span></td>`:''}
       <td class="l"><span class="nm">${r.name}</span>${flags}</td>
       <td class="l">${r.team?`<span class="tm">${TM(r.team)}</span>`:'<span class="sub">—</span>'}</td>
       <td>${fmt(r.proj)}</td>${vorCell(r.vor,mx)}${ECR().available?ecrCell(r):''}<td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td>
       ${bustCell(r.bust)}<td>${r.games25??0}</td>${SOS().available?sosCell(r.sos):''}${curCells}</tr>`;
-  }).join('')||'<tr><td class="l sub" colspan="13" style="padding:14px">no matches</td></tr>';
+  }).join('')||'<tr><td class="l sub" colspan="12" style="padding:14px">no matches</td></tr>';
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
 /* Stored codes follow the NFL schedule, which calls the Rams "LA" — easy to
@@ -328,10 +346,10 @@ function unitTable(){
   const C=CUR(), yy=String(C.year).slice(2);
   const curHead=C.available?`${th('cur_ppg',`'${yy} P/G`)}${th('cur_g',`'${yy} G`)}`:'';
   const ecrHead=ECR().available?th('ecr','ECR'):'';
-  const head=`<tr><th title="${TIP.rank}">#</th>${th('team','Team unit','l')}${th('proj','Proj/g')}${th('vor','VOR')}${ecrHead}${th('floor','Flr')}${th('ceil','Ceil')}${th('bust','Bust%')}${th('games25','G25')}${curHead}</tr>`;
-  const body=list.map((r,i)=>{
+  const head=`<tr>${ourHead()}${th('team','Team unit','l')}${th('proj','Proj/g')}${th('vor','VOR')}${ecrHead}${th('floor','Flr')}${th('ceil','Ceil')}${th('bust','Bust%')}${th('games25','G25')}${curHead}</tr>`;
+  const body=list.map(r=>{
     const curCells=C.available?`<td class="cur">${fmt(r.cur_ppg)}</td><td class="cur">${r.cur_g??'<span class="sub">—</span>'}</td>`:'';
-    return `<tr><td>${i+1}</td><td class="l"><span class="postag ${ptClass(tab)}">${TM(r.team)}</span></td>
+    return `<tr>${ourCell(r)}<td class="l"><span class="postag ${ptClass(tab)}">${TM(r.team)}</span></td>
       <td>${fmt(r.proj)}</td>${vorCell(r.vor,mx)}${ECR().available?ecrCell(r):''}<td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td>
       ${bustCell(r.bust)}<td>${r.games25??0}</td>${curCells}</tr>`;}).join('');
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
