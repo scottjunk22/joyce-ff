@@ -47,6 +47,11 @@
  .ecr{font-variant-numeric:tabular-nums;font-weight:700}
  .ecrpos{font-size:10px;color:var(--dim);margin-left:4px}
  .ourrank{font-variant-numeric:tabular-nums;font-weight:700;color:var(--dim)}
+ /* Drafted, but still on the board: you study a board by seeing what left it. */
+ tr.taken{opacity:.42}
+ tr.taken .nm,tr.taken .postag{text-decoration:line-through}
+ .flag.gone{color:var(--dim);border:1px solid var(--line);text-transform:none;letter-spacing:0}
+ .relink{color:var(--blue);cursor:pointer;text-decoration:underline}
  .decr{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;margin-right:6px;white-space:nowrap}
  .vor.lo{color:var(--dim);font-weight:600}
  .vorbar{display:inline-block;height:9px;background:color-mix(in srgb,var(--good) 55%,transparent);border-radius:2px;vertical-align:middle;margin-right:6px}
@@ -186,6 +191,30 @@ if(API){
 }
 let BOARD=null, tab='overall', q='', sortCol='vor', sortDir=-1, showHelp=false;
 let SECTION='board', DRAFT=null, DCONF='BLUE', DASSIGN=null, dtab='overall', dq='', DORDER=false;
+/* Who's already gone. The Valuation Board is for studying, so a drafted man
+   STAYS on it — struck through, with the team that took him — rather than
+   vanishing the way he does in the Draft Room's available list (Scott,
+   2026-09-20). Filled from the same payload the Draft Room reads, so entering
+   a pick updates both. */
+let TAKEN={players:{},units:{},conf:null,at:null};
+function markTaken(d){
+  const players={}, units={};
+  (d.teams||[]).forEach(t=>{
+    Object.keys(t.roster||{}).forEach(slot=>{
+      (t.roster[slot]||[]).forEach(e=>{
+        if(e.kind==='PLAYER') players[e.ref]=t.name; else units[e.ref+'|'+slot]=t.name;
+      });
+    });
+  });
+  TAKEN={players:players,units:units,conf:d.conf||DCONF,at:new Date()};
+}
+async function loadTaken(){
+  try{
+    const r=await fetch(`/api/otblitz/draft?pc=${encodeURIComponent(getPC())}&conf=${DCONF}`);
+    if(r.ok) markTaken(await r.json());
+  }catch(e){ /* no draft yet, or no season — the board just shows no marks */ }
+}
+const tookBy=r=> r.id ? TAKEN.players[r.id] : TAKEN.units[(r.team||'')+'|'+(r.slot||tab)];
 const $=id=>document.getElementById(id);
 const getPC=()=>sessionStorage.getItem('otbpc')||'';
 const SLOT_TABS=[['overall','★ Overall'],['RB','RB'],['R','R (WR/TE)'],['QB','QB units'],['K','Kickers'],['DEF/ST','DEF/ST'],['C','Coaches']];
@@ -238,7 +267,11 @@ async function init(){
 function showBoard(){ $('gate').style.display='none'; $('board').style.display='block'; paint(); startChat(); }
 function updateNav(){ $('navBoard').className=SECTION==='board'?'on':''; $('navDraft').className=SECTION==='draft'?'on':''; }
 function paint(){ updateNav(); if(SECTION==='draft'){ if(!DRAFT){ loadDraft(); return; } renderDraft(); } else render(); }
-function setSection(s){ if(SECTION===s) return; SECTION=s; if(s==='draft'&&!DRAFT){ updateNav(); loadDraft(); } else paint(); }
+function setSection(s){ if(SECTION===s) return; SECTION=s;
+  if(s==='draft'&&!DRAFT){ updateNav(); loadDraft(); return; }
+  if(s==='board'){ paint(); refreshTaken(); return; }      // draw now, mark as soon as it lands
+  paint(); }
+async function refreshTaken(){ await loadTaken(); if(SECTION==='board') render(); }
 
 function rows(){
   if(tab==='overall') return BOARD.overall;
@@ -303,11 +336,21 @@ function render(){
       <span>Replacement: RB <b>${fmt(repl.RB)}</b> · R <b>${fmt(repl.R)}</b></span>
       ${CUR().available?`<span style="color:var(--warn)">'${String(CUR().year).slice(2)} form (wk 1–${CUR().weeks}) shown separately — <b>not</b> in Proj/VOR</span>`:''}
       ${ECR().available?`<span title="${(ECR().unmatched||[]).join(', ')||'every ranked player matched'}">ECR <b>${ECR().source||'imported'}</b> · ${ECR().matched} of ${ECR().total} matched${(ECR().unmatched||[]).length?` · ${ECR().unmatched.length} not on an NFL roster`:''}</span>`:''}
+      ${takenNote()}
     </div>`;
   const toolbar=`<div class="toolbar">${SLOT_TABS.map(([k,lbl])=>`<span class="tab ${tab===k?'on':''}" onclick="setTab('${k}')">${lbl}</span>`).join('')}
     <button class="help" onclick="toggleHelp()">❔ ${showHelp?'hide':'how to read'}</button>
     <input class="search" id="q" placeholder="search…" value="${q}" oninput="setQ(this.value)"></div>`;
   $('board').innerHTML=meta+toolbar+(showHelp?explainer():'')+`<div class="tblwrap" id="tbl">${UNIT_TABS.has(tab)?unitTable():playerTable()}</div>`;
+}
+/* How many are gone, from which draft, and when we last looked — with a way
+   to look again without leaving the board. */
+function takenNote(){
+  const n=Object.keys(TAKEN.players).length+Object.keys(TAKEN.units).length;
+  if(!n) return '';
+  const t=TAKEN.at?TAKEN.at.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'';
+  return `<span><b>${n}</b> drafted in ${TAKEN.conf||DCONF} · struck through`
+    +`${t?` · as of ${t}`:''} <a class="relink" onclick="refreshTaken()">refresh</a></span>`;
 }
 function setTab(t){ tab=t; render(); if($('q'))$('q').focus(); }
 function setQ(v){ q=v; const w=$('tbl'); if(w)w.innerHTML=UNIT_TABS.has(tab)?unitTable():playerTable(); }
@@ -326,10 +369,11 @@ function playerTable(){
   const body=list.map(r=>{
     const brk=(tierGroup&&prev!=null&&r.tier!=null&&r.tier!==prev)?' tierbreak':''; prev=r.tier;
     const flags=(r.no_history?'<span class="flag rk">no NFL history</span>':'')+(r.low_sample&&!r.no_history?'<span class="flag lo">small sample</span>':'');
+    const by=tookBy(r), gone=by?` <span class="flag gone">${by}</span>`:'';
     const curCells=C.available?`<td class="cur">${fmt(r.cur_ppg)}</td><td class="cur">${r.cur_g??'<span class="sub">—</span>'}</td>`:'';
-    return `<tr class="${brk}">${ourCell(r)}
+    return `<tr class="${brk}${by?' taken':''}">${ourCell(r)}
       ${isOverall?`<td class="l"><span class="postag ${ptClass(r.slot)}">${r.slot}</span></td>`:''}
-      <td class="l"><span class="nm">${r.name}</span>${flags}</td>
+      <td class="l"><span class="nm">${r.name}</span>${gone}${flags}</td>
       <td class="l">${r.team?`<span class="tm">${TM(r.team)}</span>`:'<span class="sub">—</span>'}</td>
       <td>${fmt(r.proj)}</td>${vorCell(r.vor,mx)}${ECR().available?ecrCell(r):''}<td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td>
       ${bustCell(r.bust)}<td>${r.games25??0}</td>${SOS().available?sosCell(r.sos):''}${curCells}</tr>`;
@@ -349,7 +393,8 @@ function unitTable(){
   const head=`<tr>${ourHead()}${th('team','Team unit','l')}${th('proj','Proj/g')}${th('vor','VOR')}${ecrHead}${th('floor','Flr')}${th('ceil','Ceil')}${th('bust','Bust%')}${th('games25','G25')}${curHead}</tr>`;
   const body=list.map(r=>{
     const curCells=C.available?`<td class="cur">${fmt(r.cur_ppg)}</td><td class="cur">${r.cur_g??'<span class="sub">—</span>'}</td>`:'';
-    return `<tr>${ourCell(r)}<td class="l"><span class="postag ${ptClass(tab)}">${TM(r.team)}</span></td>
+    const by=tookBy(r);
+    return `<tr class="${by?'taken':''}">${ourCell(r)}<td class="l"><span class="postag ${ptClass(tab)}">${TM(r.team)}</span>${by?` <span class="flag gone">${by}</span>`:''}</td>
       <td>${fmt(r.proj)}</td>${vorCell(r.vor,mx)}${ECR().available?ecrCell(r):''}<td>${fmt(r.floor)}</td><td>${fmt(r.ceil)}</td>
       ${bustCell(r.bust)}<td>${r.games25??0}</td>${curCells}</tr>`;}).join('');
   return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
@@ -375,7 +420,7 @@ async function loadDraft(){
       +`</div>`;
     return;
   }
-  DRAFT=await r.json(); renderDraft();
+  DRAFT=await r.json(); markTaken(DRAFT); renderDraft();
 }
 function setDConf(c){ if(DCONF===c)return; DCONF=c; DASSIGN=null; DRAFT=null; DORDER=false; loadDraft(); }
 function setAssign(v){ DASSIGN=(v==='clock'||v==null)?null:+v; renderDraft(); }
