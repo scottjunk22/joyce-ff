@@ -269,7 +269,7 @@ function showBoard(){ $('gate').style.display='none'; $('board').style.display='
 function updateNav(){ $('navBoard').className=SECTION==='board'?'on':''; $('navDraft').className=SECTION==='draft'?'on':''; }
 function paint(){ updateNav(); if(SECTION==='draft'){ if(!DRAFT){ loadDraft(); return; } renderDraft(); } else render(); }
 function setSection(s){ if(SECTION===s) return; SECTION=s;
-  if(s==='draft'&&!DRAFT){ updateNav(); loadDraft(); return; }
+  if(s==='draft'){ updateNav(); if(DRAFT) renderDraft(); loadDraft(); return; }
   if(s==='board'){ paint(); refreshTaken(); return; }      // draw now, mark as soon as it lands
   paint(); }
 const takenSig=()=>Object.keys(TAKEN.players).sort().join(',')+'|'+Object.keys(TAKEN.units).sort().join(',');
@@ -296,7 +296,7 @@ let TAKEN_TIMER=null;
 function watchTaken(){
   if(TAKEN_TIMER) return;
   TAKEN_TIMER=setInterval(()=>{ if(SECTION==='board'&&!document.hidden) refreshTaken(); },30000);
-  window.addEventListener('focus',()=>{ if(SECTION==='board') refreshTaken(); });
+  window.addEventListener('focus',()=>{ if(SECTION==='board') refreshTaken(); else if(SECTION==='draft') loadDraft(); });
 }
 
 function rows(){
