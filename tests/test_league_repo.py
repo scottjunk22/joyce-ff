@@ -347,3 +347,14 @@ def test_a_draft_pick_the_league_has_never_heard_of_is_refused(db):
         repo.draft_player(conn, sid, empty, "TEAM_UNIT", "LAR", "QB")  # stored code is LA
     repo.draft_player(conn, sid, empty, "PLAYER", "p_warren", "RB")    # a known player is fine
     assert any(e["asset_ref"] == "p_warren" for e in repo.current_roster(conn, empty))
+
+
+def test_a_reversed_move_leaves_the_team_history_and_costs_nothing(db):
+    """Reversing a trade is how the commissioner says it never happened: it must
+    drop off the team's own history, and give back the free move."""
+    conn, sid, otb = db
+    tx = repo.do_trade(conn, sid, otb, "RB", "p_bijan", "p_warren", 2)
+    assert repo.fee_balance_cents(conn, otb)["free_used"] == 1
+    repo.reverse_transaction(conn, tx)
+    assert [t["id"] for t in repo.transaction_history(conn, otb)] == []
+    assert repo.fee_balance_cents(conn, otb)["free_used"] == 0

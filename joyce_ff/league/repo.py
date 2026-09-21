@@ -773,6 +773,11 @@ def record_payment(conn, season_id, team_id, amount_cents, note=None, actor=None
 
 
 def transaction_history(conn, team_id) -> list[dict]:
+    """A team's moves, newest first. A REVERSED move is left out: it never
+    happened as far as the league is concerned — it costs no free move, no fee,
+    and the moves feed already hides it — so the team card listing it as if it
+    stood was the one place that disagreed (Scott, 2026-09-21: Cooper's
+    Pierce -> Kelce, reversed and redone as a draft correction)."""
     return [dict(r) for r in conn.execute(
-        "SELECT * FROM transactions WHERE team_id=? ORDER BY ff_week DESC, id DESC",
-        (team_id,))]
+        "SELECT * FROM transactions WHERE team_id=? AND reversed=0 "
+        "ORDER BY ff_week DESC, id DESC", (team_id,))]
