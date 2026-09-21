@@ -128,6 +128,18 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-09-20: LIGHT MODE (Scott; his dad's screen is light). The site follows
+  the device (dark is the default look). In light mode: the header AND the
+  champion band stay dark navy (gold lettering on the band) so both themes open
+  the same way; accents get light-only shades (--good #15803d, --warn #b45309,
+  --bad #c62828); and NOTHING that sits directly on the page uses a see-through
+  color-mix tint — amber over the blue-grey page turns muddy mauve, red turns
+  dusty. Page-level blocks get solid fills instead (amber alerts #fff6dd with a
+  #e0a02c border, heading amber / sentence near-black; Elimination Pool solid
+  rose #fdeef0, payout solid green). Tints inside white pop-ups are fine and
+  were left alone (box score checked side by side — matches dark). The
+  overrides live at the END of each stylesheet: same specificity as the rules
+  they replace, so they must come after them. Dark mode is never touched.
 - 2026-09-19/20: ECR ON THE BOARD (OT-Blitz platform only). FantasyPros
   rest-of-season rankings are IMPORTED from a CSV Drew downloads while logged
   in — never scraped (their ToS; their points are PPR and meaningless here). We
