@@ -218,8 +218,17 @@
    header{background:#121923;border-bottom-color:#121923;color:#fff}
    header h1{color:#fff} header .hsub,header .sub{color:#9aa4b2}
    header select,header input{background:#1d242d;border-color:#2b333d;color:#e7eaf0}
-   /* an alert's heading carries the colour; its sentence stays readable */
-   .lban.warn{color:var(--text)} .lban.warn b,.lban.warn svg{color:var(--warn)}
+   /* Amber alerts get a SOLID warm fill. The shared rule tints amber over
+      whatever is behind it — rich olive on black, but a muddy mauve over this
+      blue-grey page (Scott, 2026-09-20). Heading amber, sentence near-black. */
+   .lban.warn{background:#fff6dd;border:1.5px solid #e0a02c;color:var(--text)}
+   .lban.warn b,.lban.warn svg{color:#9a4f00}
+   .snote{background:#fff6dd;border-color:#e0a02c}
+   .snote b{color:#9a4f00}
+   /* The champion band joins the masthead: a navy plate with gold lettering,
+      so the top of the page opens the same way in both themes. */
+   .champband{background:#1c2533;color:#e7eaf0;border-top:1px solid #2b333d;border-bottom-color:#1c2533}
+   .champband b{color:#f5b83d}
    .game,.lg{box-shadow:0 1px 2px rgba(18,25,35,.08)}
    .go{color:#fff}
  }
