@@ -477,7 +477,8 @@ def statuses(conn, season_id: int, ff_week: int,
 
     status: starters, has_lineup (all 9 set), to_play (starters whose game
     isn't locked yet), open (starters with no game — on bye), floor (points
-    locked in), adjusted (commissioner-overridden total), done."""
+    locked in), locked (starters whose game is locked), adjusted
+    (commissioner-overridden total), done."""
     now = now or _dt.datetime.now(ET)
     settled = _settled(conn, season_id, ff_week)
     locked = locked_teams(conn, season_id, ff_week)
@@ -498,10 +499,12 @@ def statuses(conn, season_id: int, ff_week: int,
             "AND a.asset_kind=l.asset_kind AND a.asset_ref=l.asset_ref "
             "AND (l.asset_kind='PLAYER' OR a.unit_type=l.roster_slot) "
             "WHERE l.season_id=? AND l.ff_week=?", (season_id, ff_week)):
-        s = out.setdefault(r["team_id"], {"starters": 0, "to_play": 0, "open": 0, "floor": 0.0})
+        s = out.setdefault(r["team_id"], {"starters": 0, "to_play": 0, "open": 0, "floor": 0.0,
+                                          "locked": 0})
         s["starters"] += 1
         if r["nfl"] in locked:
             s["floor"] += r["pts"]
+            s["locked"] += 1
         elif r["nfl"] is None or r["nfl"] in byes:
             s["open"] += 1
         else:

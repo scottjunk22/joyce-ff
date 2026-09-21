@@ -569,6 +569,34 @@ def test_an_in_progress_card_shows_final_points_only(tmp_path):
     assert not card["away"]["done"]
 
 
+def test_a_card_before_any_of_its_games_shows_a_dash_not_a_zero(tmp_path):
+    """A team that has set a lineup and one that hasn't must look the same until
+    a game of theirs is played — a 0 would announce who has submitted, which the
+    site keeps quiet until Sunday noon, and look like a real score (2026-09-20)."""
+    import json
+
+    from joyce_ff.webapp import create_app
+
+    path = str(tmp_path / "league.sqlite")
+    conn, sid, (a, b, _) = _mini_season(path=path)
+    conn.execute("INSERT INTO matchups(season_id,ff_week,kind,home_team_id,away_team_id) "
+                 "VALUES (?,1,'CONFERENCE',?,?)", (sid, a, b))
+    _starters(conn, sid, a, "AAA", 0)          # lineup in, nothing played
+    _in_progress(conn, sid)
+    conn.close()
+
+    c = create_app(path).test_client()
+    card = json.loads(c.get("/api/state?week=1").data)["scoreboard"][0]
+    assert card["home"]["points"] is None       # was 0
+    assert card["away"]["points"] is None       # no lineup — the same dash
+
+    conn = schema.connect(path)
+    _lock(conn, sid, "AAA")                     # now one of theirs is over
+    conn.close()
+    card = json.loads(c.get("/api/state?week=1").data)["scoreboard"][0]
+    assert card["home"]["points"] == 0          # a real zero, and it says so
+
+
 # --- trades and the week's lineup (commissioner, 2026-09-16) ---------------------
 
 def _trade(conn, sid, otb, out, inn, locked, wk=4):

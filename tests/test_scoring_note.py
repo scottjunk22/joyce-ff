@@ -116,3 +116,20 @@ def test_missing_season_file_raises_the_specific_error(season):
     """Guard the distinction itself: a season nflverse hasn't built yet must not
     surface as a bare HTTPError, or callers can't tell it from a real outage."""
     assert issubclass(nv.NotPublishedYet, RuntimeError)
+
+
+def test_the_no_lineups_note_goes_quiet_once_a_lineup_exists():
+    """It's written by the hourly run, so for up to an hour after a manager saves
+    a lineup it contradicted the card beneath it (Scott, 2026-09-20)."""
+    from joyce_ff.league import runner, schema
+
+    conn = schema.connect(":memory:")
+    schema.init_db(conn)
+    sid = schema.seed_reference(conn)
+    runner._note(conn, sid, runner.NO_LINEUPS)
+    assert runner.scoring_note(conn, sid) == runner.NO_LINEUPS
+    tid = conn.execute("SELECT id FROM teams WHERE season_id=? LIMIT 1", (sid,)).fetchone()["id"]
+    conn.execute("INSERT INTO weekly_lineups(season_id,team_id,ff_week,roster_slot,asset_kind,"
+                 "asset_ref,unit_type) VALUES (?,?,1,'C','TEAM_UNIT','KC','C')", (sid, tid))
+    conn.commit()
+    assert runner.scoring_note(conn, sid) is None

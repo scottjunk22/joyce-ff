@@ -634,7 +634,11 @@ def create_app(db_path: str | None = None) -> Flask:
             # change. Settled weeks and commissioner overrides show as stored.
             pts = scores.get(tid)
             if s_ and not s_["settled"] and not s_["adjusted"]:
-                pts = s_["floor"]
+                # Nothing of theirs played yet: a 0 would only announce that
+                # this team has set a lineup — which the site keeps quiet until
+                # Sunday noon — and look like a real score. Dash, like the rest
+                # (Scott, 2026-09-20).
+                pts = s_["floor"] if s_.get("locked") else None
             return {"id": tid, "name": name, "points": pts,
                     "to_play": s_.get("to_play", 0), "done": bool(s_.get("done")),
                     "lineup_set": bool(s_.get("has_lineup")),

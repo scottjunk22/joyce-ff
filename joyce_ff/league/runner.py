@@ -200,13 +200,14 @@ def run_current(conn, season_id: int, now: _dt.datetime | None = None,
     if not scored and not live and not conn.execute(
             "SELECT 1 FROM weekly_lineups WHERE season_id=? LIMIT 1", (season_id,)).fetchone():
         # Nothing to score isn't the same as nothing happening. Say which.
-        return _note(conn, season_id,
-                     "No lineups have been submitted yet, so there is nothing to "
-                     "score. Set a lineup for at least one team and this will "
-                     "start filling in.")
+        return _note(conn, season_id, NO_LINEUPS)
 
     _clear_note(conn, season_id)
     return {"scored": scored, "live": live, "note": None}
+
+
+NO_LINEUPS = ("No lineups have been submitted yet, so there is nothing to score. "
+              "Set a lineup for at least one team and this will start filling in.")
 
 
 def _note_key(season_id: int) -> str:
@@ -230,7 +231,15 @@ def scoring_note(conn, season_id: int) -> str | None:
     """The last reason scoring produced nothing, or None if all is well."""
     r = conn.execute("SELECT value FROM settings WHERE key=?",
                      (_note_key(season_id),)).fetchone()
-    return r["value"] if r else None
+    if not r:
+        return None
+    # "No lineups" goes stale the moment a manager saves one, up to an hour
+    # before the next run clears it — and then contradicts the cards beneath
+    # it. Check it instead of trusting it (Scott, 2026-09-20).
+    if r["value"] == NO_LINEUPS and conn.execute(
+            "SELECT 1 FROM weekly_lineups WHERE season_id=? LIMIT 1", (season_id,)).fetchone():
+        return None
+    return r["value"]
 
 
 def reconcile_week(conn, season_id: int, ff_week: int, tol: float = 0.5) -> dict:
