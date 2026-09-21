@@ -55,12 +55,14 @@ def _season(tmp_path):
     return conn, sid
 
 
-def test_no_lineups_says_so_rather_than_nothing(tmp_path):
+def test_no_lineups_is_not_a_reason_worth_a_note(tmp_path):
+    """Before kickoff an empty board is normal; once games start every team
+    has a lineup. Saying so confused managers (Scott, 2026-09-20)."""
     conn, sid = _season(tmp_path)
     r = runner.run_current(conn, sid)
     assert r["scored"] == [] and r["live"] == []
-    assert "lineup" in r["note"].lower()
-    assert runner.scoring_note(conn, sid) == r["note"]
+    assert r["note"] is None
+    assert runner.scoring_note(conn, sid) is None
 
 
 def test_unpublished_play_by_play_is_reported_not_swallowed(tmp_path, monkeypatch):
@@ -87,12 +89,12 @@ def test_the_note_reaches_the_site(tmp_path):
     from joyce_ff.webapp import create_app
 
     conn, sid = _season(tmp_path)
-    runner.run_current(conn, sid)          # records the "no lineups" note
+    runner._note(conn, sid, "nflverse hasn't published 2026 play-by-play yet.")
     conn.close()
 
     c = create_app(str(tmp_path / "l.sqlite")).test_client()
     state = json.loads(c.get("/api/state").data)
-    assert "lineup" in (state["scoring_note"] or "").lower()
+    assert "play-by-play" in (state["scoring_note"] or "")
 
 
 def test_a_clean_run_clears_the_note(tmp_path, monkeypatch):
@@ -118,18 +120,16 @@ def test_missing_season_file_raises_the_specific_error(season):
     assert issubclass(nv.NotPublishedYet, RuntimeError)
 
 
-def test_the_no_lineups_note_goes_quiet_once_a_lineup_exists():
-    """It's written by the hourly run, so for up to an hour after a manager saves
-    a lineup it contradicted the card beneath it (Scott, 2026-09-20)."""
+def test_the_retired_no_lineups_note_is_never_shown():
+    """It explained an empty scoreboard to someone testing a practice season;
+    managers found it confusing and in the real season it has no audience
+    (Scott, 2026-09-20). A copy may still be stored from before — hide it."""
     from joyce_ff.league import runner, schema
 
     conn = schema.connect(":memory:")
     schema.init_db(conn)
     sid = schema.seed_reference(conn)
-    runner._note(conn, sid, runner.NO_LINEUPS)
-    assert runner.scoring_note(conn, sid) == runner.NO_LINEUPS
-    tid = conn.execute("SELECT id FROM teams WHERE season_id=? LIMIT 1", (sid,)).fetchone()["id"]
-    conn.execute("INSERT INTO weekly_lineups(season_id,team_id,ff_week,roster_slot,asset_kind,"
-                 "asset_ref,unit_type) VALUES (?,?,1,'C','TEAM_UNIT','KC','C')", (sid, tid))
-    conn.commit()
+    runner._note(conn, sid, runner._RETIRED[0])
     assert runner.scoring_note(conn, sid) is None
+    runner._note(conn, sid, "nflverse hasn't published 2026 play-by-play yet.")
+    assert runner.scoring_note(conn, sid) is not None      # the real reasons still show
