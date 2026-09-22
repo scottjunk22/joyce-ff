@@ -686,14 +686,16 @@ def create_app(db_path: str | None = None) -> Flask:
         # Red move off the list (Scott, 2026-09-18).
         tx = {"BLUE": [], "RED": []}
         for r in conn.execute(
-            "SELECT id, w, team, conf, type, pos, ok, oref, ik, iref FROM ("
+            "SELECT id, w, team, conf, type, pos, at, ok, oref, ik, iref FROM ("
             "SELECT tr.id id, tr.ff_week w, t.name team, c.code conf, tr.type, tr.position pos, "
+            "tr.created_at at, "
             "tr.out_asset_kind ok, tr.out_asset_ref oref, tr.in_asset_kind ik, tr.in_asset_ref iref, "
             "ROW_NUMBER() OVER (PARTITION BY c.code ORDER BY tr.ff_week DESC, tr.id DESC) rn "
             "FROM transactions tr JOIN teams t ON t.id=tr.team_id "
             "JOIN conferences c ON c.id=t.conference_id WHERE tr.season_id=? AND tr.reversed=0) "
             "WHERE rn<=25 ORDER BY w DESC, id DESC", (sid,)):
             tx[r["conf"]].append({"id": r["id"], "week": r["w"], "team": r["team"], "type": r["type"],
+                "at": r["at"],
                 **_tx_parts(conn, sid, r["pos"], r["ok"], r["oref"], r["ik"], r["iref"])})
 
         fees = {t["team_id"]: _account(conn, sid, t["team_id"])
@@ -831,6 +833,7 @@ def create_app(db_path: str | None = None) -> Flask:
                                "game_state": g.get("state"), "game_at": g.get("game_at")})
         fees = _account(conn, sid, team_id)
         hist = [{"week": t["ff_week"], "type": t["type"], "fee": t["fee_cents"],
+                 "at": t["created_at"],
                  **_tx_parts(conn, sid, t["position"], t["out_asset_kind"], t["out_asset_ref"],
                              t["in_asset_kind"], t["in_asset_ref"])}
                 for t in repo.transaction_history(conn, team_id)]

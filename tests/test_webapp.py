@@ -202,6 +202,10 @@ def test_the_commissioner_can_see_every_move_of_the_season(client):
     mv = client.post("/api/admin/moves", json={"passcode": "commish"}).get_json()["moves"]
     assert [(m["week"], m["team"], m["free_n"]) for m in mv] ==         [(3, "OT Blitz", 2), (3, "OT Blitz", 1)]            # newest first, counted oldest first
     assert all(m["at"] for m in mv)                         # when each was made, for the list
+    st = client.get("/api/state").get_json()                # and for the public feed
+    assert all(t["at"] for t in st["transactions"]["BLUE"])
+    det = client.get(f"/api/team/{client.otb}/detail").get_json()
+    assert all(h["at"] for h in det["history"])             # and a team's own account
 
 
 def test_review_can_ask_whether_a_player_is_still_free(client):

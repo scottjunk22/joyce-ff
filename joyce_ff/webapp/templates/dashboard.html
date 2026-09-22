@@ -450,7 +450,16 @@ function txSwap(t){ return `<span class="poschip">${t.pos}</span> ${txSide(t.out
    OPEN used everywhere a rental appears. Red is kept for the move screen, the
    moment a permanent trade is being decided. */
 function txTag(type){ return type==='TRADE'?'<span class="txtag trade">TRADE</span>':'<span class="txtag open">OPEN</span>'; }
-function renderTx(){ const row=t=>`<div class="tx"><span class="wk">W${t.week}</span> ${txTag(t.type)}<b>${t.team}</b> — ${txSwap(t)}</div>`;
+/* When a move was made, Central and deliberately quiet — the answer to "which
+   night was that?", not something to read past (Scott, 2026-09-22). */
+function moveWhen(at){
+  if(!at) return '';
+  const CT={timeZone:'America/Chicago'}, d=new Date(at);
+  const day=d.toLocaleString([],{...CT,weekday:'short',month:'short',day:'numeric'});
+  const hm=d.toLocaleString([],{...CT,hour:'numeric',minute:'2-digit'});
+  return `<span class="mvwhen">${day}, ${hm}</span>`;
+}
+function renderTx(){ const row=t=>`<div class="tx"><span class="wk">W${t.week}</span> ${txTag(t.type)}<b>${t.team}</b> — ${txSwap(t)} ${moveWhen(t.at)}</div>`;
   $('txBlue').innerHTML=STATE.transactions.BLUE.map(row).join('')||'<div class="tx sub">none</div>';
   $('txRed').innerHTML=STATE.transactions.RED.map(row).join('')||'<div class="tx sub">none</div>'; }
 
@@ -549,7 +558,7 @@ async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?we
     : `<span class="fbal paid">settled</span>`;
   const fees = `<div class="fees"><div class="fhd"><span>Account <span class="sub">· ${f.free_used}/5 free trades used</span></span>${balTxt}</div>`
     +`<div class="frow"><span>Entry fee</span><span>${b(f.entry_fee_cents)}</span></div>`
-    +d.history.map(h=>`<div class="frow"><span>W${h.week} ${txTag(h.type)}${txSwap(h)}</span><span>${h.fee?b(h.fee):'<span class="sub">free</span>'}</span></div>`).join('')
+    +d.history.map(h=>`<div class="frow"><span>W${h.week} ${txTag(h.type)}${txSwap(h)} ${moveWhen(h.at)}</span><span>${h.fee?b(h.fee):'<span class="sub">free</span>'}</span></div>`).join('')
     +(d.payments||[]).map(p=>`<div class="frow"><span>✓ payment${p.note?` <span class="sub">(${p.note})</span>`:''}</span><span class="paid">−${b(p.amount_cents)}</span></div>`).join('')
     +(f.winnings_cents?`<div class="frow"><span>🏆 Week 15 winnings</span><span class="paid">−${b(f.winnings_cents)}</span></div>`:'')
     +`</div>`;
@@ -1051,16 +1060,9 @@ async function loadAllMoves(){
   if(!mv.length){ $('allMovesBox').innerHTML='<div class="sub">No moves yet.</div>'; return; }
   // When, Central, and quiet about it: this is the column you look at only when
   // you're asking "which night was that?" (Scott, 2026-09-22).
-  const when=m=>{
-    if(!m.at) return '';
-    const CT={timeZone:'America/Chicago'}, d=new Date(m.at);
-    const day=d.toLocaleString([],{...CT,weekday:'short',month:'short',day:'numeric'});
-    const hm=d.toLocaleString([],{...CT,hour:'numeric',minute:'2-digit'});
-    return `<span class="mvwhen">${day}, ${hm}</span>`;
-  };
   let out='', wk=null;
   mv.forEach(m=>{ if(m.week!==wk){ wk=m.week; out+=`<div class="mvwk">Week ${wk}</div>`; }
-    out+=`<div class="frow"><span>${txTag(m.type)}<b>${m.team}</b> — ${txSwap(m)}</span>${when(m)}</div>`; });
+    out+=`<div class="frow"><span>${txTag(m.type)}<b>${m.team}</b> — ${txSwap(m)}</span>${moveWhen(m.at)}</div>`; });
   $('allMovesBox').innerHTML=out;
 }
 async function convertTx(id,type){ if(!confirm(`Convert this ${type} to ${type==='TRADE'?'an Open (1-week rental)':'a permanent Trade'}?`))return;
