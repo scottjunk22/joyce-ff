@@ -201,6 +201,7 @@ def test_the_commissioner_can_see_every_move_of_the_season(client):
     assert client.post("/api/admin/moves", json={"passcode": "otblitz"}).status_code == 403
     mv = client.post("/api/admin/moves", json={"passcode": "commish"}).get_json()["moves"]
     assert [(m["week"], m["team"], m["free_n"]) for m in mv] ==         [(3, "OT Blitz", 2), (3, "OT Blitz", 1)]            # newest first, counted oldest first
+    assert all(m["at"] for m in mv)                         # when each was made, for the list
 
 
 def test_review_can_ask_whether_a_player_is_still_free(client):

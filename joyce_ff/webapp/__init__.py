@@ -1182,13 +1182,14 @@ def create_app(db_path: str | None = None) -> Flask:
         used, out = {}, []
         for r in conn.execute(
                 "SELECT tr.id id, tr.ff_week w, tr.type, tr.position pos, tr.fee_cents fee, "
+                "tr.created_at at, "
                 "tr.out_asset_kind ok, tr.out_asset_ref oref, tr.in_asset_kind ik, "
                 "tr.in_asset_ref iref, t.name team, c.code conf FROM transactions tr "
                 "JOIN teams t ON t.id=tr.team_id JOIN conferences c ON c.id=t.conference_id "
                 "WHERE tr.season_id=? AND tr.reversed=0 ORDER BY tr.id", (sid,)):
             used[r["team"]] = n = used.get(r["team"], 0) + 1
             out.append({"id": r["id"], "week": r["w"], "team": r["team"], "conf": r["conf"],
-                        "type": r["type"], "fee_cents": r["fee"],
+                        "type": r["type"], "fee_cents": r["fee"], "at": r["at"],
                         "free_n": n if n <= repo.FREE_TRADES else None,
                         "free_of": repo.FREE_TRADES,
                         **_tx_parts(conn, sid, r["pos"], r["ok"], r["oref"], r["ik"], r["iref"])})

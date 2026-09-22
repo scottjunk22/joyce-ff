@@ -140,6 +140,7 @@
  .cfold{border-top:1px solid var(--line)}.cfold>summary{cursor:pointer;padding:10px 2px;font-size:14px;list-style-position:inside}
  .cfold .cfbody{padding:2px 2px 12px}
  .mvwk{margin:10px 0 2px;font-weight:800;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--dim)}
+ .mvwhen{font-size:11px;color:var(--dim);opacity:.8;white-space:nowrap;font-variant-numeric:tabular-nums}
  .cfold.cmini{border-top:0;margin:-4px 0 8px}.cfold.cmini>summary{padding:2px 0;font-size:12px;color:var(--blue)}
  .cchk{display:block}.cweek{display:flex;align-items:flex-start;gap:8px}.cweek>.cfold{flex:1}
  .cweek>.cfold>summary{display:list-item}.cwk{font-weight:700;margin-right:8px}.cweek .sub{margin-left:6px}
@@ -1048,11 +1049,18 @@ async function loadAllMoves(){
   const mv=j.moves||[];
   const n=$('allMovesN'); if(n) n.innerHTML=mv.length?` <span class="sub">· ${mv.length}</span>`:'';
   if(!mv.length){ $('allMovesBox').innerHTML='<div class="sub">No moves yet.</div>'; return; }
-  const cost=m=>m.free_n?`<span class="sub">free ${m.free_n}/${m.free_of}</span>`
-    :`<span class="sub">$${(m.fee_cents/100).toFixed(0)}</span>`;
+  // When, Central, and quiet about it: this is the column you look at only when
+  // you're asking "which night was that?" (Scott, 2026-09-22).
+  const when=m=>{
+    if(!m.at) return '';
+    const CT={timeZone:'America/Chicago'}, d=new Date(m.at);
+    const day=d.toLocaleString([],{...CT,weekday:'short',month:'short',day:'numeric'});
+    const hm=d.toLocaleString([],{...CT,hour:'numeric',minute:'2-digit'});
+    return `<span class="mvwhen">${day}, ${hm}</span>`;
+  };
   let out='', wk=null;
   mv.forEach(m=>{ if(m.week!==wk){ wk=m.week; out+=`<div class="mvwk">Week ${wk}</div>`; }
-    out+=`<div class="frow"><span>${txTag(m.type)}<b>${m.team}</b> — ${txSwap(m)}</span>${cost(m)}</div>`; });
+    out+=`<div class="frow"><span>${txTag(m.type)}<b>${m.team}</b> — ${txSwap(m)}</span>${when(m)}</div>`; });
   $('allMovesBox').innerHTML=out;
 }
 async function convertTx(id,type){ if(!confirm(`Convert this ${type} to ${type==='TRADE'?'an Open (1-week rental)':'a permanent Trade'}?`))return;
