@@ -87,7 +87,11 @@
  /* transactions */
  .txlist{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
  .txlist .cap{padding:8px 13px;font-weight:800;border-bottom:2px solid var(--line)}
- .tx{padding:7px 13px;border-bottom:1px solid var(--line);font-size:13px}.tx .wk{color:var(--dim)}
+ .tx{padding:7px 13px;border-bottom:1px solid var(--line);font-size:13px;
+   display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.tx .wk{color:var(--dim)}
+ /* the time sits on the right, clear of the move itself; on a narrow screen it
+    wraps to its own line, still right-aligned (Scott, 2026-09-22) */
+ .tx .mvwhen{margin-left:auto}
  /* modal */
  /* The BACKDROP scrolls, not just the panel: on iPhone Safari 90vh is the tall
     viewport behind the toolbars, so a modal that "fits" could still run off the
@@ -459,7 +463,7 @@ function moveWhen(at){
   const hm=d.toLocaleString([],{...CT,hour:'numeric',minute:'2-digit'});
   return `<span class="mvwhen">${day}, ${hm}</span>`;
 }
-function renderTx(){ const row=t=>`<div class="tx"><span class="wk">W${t.week}</span> ${txTag(t.type)}<b>${t.team}</b> — ${txSwap(t)} ${moveWhen(t.at)}</div>`;
+function renderTx(){ const row=t=>`<div class="tx"><span><span class="wk">W${t.week}</span> ${txTag(t.type)}<b>${t.team}</b> — ${txSwap(t)}</span>${moveWhen(t.at)}</div>`;
   $('txBlue').innerHTML=STATE.transactions.BLUE.map(row).join('')||'<div class="tx sub">none</div>';
   $('txRed').innerHTML=STATE.transactions.RED.map(row).join('')||'<div class="tx sub">none</div>'; }
 
