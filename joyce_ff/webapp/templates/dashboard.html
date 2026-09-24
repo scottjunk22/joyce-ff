@@ -138,6 +138,11 @@
  .cglance.k-lineups{border-left:3px solid color-mix(in srgb,var(--blue) 55%,transparent)}
  .cglance.k-pins{border-left:3px solid color-mix(in srgb,#a78bfa 55%,transparent)}
  .cglance.k-checks{border-left:3px solid color-mix(in srgb,#2dd4bf 55%,transparent)}
+ .cglance.k-money{border-left:3px solid color-mix(in srgb,var(--good) 55%,transparent)}
+ .payrow{display:flex;gap:8px;align-items:baseline;white-space:nowrap}
+ .paytot{border-bottom:0;font-weight:800}
+ .cglance.k-owed{border-left:3px solid color-mix(in srgb,var(--warn) 55%,transparent)}
+ .cglance.k-settled{border-left:3px solid color-mix(in srgb,var(--blue) 40%,transparent)}
  .cic{font-size:14px;margin-right:2px;opacity:.85}.cchk .cic{margin-right:6px}
  .cbig{display:block;text-align:left;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px 14px;font-size:15px;font-weight:700;cursor:pointer;min-width:260px}
  .cbig span{display:block;font-size:12px;font-weight:400;color:var(--dim);margin-top:2px}
@@ -985,6 +990,10 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
   const thisWeek=`<div class="csec">This week</div>${lsum}${pinGlance}`
     +`<div class="cglance cchk k-checks"><div class="cl" style="width:100%"><span class="cic">🔍</span>Scores double-checked against a second source (nflverse)</div><div id="checksBox" style="width:100%"><span class="sub">loading…</span></div></div>`;
   const tools=`<div class="csec">Tools</div><button class="cbig" onclick="weeklyPoints()">📋 Weekly points<span>Every player's points and who owned him</span></button>`;
+  /* Money (Scott, 2026-09-24): what's come in, what's still out, and the record
+     of every payment — his dad collects entry fees at the drafts and move fees
+     at the door all season, and had nowhere to see the running total. */
+  const money=`<div class="csec">Money</div><div id="moneyBox"><span class="sub">loading…</span></div>`;
   const teams=`<div class="csec">Teams</div>`+table(byNum(STATE.standings.BLUE),'BLUE CONFERENCE','var(--blue)')
     +table(byNum(STATE.standings.RED),'RED CONFERENCE','var(--red)');
   const folds=`<div style="margin-top:18px">`
@@ -996,23 +1005,23 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
     +cfold('pins','PIN setup (draft day)',pinBar)
     +cfold('season','Season setup — team names, new or delete season',lockBar+seasonBar)
     +`</div>`;
-  $('commBody').innerHTML=attention+thisWeek+tools+teams+folds;
-  loadAudit(); loadScoreChecks(); loadAllMoves();
+  $('commBody').innerHTML=attention+thisWeek+tools+money+teams+folds;
+  loadAudit(); loadScoreChecks(); loadAllMoves(); loadMoney();
 }
 /* A folded section. Which ones are open survives a redraw (every button press
    reloads the page data and redraws the tab). */
 const CFOLD=new Set();
 /* A This week tile: the count, its label, and on the right either "show who's
    missing" (the names open inside the tile) or a green all-clear. */
-function ctile(id,num,label,body,okText='',kind='',icon=''){
+function ctile(id,num,label,body,okText='',kind='',icon='',link="show who's missing"){
   const open=CFOLD.has(id);
   return `<div class="cglance ${kind}"><span class="cic">${icon}</span><span class="cn">${num}</span><span class="cl">${label}</span>`
-    +(body?`<button class="clink" onclick="toggleTile('${id}',this)">${open?'hide ▾':'show who\'s missing ▸'}</button>`
+    +(body?`<button class="clink" data-link="${link}" onclick="toggleTile('${id}',this)">${open?'hide ▾':link+' ▸'}</button>`
           +`<div class="ctbody" ${open?'':'hidden'}>${body}</div>`
       :`<span class="cright cok">${okText}</span>`)+`</div>`; }
 function toggleTile(id,btn){ const body=btn.nextElementSibling, open=body.hidden;
   body.hidden=!open; open?CFOLD.add(id):CFOLD.delete(id);
-  btn.textContent=open?'hide ▾':"show who's missing ▸"; }
+  btn.textContent=open?'hide ▾':(btn.dataset.link||"show who's missing")+' ▸'; }
 function cfold(id,title,body,cls=''){
   return `<details class="cfold ${cls}" ${CFOLD.has(id)?'open':''} ontoggle="this.open?CFOLD.add('${id}'):CFOLD.delete('${id}')">`
     +`<summary>${title}</summary><div class="cfbody">${body}</div></details>`; }
@@ -1071,6 +1080,35 @@ async function loadAllMoves(){
   mv.forEach(m=>{ if(m.week!==wk){ wk=m.week; out+=`<div class="mvwk">Week ${wk}</div>`; }
     out+=`<div class="frow"><span>${txTag(m.type)}<b>${m.team}</b> — ${txSwap(m)}</span>${moveWhen(m.at)}</div>`; });
   $('allMovesBox').innerHTML=out;
+}
+/* Three tiles and the ledger beneath them. Whole dollars — this league has
+   never dealt in cents. */
+async function loadMoney(){
+  const box=$('moneyBox'); if(!box) return;
+  const j=await apost('/api/admin/money',{}); if(!j||!$('moneyBox')) return;
+  const d=c=>'$'+Math.round(c/100);
+  const owedNames=j.owed.length
+    ? `<div class="nchips">${j.owed.map(o=>`<span class="nchip">${o.team} <b>${d(o.cents)}</b></span>`).join('')}</div>`
+    : '';
+  const tiles=ctile('moneyin',d(j.collected_cents),'collected this season','','','k-money','\u{1F4B5}')
+    +ctile('moneyowed',d(j.owed_cents),'still owed',owedNames,'\u2713 all settled','k-owed','\u{1F4EC}','show who owes')
+    +ctile('moneyset',`${j.settled} of ${j.teams}`,'teams settled up','','','k-settled','\u2705');
+  const rows=(j.payments||[]).map(p=>`<div class="frow"><span><b>${p.team}</b>`
+      +(p.note&&p.note!=='commissioner'?` <span class="sub">\u00b7 ${p.note}</span>`:'')
+      +` ${moveWhen(p.at)}</span>`
+      +`<span class="payrow"><span class="paid">${d(p.amount_cents)}</span>`
+      +`<button class="chip" onclick="removePayment(${p.id},${JSON.stringify(p.team)},${p.amount_cents})">remove</button></span></div>`).join('')
+    || '<div class="sub">No payments recorded yet.</div>';
+  const total=(j.payments||[]).length
+    ? `<div class="frow paytot"><span>Total collected</span><span class="paid">${d(j.collected_cents)}</span></div>` : '';
+  $('moneyBox').innerHTML=tiles+cfold('paylog',`Payments received \u00b7 ${(j.payments||[]).length}`,rows+total);
+}
+/* Removing a payment puts that money back on the team's balance, so the
+   confirmation says whose and how much before anything happens. */
+async function removePayment(id,team,cents){
+  if(!confirm(`Remove this payment?\n\n${team} \u00b7 $${Math.round(cents/100)}\n\nIt comes off what you have collected and goes back onto their balance.`)) return;
+  const j=await apost(`/api/admin/payment/${id}/delete`,{});
+  if(j){ await load(VIEW, SEASON); renderCommish(); }
 }
 async function convertTx(id,type){ if(!confirm(`Convert this ${type} to ${type==='TRADE'?'an Open (1-week rental)':'a permanent Trade'}?`))return;
   const j=await apost(`/api/admin/convert/${id}`,{}); if(j){alert('Converted.');await load(VIEW, SEASON);renderCommish();} }

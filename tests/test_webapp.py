@@ -217,6 +217,31 @@ def test_review_can_ask_whether_a_player_is_still_free(client):
     assert mine == {"available": False, "error": "Bijan Robinson is already on your roster"}
 
 
+def test_the_money_summary_adds_up_and_a_payment_can_be_removed(client):
+    """His dad collects entry fees at the drafts and move fees at the door all
+    season, and had nowhere to see the running total (Scott, 2026-09-24)."""
+    assert client.post("/api/admin/money", json={"passcode": "otblitz"}).status_code == 403
+    m = client.post("/api/admin/money", json={"passcode": "commish"}).get_json()
+    assert m["collected_cents"] == 0
+    assert m["owed_cents"] == 80_00 * m["teams"]            # every team owes its entry fee
+    assert m["settled"] == 0
+
+    r = client.post(f"/api/team/{client.otb}/payment",
+                    json={"passcode": "commish", "amount_cents": 8000, "note": "cash"})
+    assert r.status_code == 200, r.get_json()
+    m = client.post("/api/admin/money", json={"passcode": "commish"}).get_json()
+    assert m["collected_cents"] == 8000 and m["settled"] == 1
+    assert all(o["team"] != "OT Blitz" for o in m["owed"])  # square, so off the owes list
+    (pay,) = [p for p in m["payments"] if p["team"] == "OT Blitz"]
+    assert (pay["amount_cents"], pay["note"]) == (8000, "cash") and pay["at"]
+
+    d = client.post(f"/api/admin/payment/{pay['id']}/delete", json={"passcode": "commish"})
+    assert d.status_code == 200
+    m = client.post("/api/admin/money", json={"passcode": "commish"}).get_json()
+    assert m["collected_cents"] == 0 and m["payments"] == []   # back on their balance
+    assert m["settled"] == 0
+
+
 def test_pins_open_by_conference_and_stay_open_until_each_manager_sets_one(client):
     """At the Blue draft only Blue teams open; a team closes itself once its PIN
     is set, and the commissioner can close or open a single team (2026-09-16)."""

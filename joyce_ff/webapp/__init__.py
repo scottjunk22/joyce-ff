@@ -1169,6 +1169,56 @@ def create_app(db_path: str | None = None) -> Flask:
                   "ORDER BY wl.ff_week DESC LIMIT 40", (sid,))]
         return jsonify(ok=True, transactions=tx, lineups=lu)
 
+    @app.post("/api/admin/money")
+    def admin_money():
+        """What the commissioner has collected, what's still out, and the record
+        of every payment he's entered — the thing he'd otherwise keep on paper
+        (Scott, 2026-09-24). Season-scoped; commissioner-only, like the rest of
+        the tab."""
+        if (bad := _commish()):
+            return bad
+        s, err = _need_season()
+        if err:
+            return err
+        conn, sid = db(), s["id"]
+        owed, settled, teams = [], 0, 0
+        for t in conn.execute("SELECT id, name FROM teams WHERE season_id=? ORDER BY name", (sid,)):
+            teams += 1
+            bal = repo.fee_balance_cents(conn, t["id"])["balance_cents"]
+            if bal > 0:
+                owed.append({"team": t["name"], "cents": bal})
+            else:
+                settled += 1                       # square, or paid ahead
+        owed.sort(key=lambda o: (-o["cents"], o["team"]))
+        collected = conn.execute(
+            "SELECT COALESCE(SUM(amount_cents),0) c FROM payments WHERE season_id=?",
+            (sid,)).fetchone()["c"]
+        pays = [{"id": r["id"], "team": r["team"], "amount_cents": r["amount_cents"],
+                 "note": r["note"], "at": r["applied_at"]}
+                for r in conn.execute(
+                    "SELECT p.id, t.name team, p.amount_cents, p.note, p.applied_at "
+                    "FROM payments p JOIN teams t ON t.id=p.team_id WHERE p.season_id=? "
+                    "ORDER BY p.id DESC", (sid,))]
+        return jsonify(ok=True, collected_cents=collected, owed=owed,
+                       owed_cents=sum(o["cents"] for o in owed),
+                       settled=settled, teams=teams, payments=pays)
+
+    @app.post("/api/admin/payment/<int:pay_id>/delete")
+    def admin_payment_delete(pay_id):
+        """Remove a payment entered by mistake. The UI names the team and the
+        amount in its confirmation before this is called."""
+        if (bad := _commish()):
+            return bad
+        conn = db()
+        row = conn.execute(
+            "SELECT p.amount_cents a, t.name team FROM payments p JOIN teams t ON t.id=p.team_id "
+            "WHERE p.id=?", (pay_id,)).fetchone()
+        if not row:
+            return jsonify(error="no such payment"), 404
+        conn.execute("DELETE FROM payments WHERE id=?", (pay_id,))
+        conn.commit()
+        return jsonify(ok=True, team=row["team"], amount_cents=row["a"])
+
     @app.post("/api/admin/moves")
     def admin_moves():
         """Every move of the season, oldest first, with what each one cost.
