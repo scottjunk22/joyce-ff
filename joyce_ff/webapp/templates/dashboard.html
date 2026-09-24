@@ -766,7 +766,10 @@ function lineupCheck(c){
   for(let x=0;x<=extras;x++){ const a=rb-x, b=r-(extras-x);
     if(standard(a,b)){ fits='std'; break; } if(flexOk(a,b)) fits='flex'; }
   const note=(extras?` · extra ${extras>1?'players':'player'} for your ${given.join(' and ')} on bye`:'')+(fits==='flex'?' · bye-week flex':'');
-  if(fits) return ok('Lineup complete — 9 starters'+note);
+  // "Complete" read as "saved" — a manager could pick nine, see a green check
+  // and close the screen having submitted nothing. This line only ever judged
+  // the PICKS; the banner above says what's actually saved (Scott, 2026-09-24).
+  if(fits) return ok('Ready to submit — 9 starters'+note);
   if(extras) return bad(`${rb} RB + ${r} R isn't allowed here`);
   if(rb===3&&r===2) return bad('3 RBs only when 2+ receivers are on bye — bench 1 RB, start 1 more R');
   if(rb===1&&r===4) return bad('4 receivers only when 2+ RBs are on bye — bench 1 R, start 1 more RB');
