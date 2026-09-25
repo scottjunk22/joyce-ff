@@ -31,4 +31,5 @@ def test_a_box_score_shows_lar_but_keeps_the_stored_code():
                  "asset_ref,unit_type) VALUES (?,?,1,'QB','TEAM_UNIT','LA','QB')", (sid, tid))
     conn.commit()
     row = scoring.box_score(conn, sid, 1, tid)[0]
-    assert row["display"] == "LAR QB" and row["asset_ref"] == "LA"
+    # the box score prints the slot in its own column, so the unit is its club
+    assert row["display"] == "LAR" and row["asset_ref"] == "LA"

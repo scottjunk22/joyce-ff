@@ -242,6 +242,26 @@ def test_the_money_summary_adds_up_and_a_payment_can_be_removed(client):
     assert m["settled"] == 0
 
 
+def test_a_unit_is_named_by_its_club_where_the_row_shows_the_slot(client):
+    """"PHI C" under a C column said it twice (Scott, 2026-09-24). Lists without
+    a slot column keep the type — it's the only thing telling BAL's coach from
+    BAL's QB room."""
+    conn = schema.connect(client.dbpath)
+    sid = conn.execute("SELECT id FROM seasons ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    conn.execute("INSERT INTO roster_entries(season_id,team_id,asset_kind,asset_ref,unit_type,"
+                 "roster_slot,acquired_ff_week,acquired_via,created_at) "
+                 "VALUES (?,?,'TEAM_UNIT','ATL','C','C',1,'DRAFT','t')", (sid, client.otb))
+    conn.commit()
+    conn.close()
+    d = client.get(f"/api/team/{client.otb}/detail").get_json()
+    (unit,) = [r for r in d["roster"] if r["kind"] == "TEAM_UNIT"]
+    assert unit["name"] == "ATL" and unit["slot"] == "C"
+    r = client.get("/api/rosters").get_json()
+    ot = next(t for t in r["conferences"]["BLUE"] if t["name"] == "OT Blitz")
+    assert [p["name"] for p in ot["players"] if p["kind"] == "TEAM_UNIT"] == ["ATL"]
+    assert any(p["name"] == "ATL C" for p in r["pool"])      # the search pool keeps it
+
+
 def test_pins_open_by_conference_and_stay_open_until_each_manager_sets_one(client):
     """At the Blue draft only Blue teams open; a team closes itself once its PIN
     is set, and the commissioner can close or open a single team (2026-09-16)."""

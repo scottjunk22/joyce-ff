@@ -442,7 +442,9 @@ def box_score(conn, season_id: int, ff_week: int, team_id: int) -> list[dict]:
     out = []
     for r in rows:
         d = dict(r)
-        d["display"] = d.pop("player_name") or display.unit(d["asset_ref"], d["unit_type"])
+        # The box score prints the slot in its own column, so a unit is named by
+        # its club: "PHI", not "PHI C" (Scott, 2026-09-24).
+        d["display"] = d.pop("player_name") or display.team(d["asset_ref"])
         d["breakdown"] = json.loads(d.pop("breakdown_json") or "[]")
         out.append(d)
     return out

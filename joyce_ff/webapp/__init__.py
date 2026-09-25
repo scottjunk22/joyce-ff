@@ -205,8 +205,7 @@ def create_app(db_path: str | None = None) -> Flask:
             in_team = _asset_team(conn, sid, t["in_asset_kind"], t["in_asset_ref"])
             opens.setdefault((t["team_id"], t["position"], t["out_asset_ref"]), []).append({
                 "ref": t["in_asset_ref"], "team": display.team(in_team) if in_team else None,
-                "name": _dname(conn, sid, t["in_asset_kind"], t["in_asset_ref"],
-                               t["position"] if t["in_asset_kind"] == "TEAM_UNIT" else None)})
+                "name": _dname(conn, sid, t["in_asset_kind"], t["in_asset_ref"])})
         confs = {"BLUE": [], "RED": []}
         # Team # order, not alphabetical: it's the number each manager drew on
         # draft day and the thing that sets his schedule, so the page that shows
@@ -221,7 +220,12 @@ def create_app(db_path: str | None = None) -> Flask:
                 club = _asset_team(conn, sid, e["asset_kind"], e["asset_ref"])
                 players.append({
                     "slot": e["roster_slot"], "ref": e["asset_ref"], "kind": e["asset_kind"],
-                    "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"], e["unit_type"]),
+                    # The row already carries the slot on its left, so the unit is
+                    # named by its club alone: "PHI", not "PHI C" (Scott,
+                    # 2026-09-24). Lists with no slot column — the Draft Room, the
+                    # trade pool, any sentence — keep the type, where it's the only
+                    # thing telling BAL's coach from BAL's QB room.
+                    "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"]),
                     "team": display.team(club) if (club and e["asset_kind"] == "PLAYER") else None,
                     "bye": club in byes,
                     "new": e["acquired_via"] == "TRADE" and e["acquired_ff_week"] == wk,
@@ -797,7 +801,7 @@ def create_app(db_path: str | None = None) -> Flask:
             g = games.get(team) or {}
             on_roster.add((e["roster_slot"], e["asset_ref"]))
             roster.append({"slot": e["roster_slot"],
-                           "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"], e["unit_type"]),
+                           "name": _dname(conn, sid, e["asset_kind"], e["asset_ref"]),
                            "asset_ref": e["asset_ref"], "kind": e["asset_kind"],
                            "team": display.team(team), "bye": team in byes,
                            "bye_week": bye_of.get(team) if bye_of.get(team) in open_wks else None,
@@ -833,7 +837,7 @@ def create_app(db_path: str | None = None) -> Flask:
             team = _asset_team(conn, sid, l["asset_kind"], l["asset_ref"])
             g = games.get(team) or {}
             traded_out.append({"slot": l["roster_slot"], "asset_ref": l["asset_ref"], "kind": l["asset_kind"],
-                               "name": _dname(conn, sid, l["asset_kind"], l["asset_ref"], l["unit_type"]),
+                               "name": _dname(conn, sid, l["asset_kind"], l["asset_ref"]),
                                "team": display.team(team) if team else None,
                                "replaced_by": replaced_by.get((l["roster_slot"], l["asset_ref"])),
                                "game_state": g.get("state"), "game_at": g.get("game_at")})
@@ -857,8 +861,7 @@ def create_app(db_path: str | None = None) -> Flask:
                           "covering_name": covering_name,
                           "covering_short": _short_name(covering_name, t["out_asset_kind"],
                                                         t["out_asset_ref"]),
-                          "name": _dname(conn, sid, t["in_asset_kind"], t["in_asset_ref"],
-                                         t["position"] if t["in_asset_kind"] == "TEAM_UNIT" else None),
+                          "name": _dname(conn, sid, t["in_asset_kind"], t["in_asset_ref"]),
                           "team": display.team(in_team) if in_team else None,
                           "game_state": g.get("state"), "game_at": g.get("game_at")})
         pays = [{"amount_cents": p["amount_cents"], "note": p["note"], "at": p["applied_at"]}
