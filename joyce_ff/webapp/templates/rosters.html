@@ -26,10 +26,15 @@
  .ch{padding:8px 11px;font-weight:700;font-size:14.5px;border-bottom:1px solid var(--line)}
  .ch .top{display:flex;align-items:baseline;gap:7px}
  .ch .top .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
- /* The number each manager drew on draft day, which sets his schedule. Labelled,
-    because the standing on the line below is a number too (Scott, 2026-09-24). */
- .tnum{font-size:11px;font-weight:700;color:var(--dim);border:1px solid var(--line);
-   border-radius:6px;padding:1px 6px;background:var(--bg);white-space:nowrap}
+ /* The number each manager drew on draft day, which sets his schedule. It gets
+    its own band above the name — a label FOR the card rather than another fact
+    competing on it, and with the cards in number order the bands line up into a
+    column you can run a finger down (Scott, 2026-09-24). Spelled "TEAM 4": a
+    bare number would read as a rank, which is what the line below carries. */
+ .tnum{text-align:center;font-size:10.5px;font-weight:700;letter-spacing:.14em;
+   padding:3px 0;border-bottom:1px solid var(--line)}
+ .BLUE .tnum{color:var(--blue);background:color-mix(in srgb,var(--blue) 26%,var(--panel))}
+ .RED .tnum{color:var(--red);background:color-mix(in srgb,var(--red) 26%,var(--panel))}
  .wl{font-size:12.5px;font-weight:400;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
  .ch .tr{height:17px;line-height:17px;margin-top:2px;font-size:11.5px;font-weight:400;
    display:flex;gap:8px;align-items:baseline}
@@ -96,7 +101,7 @@ function card(conf,t,hits){
   const played=(t.wins||0)+(t.losses||0)>0;
   const pos=played&&t.seed?`<span class="pos${t.playoffs?' po':''}">${ord(t.seed)} in ${CONF_NAME[conf]}</span>`:'';
   const trophy=`<div class="tr"><span class="t">${crowns}</span>${pos}</div>`;
-  const num=t.team_number?`<span class="tnum">Team ${t.team_number}</span>`:'';
+  const num=t.team_number?`<div class="tnum">Team ${t.team_number}</div>`:'';
   const rec=`<span class="wl">${t.wins}-${t.losses}</span>`;
   const rows=t.players.map(p=>{
     const key=p.slot+'|'+p.ref, hit=hits.has(key);
@@ -107,7 +112,7 @@ function card(conf,t,hits){
         +(o.team?` <span class="tm">${esc(o.team)}</span>`:'')+' <span class="tag open">OPEN</span></span></div>').join('');
   }).join('');
   const any=t.players.some(p=>hits.has(p.slot+'|'+p.ref)||p.opens.some(o=>hits.has(p.slot+'|'+o.ref)));
-  return `<div class="card${any?' hit':''}"><div class="ch"><div class="top">${num}<span class="nm">${esc(t.name)}</span>${rec}</div>${trophy}</div>${rows}</div>`;
+  return `<div class="card${any?' hit':''}">${num}<div class="ch"><div class="top"><span class="nm">${esc(t.name)}</span>${rec}</div>${trophy}</div>${rows}</div>`;
 }
 
 /* Search the whole pool (rostered or not), then say who has each match in each

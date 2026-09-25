@@ -175,7 +175,8 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-09-16: ROSTERS PAGE (/rosters, footer link "Rosters"). All 22 rosters
   from the live roster tables (a trade shows immediately), Blue then Red, teams
   in TEAM # ORDER (2026-09-24: the draft-day draw that sets the schedule; it had
-  nowhere else to live. Card header = "Team 4" badge + name + W-L; the line below
+  nowhere else to live. Each card wears a "TEAM 4" band above its header in a deeper shade of the
+  conference colour; header = name + W-L; the line below
   carries the titles on the left and "5th in Blue" on the right, green in playoff
   position and blank until a week has been played, so the two numbers can't be
   read as each other. Unnumbered teams sort last), no manager names. Card header tinted by conference with
