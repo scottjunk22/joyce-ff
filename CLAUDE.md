@@ -174,7 +174,11 @@ what the Phase-1 reconciliation is designed to arbitrate.
   without a DEF/ST. Revisit only if someone misses the deadline.
 - 2026-09-16: ROSTERS PAGE (/rosters, footer link "Rosters"). All 22 rosters
   from the live roster tables (a trade shows immediately), Blue then Red, teams
-  alphabetical, no manager names. Card header tinted by conference with
+  in TEAM # ORDER (2026-09-24: the draft-day draw that sets the schedule; it had
+  nowhere else to live. Card header = "Team 4" badge + name + W-L; the line below
+  carries the titles on the left and "5th in Blue" on the right, green in playoff
+  position and blank until a week has been played, so the two numbers can't be
+  read as each other. Unnumbered teams sort last), no manager names. Card header tinted by conference with
   "#seed · W-L" (seed green in playoff position), and under the name a
   fixed-height title line "🏆 2010 · 2013" (ending years, oldest first,
   "defending" tag on the holder; empty but same height for teams without a

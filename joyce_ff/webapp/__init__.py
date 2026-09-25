@@ -208,8 +208,13 @@ def create_app(db_path: str | None = None) -> Flask:
                 "name": _dname(conn, sid, t["in_asset_kind"], t["in_asset_ref"],
                                t["position"] if t["in_asset_kind"] == "TEAM_UNIT" else None)})
         confs = {"BLUE": [], "RED": []}
-        for team in conn.execute("SELECT t.id, t.name, c.code FROM teams t JOIN conferences c "
-                                 "ON c.id=t.conference_id WHERE t.season_id=? ORDER BY t.name COLLATE NOCASE",
+        # Team # order, not alphabetical: it's the number each manager drew on
+        # draft day and the thing that sets his schedule, so the page that shows
+        # it should be arranged by it (Scott, 2026-09-24). A team without a
+        # number yet sorts last rather than first.
+        for team in conn.execute("SELECT t.id, t.name, t.team_number, c.code FROM teams t "
+                                 "JOIN conferences c ON c.id=t.conference_id WHERE t.season_id=? "
+                                 "ORDER BY COALESCE(t.team_number, 99), t.name COLLATE NOCASE",
                                  (sid,)):
             players = []
             for e in repo.current_roster(conn, team["id"]):
@@ -224,6 +229,7 @@ def create_app(db_path: str | None = None) -> Flask:
             r = rank.get(team["id"], {})
             confs.setdefault(team["code"], []).append({
                 "id": team["id"], "name": team["name"], "players": players,
+                "team_number": team["team_number"],
                 "seed": r.get("seed"), "wins": r.get("wins", 0), "losses": r.get("losses", 0),
                 "playoffs": bool(r.get("playoffs")), "titles": crowns.get(team["id"])})
         pool = [{"ref": p["gsis_id"], "name": p["name"], "slot": "RB" if p["position"] == "RB" else "R",

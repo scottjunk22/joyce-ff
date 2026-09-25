@@ -325,8 +325,22 @@ def test_rosters_page_lists_every_team_by_conference_with_the_player_pool(client
     d = client.get("/api/rosters").get_json()
     blue = {t["name"]: t for t in d["conferences"]["BLUE"]}
     assert len(d["conferences"]["BLUE"]) == 11 and len(d["conferences"]["RED"]) == 11
-    names = [t["name"] for t in d["conferences"]["BLUE"]]
-    assert names == sorted(names, key=str.lower)                            # alphabetical
+    # Team # order — the number each manager drew, which sets his schedule
+    # (Scott, 2026-09-24). Unnumbered teams fall to the end, by name.
+    conn = schema.connect(client.dbpath)
+    sid = conn.execute("SELECT id FROM seasons ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    ids = [r["id"] for r in conn.execute(
+        "SELECT t.id FROM teams t JOIN conferences c ON c.id=t.conference_id "
+        "WHERE t.season_id=? AND c.code='BLUE' ORDER BY t.name LIMIT 3", (sid,))]
+    for n, tid in zip((3, 1, 2), ids):
+        conn.execute("UPDATE teams SET team_number=? WHERE id=?", (n, tid))
+    conn.commit()
+    conn.close()
+    got = client.get("/api/rosters").get_json()["conferences"]["BLUE"]
+    assert [t["team_number"] for t in got][:3] == [1, 2, 3]
+    assert all(t["team_number"] is None for t in got[3:])
+    names = [t["name"] for t in got[3:]]
+    assert names == sorted(names, key=str.lower)                            # then by name
     assert [p["ref"] for p in blue["OT Blitz"]["players"]] == ["p_bijan"]
     assert {"p_bijan", "p_warren"} <= {p["ref"] for p in d["pool"]}          # searchable, owned or not
     # a trade shows immediately

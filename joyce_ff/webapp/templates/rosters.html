@@ -24,8 +24,18 @@
  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
  .card.hit{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue)}
  .ch{padding:8px 11px;font-weight:700;font-size:14.5px;border-bottom:1px solid var(--line)}
- .ch .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
- .ch .tr{height:17px;line-height:17px;margin-top:2px;font-size:11.5px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .ch .top{display:flex;align-items:baseline;gap:7px}
+ .ch .top .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ /* The number each manager drew on draft day, which sets his schedule. Labelled,
+    because the standing on the line below is a number too (Scott, 2026-09-24). */
+ .tnum{font-size:11px;font-weight:700;color:var(--dim);border:1px solid var(--line);
+   border-radius:6px;padding:1px 6px;background:var(--bg);white-space:nowrap}
+ .wl{font-size:12.5px;font-weight:400;color:var(--text);font-variant-numeric:tabular-nums;white-space:nowrap}
+ .ch .tr{height:17px;line-height:17px;margin-top:2px;font-size:11.5px;font-weight:400;
+   display:flex;gap:8px;align-items:baseline}
+ .ch .tr .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .ch .tr .pos{white-space:nowrap;color:var(--dim)}
+ .ch .tr .pos.po{color:var(--good);font-weight:700}
  .ch .def{font-size:10px;font-weight:700;border:1px solid currentColor;border-radius:5px;padding:0 5px;margin-left:4px}
  .BLUE .ch{color:var(--blue);background:color-mix(in srgb,var(--blue) 14%,var(--panel))}
  .RED .ch{color:var(--red);background:color-mix(in srgb,var(--red) 14%,var(--panel))}
@@ -69,6 +79,7 @@ let DATA=null;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const CONF_NAME={BLUE:'Blue',RED:'Red'};
+const ord=n=>n+(n%100>=11&&n%100<=13?'th':({1:'st',2:'nd',3:'rd'}[n%10]||'th'));
 
 /* One card per team. Under the name, the years it won the league; a team
    that never has keeps the same empty line, so every card's position rows
@@ -78,9 +89,15 @@ function card(conf,t,hits){
   // ("2026"), oldest first.
   const years=((t.titles&&t.titles.years)||[]).map(l=>{const y=parseInt(l,10);return isNaN(y)?l:y+1;})
     .sort((a,b)=>a-b);
-  const trophy=`<div class="tr">${years.length?'\u{1F3C6} '+years.join(' · ')
-    +(t.titles.defending?' <span class="def">defending</span>':''):''}</div>`;
-  const rank=t.seed?`<span class="rk"><span class="seed${t.playoffs?' po':''}">#${t.seed}</span> · ${t.wins}-${t.losses}</span>`:'';
+  const crowns=years.length?'\u{1F3C6} '+years.join(' · ')
+    +(t.titles.defending?' <span class="def">defending</span>':''):'';
+  // No standing until a week has been played — everyone is 0-0 before that, and
+  // "1st in Blue" would just be alphabetical noise.
+  const played=(t.wins||0)+(t.losses||0)>0;
+  const pos=played&&t.seed?`<span class="pos${t.playoffs?' po':''}">${ord(t.seed)} in ${CONF_NAME[conf]}</span>`:'';
+  const trophy=`<div class="tr"><span class="t">${crowns}</span>${pos}</div>`;
+  const num=t.team_number?`<span class="tnum">Team ${t.team_number}</span>`:'';
+  const rec=`<span class="wl">${t.wins}-${t.losses}</span>`;
   const rows=t.players.map(p=>{
     const key=p.slot+'|'+p.ref, hit=hits.has(key);
     return `<div class="r${hit?' hit':''}"><span class="s">${esc(p.slot)}</span><span class="nm">${esc(p.name)}`
@@ -90,7 +107,7 @@ function card(conf,t,hits){
         +(o.team?` <span class="tm">${esc(o.team)}</span>`:'')+' <span class="tag open">OPEN</span></span></div>').join('');
   }).join('');
   const any=t.players.some(p=>hits.has(p.slot+'|'+p.ref)||p.opens.some(o=>hits.has(p.slot+'|'+o.ref)));
-  return `<div class="card${any?' hit':''}"><div class="ch"><div class="top"><span>${esc(t.name)}</span>${rank}</div>${trophy}</div>${rows}</div>`;
+  return `<div class="card${any?' hit':''}"><div class="ch"><div class="top">${num}<span class="nm">${esc(t.name)}</span>${rec}</div>${trophy}</div>${rows}</div>`;
 }
 
 /* Search the whole pool (rostered or not), then say who has each match in each
