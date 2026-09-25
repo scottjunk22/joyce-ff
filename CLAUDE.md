@@ -84,6 +84,12 @@ Q4 (1pt/50yds beyond 450 passing ✓), Q5 (DEF/ST gets ST pts; duplicate pts
 across owners ✓), Q6 (draft order ✓, card-draw table in joyce_ff/draft),
 Q7 (waivers ✓), Q8 (no trades ✓), Q10 (team = OT Blitz ✓).
 Still open: our draft SLOT for 2026-27 (the Spades card, drawn on draft day).
+Still open (2026-09-24, Scott to confirm with dad): the STANDINGS tiebreak's 4th
+step. The rulebook says "total conf pts"; standings._rank uses total POINTS FOR
+(all games, interleague weeks 1-4 included). Order today: wins > head-to-head >
+conference record > points for > team name (a deterministic stand-in for the
+rulebook's coin flip, which can't be recomputed on every page load). Only fires
+when the first three are all level. Leave as is until he says.
 Q9 schedule STRUCTURE now known (see below); only the 2026-27 FF-week/NFL-week
 offset needs confirming.
 
