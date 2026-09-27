@@ -814,15 +814,17 @@ def create_app(db_path: str | None = None) -> Flask:
         STARTED = ("playing", "over", "final")
         replaced_by, blocked_by = {}, {}
         for t in conn.execute(
-                "SELECT position, out_asset_kind, out_asset_ref, in_asset_ref FROM transactions "
+                "SELECT position, out_asset_kind, out_asset_ref, in_asset_ref, created_at "
+                "FROM transactions "
                 "WHERE season_id=? AND team_id=? AND ff_week=? AND type='TRADE' AND reversed=0",
                 (sid, team_id, wk)):
             replaced_by[(t["position"], t["out_asset_ref"])] = t["in_asset_ref"]
             # ...and the man who came in for a starter whose game had already
-            # begun can't play this week at all: the one he replaced is locked
-            # into the lineup and keeps the points.
-            out_team = _asset_team(conn, sid, t["out_asset_kind"], t["out_asset_ref"])
-            if (games.get(out_team) or {}).get("state") in STARTED:
+            # begun WHEN HE WAS TRADED can't play this week at all: the one he
+            # replaced is locked into the lineup and keeps the points. Judged
+            # at the trade's own time, never now (repo.played_before_trade).
+            if repo.played_before_trade(conn, sid, wk, t["out_asset_kind"],
+                                        t["out_asset_ref"], t["created_at"]):
                 blocked_by[(t["position"], t["in_asset_ref"])] = _dname(
                     conn, sid, t["out_asset_kind"], t["out_asset_ref"],
                     t["position"] if t["out_asset_kind"] == "TEAM_UNIT" else None)

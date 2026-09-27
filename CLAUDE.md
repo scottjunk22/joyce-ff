@@ -223,6 +223,15 @@ what the Phase-1 reconciliation is designed to arbitrate.
   follow the roster, new RB/WR/TE are added, nobody is ever removed. nflverse's
   roster can lag a real move by about a day. Failure is logged, never stops
   scoring.
+- 2026-09-27: "CAN'T START UNTIL NEXT WEEK" IS JUDGED AT THE TRADE'S OWN TIME.
+  The rule (a man traded in for one who had ALREADY PLAYED can't start that
+  week) was checked against whether the traded-away man's game had started
+  NOW — so every trade made before kickoff turned into a block the moment his
+  game began, days later (Eddy's Pats NYJ->SF DEF/ST Thursday, Barn Burners
+  Schultz->McLaurin Thursday, Hellmann NYG->LAR QB Monday: all blocked from
+  Sunday noon). repo.played_before_trade compares the kickoff in
+  nfl_week_games with transactions.created_at; both the Set Lineup chip and the
+  set_lineup check use it. No kickoff on record = not blocked.
 - 2026-09-27: LINEUP HISTORY. weekly_lineups holds only the latest version (a
   save deletes and rewrites the week), so "did he have a lineup in before
   Thursday?" could only be answered from PythonAnywhere's access log, which says

@@ -717,11 +717,39 @@ def test_a_reversed_trade_does_not_start_the_48_hours(lg):
     assert repo.recently_traded_away(conn, sid, otb) == {}
 
 
+def _kickoff(conn, sid, wk, team, at):
+    conn.execute("INSERT INTO nfl_week_games(season_id,ff_week,game_id,home_team,away_team,"
+                 "kickoff,final) VALUES (?,?,?,?,?,?,0)", (sid, wk, f"G{wk}_{team}", team,
+                                                           f"OPP_{team}", at))
+    conn.commit()
+
+
+def test_a_trade_made_before_kickoff_never_turns_into_a_block_later(lg):
+    """Eddy's Pats traded NYJ's defense for SF's on Thursday, before any game.
+    SF correctly took the spot — then NYJ kicked off on Sunday and SF showed
+    NEXT WEEK and couldn't be resubmitted, because the check asked whether NYJ
+    had played NOW rather than when the trade was made (Scott, 2026-09-27)."""
+    conn, sid, otb = lg
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])
+    _kickoff(conn, sid, 4, "T6", "2099-01-01T12:00:00+00:00")     # w3 plays well after the trade
+    repo.do_trade(conn, sid, otb, "R", "w3", "fa_r", 4, locked_refs=set())
+    assert _got(conn, sid, otb, 4)[1] == {"w1", "w2", "fa_r"}      # swapped in, as it should
+    tx = conn.execute("SELECT created_at FROM transactions ORDER BY id DESC LIMIT 1").fetchone()
+    assert not repo.played_before_trade(conn, sid, 4, "PLAYER", "w3", tx["created_at"])
+    units = [{"roster_slot": s, "asset_ref": r}
+             for s, r in (("C", "KC"), ("K", "BAL"), ("DEF/ST", "PIT"), ("QB", "CIN"))]
+    rbs = [{"roster_slot": "RB", "asset_ref": r} for r in ("r1", "r2")]
+    # now w3's game is under way; the lineup with fa_r must still be accepted
+    repo.set_lineup(conn, sid, otb, 4, units + rbs + [
+        {"roster_slot": "R", "asset_ref": r} for r in ("fa_r", "w1", "w2")], locked_refs={"w3"})
+
+
 def test_the_replacement_cannot_start_anywhere_when_the_man_he_replaced_has_played(lg):
     """Scott, 2026-09-18: St. Brown played Thursday, was traded for Parkinson, and
     stayed locked in the lineup — Parkinson must not start in another slot too."""
     conn, sid, otb = lg
     _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])
+    _kickoff(conn, sid, 4, "T6", "2020-01-01T12:00:00+00:00")     # w3 (T6) played long ago
     repo.do_trade(conn, sid, otb, "R", "w3", "fa_r", 4, locked_refs={"w3"})   # w3 keeps week 4
     units = [{"roster_slot": s, "asset_ref": r}
              for s, r in (("C", "KC"), ("K", "BAL"), ("DEF/ST", "PIT"), ("QB", "CIN"))]

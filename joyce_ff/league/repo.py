@@ -188,6 +188,32 @@ def _asset_label(conn, season_id, kind, ref, position) -> str:
     return f"{ref} {position}"
 
 
+def played_before_trade(conn, season_id, ff_week, kind, ref, traded_at) -> bool:
+    """Had this asset's game for the week kicked off by the time of the trade?
+
+    The "can't start until next week" rule is about the moment of the TRADE:
+    the man traded away had already played, so he keeps the week. Asking
+    whether his game has started NOW gets it wrong for every trade made
+    before kickoff — the replacement looked blocked the instant the traded-away
+    man's game began, days later (Scott, 2026-09-27: Eddy's Pats NYJ->SF DEF/ST
+    on Thursday, blocked from Sunday noon). No kickoff on record, or a
+    timestamp that won't parse: not blocked — nothing proves he had played."""
+    club = ref if kind == "TEAM_UNIT" else (conn.execute(
+        "SELECT nfl_team_abbr FROM nfl_players WHERE season_id=? AND gsis_id=?",
+        (season_id, ref)).fetchone() or {"nfl_team_abbr": None})["nfl_team_abbr"]
+    if not club or not traded_at:
+        return False
+    row = conn.execute("SELECT kickoff FROM nfl_week_games WHERE season_id=? AND ff_week=? "
+                       "AND (home_team=? OR away_team=?) AND kickoff IS NOT NULL",
+                       (season_id, ff_week, club, club)).fetchone()
+    if not row:
+        return False
+    try:
+        return datetime.fromisoformat(row["kickoff"]) <= datetime.fromisoformat(traded_at)
+    except (TypeError, ValueError):
+        return False
+
+
 def record_lineup(conn, season_id, team_id, ff_week, source, saved_by=None) -> None:
     """Append the week's lineup AS IT NOW STANDS to lineup_history. Called after
     every change to weekly_lineups — a save, a trade or Open swapping someone
@@ -744,13 +770,15 @@ def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
     # points, and his replacement starting somewhere else — an extra player for
     # the week (Scott, 2026-09-18).
     if locked_refs:
-        locked = set(locked_refs)
         started = {(s["roster_slot"], s["asset_ref"]) for s in starters}
         for t in conn.execute(
-                "SELECT position, out_asset_ref, in_asset_ref FROM transactions WHERE season_id=? "
+                "SELECT position, out_asset_kind, out_asset_ref, in_asset_ref, created_at "
+                "FROM transactions WHERE season_id=? "
                 "AND team_id=? AND ff_week=? AND type='TRADE' AND reversed=0",
                 (season_id, team_id, ff_week)):
-            if t["out_asset_ref"] in locked and (t["position"], t["in_asset_ref"]) in started:
+            if (t["position"], t["in_asset_ref"]) in started and played_before_trade(
+                    conn, season_id, ff_week, t["out_asset_kind"], t["out_asset_ref"],
+                    t["created_at"]):
                 came_in = _asset_label(conn, season_id, _kind_for(t["position"]),
                                        t["in_asset_ref"], t["position"])
                 went_out = _asset_label(conn, season_id, _kind_for(t["position"]),
