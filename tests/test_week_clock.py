@@ -130,3 +130,25 @@ def test_opens_look_a_week_ahead_only_from_monday_6am(season):
     assert progress.open_weeks(c, sid, at(9, 22, 5, 59)) == [2, 3]
     assert progress.open_weeks(c, sid, at(9, 22, 6, 0)) == [3]       # Tuesday: Week 3 is this week
     assert progress.open_weeks(c, sid, at(9, 28, 6, 0)) == [3]       # no Week 4 to look ahead to
+
+
+def test_a_game_espn_calls_final_reads_game_over_before_its_points_lock():
+    """nflverse's schedule posts a final score up to an hour late, so a game
+    ESPN had already called Final kept reading "in progress" until the lock
+    (Scott, 2026-09-27). ESPN's first sight of Final now counts as over."""
+    import datetime as dt
+
+    from joyce_ff.league import progress, schema
+
+    conn = schema.connect(":memory:")
+    schema.init_db(conn)
+    sid = schema.seed_reference(conn)
+    past = (dt.datetime.now(progress.ET) - dt.timedelta(hours=3)).isoformat()
+    conn.execute("INSERT INTO nfl_week_games(season_id,ff_week,game_id,home_team,away_team,"
+                 "kickoff,final) VALUES (?,1,'2026_03_HOU_IND','IND','HOU',?,0)", (sid, past))
+    conn.commit()
+    assert progress.team_game_states(conn, sid, 1)["IND"]["state"] == "playing"
+    conn.execute("INSERT INTO settings(key,value) VALUES (?,?)",
+                 (f"espn_final_seen:{sid}:2026_03_HOU_IND", past))
+    conn.commit()
+    assert progress.team_game_states(conn, sid, 1)["IND"]["state"] == "over"

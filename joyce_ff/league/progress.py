@@ -234,12 +234,20 @@ def _settled(conn, season_id: int, ff_week: int) -> bool:
 
 def _game_context(conn, season_id: int, ff_week: int):
     """(settled, locked teams, bye teams, {team: (kickoff, final score posted)})."""
+    # A game is over when EITHER source says so. The schedule's final flag comes
+    # from nflverse, which posts scores up to an hour late — so with ESPN
+    # locking games ~10 minutes after the whistle, "game over · scoring soon"
+    # almost never got a chance to show, and a finished game read "in progress"
+    # until its points appeared (Scott, 2026-09-27). ESPN's first sight of Final
+    # is already recorded, to start that 10-minute wait; use it here too.
+    seen = {r["key"].rsplit(":", 1)[1] for r in conn.execute(
+        "SELECT key FROM settings WHERE key LIKE ?", (f"espn_final_seen:{season_id}:%",))}
     games: dict[str, tuple] = {}
-    for g in conn.execute("SELECT home_team, away_team, kickoff, final FROM nfl_week_games "
+    for g in conn.execute("SELECT game_id, home_team, away_team, kickoff, final FROM nfl_week_games "
                           "WHERE season_id=? AND ff_week=?", (season_id, ff_week)):
         ko = _dt.datetime.fromisoformat(g["kickoff"]) if g["kickoff"] else None
         for t in (g["home_team"], g["away_team"]):
-            games[t] = (ko, bool(g["final"]))
+            games[t] = (ko, bool(g["final"]) or g["game_id"] in seen)
     return (_settled(conn, season_id, ff_week), locked_teams(conn, season_id, ff_week),
             bye_teams(conn, season_id, ff_week), games)
 
