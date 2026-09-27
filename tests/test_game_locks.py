@@ -732,3 +732,18 @@ def test_the_replacement_cannot_start_anywhere_when_the_man_he_replaced_has_play
     repo.set_lineup(conn, sid, otb, 4, starting("w3", "w1", "w2"), locked_refs={"w3"})   # fine
     # next week he's just a normal starter
     repo.set_lineup(conn, sid, otb, 5, starting("fa_r", "w1", "w2"), locked_refs={"w3"})
+
+
+def test_the_commissioner_cannot_trade_a_played_starter_out_of_a_lineup(lg):
+    """He may enter a move the kickoff rule would refuse — a trade phoned in
+    earlier — but whose points these are can't depend on who typed it. A man
+    who has already played keeps the week (Scott, 2026-09-27)."""
+    conn, sid, otb = lg
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])
+    notes = []
+    # locked_refs=None is the commissioner path; the lineup still gets the real
+    # kickoff state, which is what the endpoint passes.
+    repo.do_trade(conn, sid, otb, "R", "w3", "fa_r", 4, locked_refs=None,
+                  lineup_locked_refs={"w3"}, notes=notes)
+    assert _got(conn, sid, otb, 4)[1] == {"w1", "w2", "w3"}      # w3 played; he stays
+    assert "keeps his points" in notes[0]

@@ -199,7 +199,12 @@ def _trade_into_lineup(conn, season_id, team_id, ff_week, position, out_ref, in_
         swap: the new player takes his spot;
       * his game hasn't started but the new player's has -> the new player
         can't start this week, so the spot is left open for the bench.
-    locked_refs None = the commissioner, who isn't bound by kickoff: a swap.
+
+    The refs passed here are the REAL kickoff state, even for the commissioner:
+    he may enter a move the kickoff rule would refuse, but whose points these
+    are can't depend on who typed it (Scott, 2026-09-27, after a
+    commissioner-entered trade swapped a kicker who had played Thursday out of
+    Week 1's lineup and handed his slot to a kicker who hadn't).
     Returns a sentence for the manager, or None when the lineup is untouched."""
     row = conn.execute("SELECT id FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=? "
                        "AND roster_slot=? AND asset_ref=? AND is_rental=0",
@@ -253,11 +258,16 @@ def _ct_when(t: datetime) -> str:
 
 
 def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
-             actor=None, locked_refs=None, notes: list | None = None, now=None) -> int:
+             actor=None, locked_refs=None, notes: list | None = None, now=None,
+             lineup_locked_refs=None) -> int:
     """Permanent swap: drop out_ref, add in_ref (same position). $2 fee.
 
     Allowed any time. The week's saved lineup follows the trade by the kickoff
-    rule (_trade_into_lineup); its sentence is appended to `notes` if given."""
+    rule (_trade_into_lineup); its sentence is appended to `notes` if given.
+
+    locked_refs gates the MOVE (None = the commissioner, not bound by kickoff);
+    lineup_locked_refs is what the LINEUP is judged against and is always the
+    real kickoff state. They differ only for the commissioner."""
     if position not in INDIVIDUAL_POS | UNIT_POS:
         raise RuleError(f"invalid position {position!r}")
     mine = _claim_lock(conn)
@@ -285,7 +295,7 @@ def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
             (season_id, team_id, kind, in_ref, position if kind == "TEAM_UNIT" else None,
              position, ff_week, order, _now()))
         note = _trade_into_lineup(conn, season_id, team_id, ff_week, position, out_ref, in_ref,
-                                  locked_refs)
+                                  locked_refs if lineup_locked_refs is None else lineup_locked_refs)
         if note and notes is not None:
             notes.append(note)
         return _log_tx(conn, season_id, team_id, ff_week, "TRADE", position,

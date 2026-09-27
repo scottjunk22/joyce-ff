@@ -960,10 +960,15 @@ def create_app(db_path: str | None = None) -> Flask:
         wk = _week(lineup_wk) if is_comm else lineup_wk
         from ..league.locks import locked_assets
         notes: list[str] = []
+        # The commissioner may enter a move the kickoff rule would refuse, but
+        # the LINEUP is judged against the real kickoffs either way — a man who
+        # has already played keeps the week (Scott, 2026-09-27).
+        locked = locked_assets(db(), sid, wk)
         try:
             tx = repo.do_trade(db(), sid, team_id, b["position"], b["out"], b["in"], wk,
                                actor=auth.commissioner_name(db(), _passcode()),
-                               locked_refs=None if is_comm else locked_assets(db(), sid, wk),
+                               locked_refs=None if is_comm else locked,
+                               lineup_locked_refs=locked,
                                notes=notes)
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400

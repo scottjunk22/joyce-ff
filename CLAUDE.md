@@ -223,6 +223,16 @@ what the Phase-1 reconciliation is designed to arbitrate.
   follow the roster, new RB/WR/TE are added, nobody is ever removed. nflverse's
   roster can lag a real move by about a day. Failure is logged, never stops
   scoring.
+- 2026-09-27: THE COMMISSIONER IS EXEMPT FROM THE RULE, NOT FROM KICKOFF. A
+  commissioner-entered trade passed locked_refs=None, which _trade_into_lineup
+  read as "nothing is locked" and swapped the incoming man into the saved
+  lineup — Smith's GB kicker played Thursday, then a commissioner-entered trade
+  put CIN's kicker in his Week 1 box score. do_trade now takes a separate
+  `lineup_locked_refs`, always the real kickoff state; `locked_refs` still gates
+  whether the MOVE is allowed (None = commissioner, for a move phoned in before
+  kickoff). Whose points these are can't depend on who typed the trade. If he
+  really means the new man to start, he sets the lineup himself, where he is
+  exempt.
 - 2026-09-16: TRADES AND OPENS ANY TIME (commissioner). One rule: moves can be
   made any time; a player scores for a team only if he was in its lineup before
   his game kicked off. TRADE of a STARTER in the lineup week
