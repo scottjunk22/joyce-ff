@@ -205,12 +205,6 @@ def create_season(conn, year: int, label: str | None = None,
         for i in range(1, 12):
             conn.execute("INSERT INTO teams(season_id, name, conference_id) VALUES (?,?,?)",
                          (sid, f"{code.title()} {i}", conf_ids[code]))
-    # A real season always enforces per-player kickoff locks. demo-seed turns
-    # them off (its games have all been played) and that setting isn't
-    # season-scoped, so it rode through every new season on a database that had
-    # ever been demo-seeded — on the live site it was still off in FF Week 1,
-    # and a manager traded a kicker who had already played (Scott, 2026-09-27).
-    conn.execute("DELETE FROM settings WHERE key='enforce_locks'")
     conn.commit()
     prepare_season(conn, sid, year)
     conn.commit()

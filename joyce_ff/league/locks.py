@@ -5,8 +5,11 @@ An asset is "locked" for a week once its NFL game has kicked off — after that 
 manager can't start or bench it (no swapping in a guy who already played). We
 derive kickoff times from the real NFL schedule (nflverse), in US Eastern.
 
-Enforcement is gated by the `enforce_locks` setting so the demo (a completed
-past season, where everything would otherwise be locked) stays editable.
+There is no off switch. There used to be — an `enforce_locks` setting, so the
+local demo (a finished season) stayed clickable — and because it wasn't tied to
+a season, a live database that had once been demo-seeded ran all of FF Week 1
+with the league's core rule disabled (Scott, 2026-09-27). A player locks when
+his game kicks off, always.
 """
 
 from __future__ import annotations
@@ -28,16 +31,9 @@ def _kickoff(gameday: str, gametime) -> _dt.datetime | None:
         return None
 
 
-def locks_enforced(conn) -> bool:
-    row = conn.execute("SELECT value FROM settings WHERE key='enforce_locks'").fetchone()
-    return row is None or row["value"] not in ("0", "false", "off")
-
-
 def locked_assets(conn, season_id: int, ff_week: int, now: _dt.datetime | None = None) -> set[str]:
     """Set of asset_refs (NFL team abbrs for units + player gsis_ids) whose game
-    this week has already kicked off. Empty if locks aren't enforced."""
-    if not locks_enforced(conn):
-        return set()
+    this week has already kicked off."""
     from ..data_sources import nflverse as nv
     from .scoring import nfl_week_for
 

@@ -191,24 +191,25 @@ def test_box_score_is_slot_ordered(db):
     assert order == ["C", "DEF/ST", "QB", "RB", "R"]   # canonical order, not insertion order
 
 
-def test_starting_a_season_turns_kickoff_locks_back_on(tmp_path, monkeypatch):
-    """demo-seed switches locks off — its games have all been played — and the
-    setting isn't season-scoped, so it survived into a real season and stayed
-    off through Week 1 (Scott, 2026-09-27)."""
-    from joyce_ff.league import locks, setup
-
-    conn = schema.connect(":memory:")
-    schema.init_db(conn)
-    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('enforce_locks','0')")
-    conn.commit()
-    assert not locks.locks_enforced(conn)
-    # create_season only needs to get as far as the settings row here: the NFL
-    # universe it builds is stubbed out.
+def test_kickoff_locks_have_no_off_switch(monkeypatch):
+    """There used to be one, for the demo, and it rode into a real season and
+    ran all of FF Week 1 unlocked (Scott, 2026-09-27). A stale row from that
+    era must change nothing: a game that has kicked off locks its players."""
     import pandas as pd
 
     from joyce_ff.data_sources import nflverse as nv
-    monkeypatch.setattr(nv, "load_games", lambda: pd.DataFrame({"season": [2026], "week": [1]}))
-    monkeypatch.setattr(nv, "load_roster", lambda year: pd.DataFrame({"gsis_id": ["x"]}))
-    monkeypatch.setattr(setup, "prepare_season", lambda *a, **k: None)
-    setup.create_season(conn, 2026)
-    assert locks.locks_enforced(conn)
+    from joyce_ff.league import locks
+    from joyce_ff.league import scoring as sc
+
+    conn = schema.connect(":memory:")
+    schema.init_db(conn)
+    sid = schema.seed_reference(conn)
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('enforce_locks','0')")
+    conn.commit()
+    year = conn.execute("SELECT year FROM seasons WHERE id=?", (sid,)).fetchone()["year"]
+    monkeypatch.setattr(nv, "load_games", lambda: pd.DataFrame([{
+        "season": year, "week": 3, "gameday": "2020-01-01", "gametime": "13:00",
+        "home_team": "GB", "away_team": "ATL"}]))
+    monkeypatch.setattr(sc, "nfl_week_for", lambda conn, sid, wk: 3)
+    assert {"GB", "ATL"} <= locks.locked_assets(conn, sid, 1)
+    assert not hasattr(locks, "locks_enforced")

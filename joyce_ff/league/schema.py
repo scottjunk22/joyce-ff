@@ -400,6 +400,9 @@ def migrate(conn: sqlite3.Connection) -> None:
     starters_json TEXT NOT NULL        -- [{slot, kind, ref, unit, rental}] as saved
 );
 CREATE INDEX IF NOT EXISTS ix_lineup_history ON lineup_history(season_id, team_id, ff_week);""")
+    # The old kickoff-lock switch is gone (locks.py); its row is dead weight.
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'").fetchone():
+        conn.execute("DELETE FROM settings WHERE key='enforce_locks'")
     conn.execute("CREATE TABLE IF NOT EXISTS champions ("
                  "id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER NOT NULL UNIQUE, "
                  "label TEXT NOT NULL, team TEXT NOT NULL, runner_up TEXT, "

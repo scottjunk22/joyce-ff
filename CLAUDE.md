@@ -248,9 +248,10 @@ what the Phase-1 reconciliation is designed to arbitrate.
   demo-seeded. With it off, locked_assets returns an EMPTY set for everyone:
   lineups changeable after kickoff, trades and Opens unbound. Smith's manager
   traded a GB kicker who had played Thursday for CIN's, and the swap put CIN in
-  his Week 1 box score. Fixed: the row was deleted on the host, and
-  setup.create_season now deletes the key so a new season always enforces.
-  Check `locks.locks_enforced(conn)` first whenever a kickoff rule looks wrong.
+  his Week 1 box score. Fixed for good: the SWITCH IS GONE (Scott: "players
+  lock when their game kicks off — it should always be on"). locks.locked_assets
+  has no off path, demo.py no longer writes the key, and schema.migrate deletes
+  any stale row. The demo seeds its lineups directly, so it never needed it.
 - 2026-09-27: THE COMMISSIONER IS EXEMPT FROM THE RULE, NOT FROM KICKOFF. A
   commissioner-entered trade passed locked_refs=None, which _trade_into_lineup
   read as "nothing is locked" and swapped the incoming man into the saved
