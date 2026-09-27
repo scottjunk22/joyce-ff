@@ -223,6 +223,16 @@ what the Phase-1 reconciliation is designed to arbitrate.
   follow the roster, new RB/WR/TE are added, nobody is ever removed. nflverse's
   roster can lag a real move by about a day. Failure is logged, never stops
   scoring.
+- 2026-09-27: KICKOFF LOCKS WERE OFF ON THE LIVE SITE, all of FF Week 1. The
+  `enforce_locks` setting (locks.locks_enforced; absent = ON) is set to '0' by
+  demo.py, whose games have all been played — and it is NOT season-scoped, so it
+  rode through every "Start new season" on a database that had ever been
+  demo-seeded. With it off, locked_assets returns an EMPTY set for everyone:
+  lineups changeable after kickoff, trades and Opens unbound. Smith's manager
+  traded a GB kicker who had played Thursday for CIN's, and the swap put CIN in
+  his Week 1 box score. Fixed: the row was deleted on the host, and
+  setup.create_season now deletes the key so a new season always enforces.
+  Check `locks.locks_enforced(conn)` first whenever a kickoff rule looks wrong.
 - 2026-09-27: THE COMMISSIONER IS EXEMPT FROM THE RULE, NOT FROM KICKOFF. A
   commissioner-entered trade passed locked_refs=None, which _trade_into_lineup
   read as "nothing is locked" and swapped the incoming man into the saved

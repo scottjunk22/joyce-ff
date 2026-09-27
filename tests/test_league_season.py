@@ -189,3 +189,26 @@ def test_box_score_is_slot_ordered(db):
     conn.commit()
     order = [b["roster_slot"] for b in scoring.box_score(conn, sid, 1, tid)]
     assert order == ["C", "DEF/ST", "QB", "RB", "R"]   # canonical order, not insertion order
+
+
+def test_starting_a_season_turns_kickoff_locks_back_on(tmp_path, monkeypatch):
+    """demo-seed switches locks off — its games have all been played — and the
+    setting isn't season-scoped, so it survived into a real season and stayed
+    off through Week 1 (Scott, 2026-09-27)."""
+    from joyce_ff.league import locks, setup
+
+    conn = schema.connect(":memory:")
+    schema.init_db(conn)
+    conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('enforce_locks','0')")
+    conn.commit()
+    assert not locks.locks_enforced(conn)
+    # create_season only needs to get as far as the settings row here: the NFL
+    # universe it builds is stubbed out.
+    import pandas as pd
+
+    from joyce_ff.data_sources import nflverse as nv
+    monkeypatch.setattr(nv, "load_games", lambda: pd.DataFrame({"season": [2026], "week": [1]}))
+    monkeypatch.setattr(nv, "load_roster", lambda year: pd.DataFrame({"gsis_id": ["x"]}))
+    monkeypatch.setattr(setup, "prepare_season", lambda *a, **k: None)
+    setup.create_season(conn, 2026)
+    assert locks.locks_enforced(conn)
