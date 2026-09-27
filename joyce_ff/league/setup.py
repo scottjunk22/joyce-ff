@@ -130,7 +130,7 @@ def prepare_season(conn, season_id: int, year: int) -> None:
 
 
 # Every table that hangs off a season, children first so foreign keys hold.
-SEASON_TABLES = ("roster_entries", "weekly_lineups", "transactions", "payments",
+SEASON_TABLES = ("roster_entries", "weekly_lineups", "lineup_history", "transactions", "payments",
                  "asset_week_scores", "nfl_game_locks", "nfl_week_games", "stat_checks", "espn_snapshots", "tiebreak_decisions",
                  "team_week_scores", "matchups",
                  "teams", "nfl_teams", "nfl_players")

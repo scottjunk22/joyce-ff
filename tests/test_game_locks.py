@@ -747,3 +747,27 @@ def test_the_commissioner_cannot_trade_a_played_starter_out_of_a_lineup(lg):
                   lineup_locked_refs={"w3"}, notes=notes)
     assert _got(conn, sid, otb, 4)[1] == {"w1", "w2", "w3"}      # w3 played; he stays
     assert "keeps his points" in notes[0]
+
+
+# --- lineup history (Scott, 2026-09-27) --------------------------------------
+
+def test_every_version_of_a_lineup_is_kept(lg):
+    """weekly_lineups keeps only the latest; the history keeps each one, so
+    "what did it say before Thursday?" is a lookup rather than a memory."""
+    conn, sid, otb = lg
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w4"])
+    _trade(conn, sid, otb, "w4", "fa_r", locked=set())            # a trade swaps him in
+    hist = repo.lineup_history(conn, sid, otb, 4)
+    assert [h["source"] for h in hist] == ["submit", "submit", "trade"]
+    rs = [sorted(x["ref"] for x in h["starters"] if x["slot"] == "R") for h in hist]
+    assert rs == [["w1", "w2", "w3"], ["w1", "w2", "w4"], ["fa_r", "w1", "w2"]]
+
+
+def test_a_missing_history_table_never_stops_a_lineup_save(lg):
+    """It's an audit trail: a database that hasn't migrated yet still saves."""
+    conn, sid, otb = lg
+    conn.execute("DROP TABLE lineup_history")
+    conn.commit()
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])
+    assert _got(conn, sid, otb, 4)[1] == {"w1", "w2", "w3"}

@@ -60,6 +60,75 @@ def cmd_board_cache(_argv: list[str]) -> int:
     return 0
 
 
+def cmd_lineup_history(argv: list[str]) -> int:
+    """Every saved version of a team's lineup for a week, oldest first, in
+    Central time, with what changed from the version before. Read-only.
+
+        python manage.py lineup-history "Eddy's Pats" 1
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from joyce_ff.league import connect, display, repo, schema
+
+    if not argv:
+        print('usage: lineup-history "<team name>" [week]', file=sys.stderr)
+        return 1
+    conn = connect()
+    schema.migrate(conn)                      # the CLI doesn't migrate on connect
+    s = conn.execute("SELECT id FROM seasons ORDER BY id DESC LIMIT 1").fetchone()
+    if not s:
+        print("no season yet", file=sys.stderr)
+        return 1
+    sid = s["id"]
+    t = conn.execute("SELECT id, name FROM teams WHERE season_id=? AND name=? COLLATE NOCASE",
+                     (sid, argv[0])).fetchone()
+    if not t:
+        print(f"no team called {argv[0]!r} this season", file=sys.stderr)
+        return 1
+    weeks = [int(argv[1])] if len(argv) > 1 else [r["ff_week"] for r in conn.execute(
+        "SELECT DISTINCT ff_week FROM lineup_history WHERE season_id=? AND team_id=? ORDER BY ff_week",
+        (sid, t["id"]))]
+
+    def label(x):
+        if x["kind"] == "PLAYER":
+            r = conn.execute("SELECT name FROM nfl_players WHERE season_id=? AND gsis_id=?",
+                             (sid, x["ref"])).fetchone()
+            name = r["name"] if r else x["ref"]
+        else:
+            name = display.unit(x["ref"], x["unit"] or x["slot"])
+        return f"{x['slot']:6} {name}" + ("  (Open)" if x["rental"] else "")
+
+    CT = ZoneInfo("America/Chicago")
+    if not weeks:
+        print(f"{t['name']}: no lineup history recorded yet")
+    for wk in weeks:
+        print(f"== {t['name']} · Week {wk}")
+        versions = repo.lineup_history(conn, sid, t["id"], wk)
+        if not versions:
+            print("   nothing recorded")
+        prev = None
+        for v in versions:
+            when = datetime.fromisoformat(v["saved_at"]).astimezone(CT).strftime("%a %b %d, %I:%M %p")
+            who = v["saved_by"] or ("the manager" if v["source"] == "submit" else "the site")
+            print(f"-- {when} CT · {v['source']} · by {who}")
+            now = [label(x) for x in v["starters"]]
+            if prev is None:
+                for line in now:
+                    print(f"     {line}")
+            else:
+                gone, came = [l for l in prev if l not in now], [l for l in now if l not in prev]
+                for line in gone:
+                    print(f"   - {line}")
+                for line in came:
+                    print(f"   + {line}")
+                if not gone and not came:
+                    print("     (no change)")
+            prev = now
+    conn.close()
+    return 0
+
+
 def cmd_refresh_players(_argv: list[str]) -> int:
     """Bring the league's player list up to date with nflverse's roster now,
     rather than waiting for the hourly job's once-a-day pass. Run it before a
@@ -385,6 +454,7 @@ COMMANDS = {
     "board-cache": cmd_board_cache,
     "import-ecr": cmd_import_ecr,
     "refresh-players": cmd_refresh_players,
+    "lineup-history": cmd_lineup_history,
     "set-platform-pass": cmd_set_platform_pass,
     "market": cmd_market,
     "schedule": cmd_schedule,

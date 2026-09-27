@@ -188,6 +188,41 @@ def _asset_label(conn, season_id, kind, ref, position) -> str:
     return f"{ref} {position}"
 
 
+def record_lineup(conn, season_id, team_id, ff_week, source, saved_by=None) -> None:
+    """Append the week's lineup AS IT NOW STANDS to lineup_history. Called after
+    every change to weekly_lineups — a save, a trade or Open swapping someone
+    in, a reversal, the carry-forward copy. Doesn't commit; the caller does.
+
+    It is an audit trail, so it must never stop the thing it records: if the
+    table is missing (a database that hasn't migrated yet) the change still
+    goes through, unrecorded."""
+    import json
+    import sqlite3
+    try:
+        rows = conn.execute(
+            "SELECT roster_slot, asset_kind, asset_ref, unit_type, is_rental FROM weekly_lineups "
+            "WHERE season_id=? AND team_id=? AND ff_week=? ORDER BY id",
+            (season_id, team_id, ff_week)).fetchall()
+        starters = [{"slot": r["roster_slot"], "kind": r["asset_kind"], "ref": r["asset_ref"],
+                     "unit": r["unit_type"], "rental": bool(r["is_rental"])} for r in rows]
+        conn.execute("INSERT INTO lineup_history(season_id,team_id,ff_week,saved_at,source,"
+                     "saved_by,starters_json) VALUES (?,?,?,?,?,?,?)",
+                     (season_id, team_id, ff_week, _now(), source, saved_by, json.dumps(starters)))
+    except sqlite3.OperationalError:
+        pass
+
+
+def lineup_history(conn, season_id, team_id, ff_week) -> list[dict]:
+    """Every recorded version of a team's lineup for a week, oldest first."""
+    import json
+    return [{"saved_at": r["saved_at"], "source": r["source"], "saved_by": r["saved_by"],
+             "starters": json.loads(r["starters_json"])}
+            for r in conn.execute(
+                "SELECT saved_at, source, saved_by, starters_json FROM lineup_history "
+                "WHERE season_id=? AND team_id=? AND ff_week=? ORDER BY id",
+                (season_id, team_id, ff_week))]
+
+
 def _trade_into_lineup(conn, season_id, team_id, ff_week, position, out_ref, in_ref,
                        locked_refs) -> str | None:
     """What a trade does to the week's saved lineup (commissioner, 2026-09-16).
@@ -220,10 +255,12 @@ def _trade_into_lineup(conn, season_id, team_id, ff_week, position, out_ref, in_
                 f"lineup and keeps his points. {in_name} can start next week.")
     if in_ref in locked:
         conn.execute("DELETE FROM weekly_lineups WHERE id=?", (row["id"],))
+        record_lineup(conn, season_id, team_id, ff_week, "trade")
         return (f"{in_name}'s game has already started, so he can't start in Week {ff_week}. "
                 f"{out_name}'s spot is open — pick someone in Set Lineup.")
     conn.execute("UPDATE weekly_lineups SET asset_ref=?, asset_kind=?, unit_type=? WHERE id=?",
                  (in_ref, kind, position if position in UNIT_POS else None, row["id"]))
+    record_lineup(conn, season_id, team_id, ff_week, "trade")
     return f"{in_name} takes {out_name}'s spot in your Week {ff_week} lineup."
 
 
@@ -336,11 +373,13 @@ def do_open(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
         # A lineup already saved for the week that starts the bye player now starts
         # the rental in his place (commissioner, 2026-09-15): an Open is only ever
         # bought to start it, and the manager shouldn't have to resubmit.
-        conn.execute("UPDATE weekly_lineups SET asset_ref=?, asset_kind=?, unit_type=?, is_rental=1 "
-                     "WHERE season_id=? AND team_id=? AND ff_week=? AND roster_slot=? "
-                     "AND asset_ref=? AND is_rental=0",
-                     (in_ref, _kind_for(position), position if position in UNIT_POS else None,
-                      season_id, team_id, ff_week, position, out_ref))
+        cur = conn.execute("UPDATE weekly_lineups SET asset_ref=?, asset_kind=?, unit_type=?, is_rental=1 "
+                           "WHERE season_id=? AND team_id=? AND ff_week=? AND roster_slot=? "
+                           "AND asset_ref=? AND is_rental=0",
+                           (in_ref, _kind_for(position), position if position in UNIT_POS else None,
+                            season_id, team_id, ff_week, position, out_ref))
+        if cur.rowcount:
+            record_lineup(conn, season_id, team_id, ff_week, "open", actor)
         conn.commit()
         return tx
     except Exception:
@@ -553,6 +592,7 @@ def reverse_transaction(conn, tx_id) -> None:
                          (tx["out_asset_ref"], tx["out_asset_kind"],
                           tx["position"] if tx["position"] in UNIT_POS else None,
                           *key, tx["position"], tx["in_asset_ref"]))
+        record_lineup(conn, tx["season_id"], tx["team_id"], tx["ff_week"], "reverse")
     conn.execute("UPDATE transactions SET reversed=1 WHERE id=?", (tx_id,))
     conn.commit()
 
@@ -758,6 +798,7 @@ def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
             "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (season_id, team_id, ff_week, slot, kind, ref, unit, rental, _now(),
              submitted_by))
+    record_lineup(conn, season_id, team_id, ff_week, "submit", submitted_by)
     conn.commit()
 
 

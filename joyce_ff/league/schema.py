@@ -148,6 +148,20 @@ CREATE TABLE IF NOT EXISTS weekly_lineups (
     UNIQUE(season_id, team_id, ff_week, roster_slot, asset_ref)
 );
 CREATE INDEX IF NOT EXISTS ix_lineup_week ON weekly_lineups(season_id, ff_week, team_id);
+-- Every version of a week's lineup, appended and never rewritten. weekly_lineups
+-- holds only the latest; this answers "what did it say before Thursday?" — a
+-- question that once came down to memory (Scott, 2026-09-27).
+CREATE TABLE IF NOT EXISTS lineup_history (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    season_id     INTEGER NOT NULL REFERENCES seasons(id),
+    team_id       INTEGER NOT NULL REFERENCES teams(id),
+    ff_week       INTEGER NOT NULL,
+    saved_at      TEXT NOT NULL,       -- UTC ISO
+    source        TEXT NOT NULL,       -- submit | trade | open | reverse | carry
+    saved_by      TEXT,                -- commissioner's name; NULL = the manager or the system
+    starters_json TEXT NOT NULL        -- [{slot, kind, ref, unit, rental}] as saved
+);
+CREATE INDEX IF NOT EXISTS ix_lineup_history ON lineup_history(season_id, team_id, ff_week);
 
 -- ---- transactions (trade = permanent, open = one-week rental) -----------
 CREATE TABLE IF NOT EXISTS transactions (
@@ -375,6 +389,17 @@ def migrate(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE TABLE IF NOT EXISTS chat_messages ("
                  "id INTEGER PRIMARY KEY AUTOINCREMENT, author TEXT NOT NULL, "
                  "body TEXT NOT NULL, created_at TEXT NOT NULL)")
+    conn.executescript("""CREATE TABLE IF NOT EXISTS lineup_history (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    season_id     INTEGER NOT NULL REFERENCES seasons(id),
+    team_id       INTEGER NOT NULL REFERENCES teams(id),
+    ff_week       INTEGER NOT NULL,
+    saved_at      TEXT NOT NULL,       -- UTC ISO
+    source        TEXT NOT NULL,       -- submit | trade | open | reverse | carry
+    saved_by      TEXT,                -- commissioner's name; NULL = the manager or the system
+    starters_json TEXT NOT NULL        -- [{slot, kind, ref, unit, rental}] as saved
+);
+CREATE INDEX IF NOT EXISTS ix_lineup_history ON lineup_history(season_id, team_id, ff_week);""")
     conn.execute("CREATE TABLE IF NOT EXISTS champions ("
                  "id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER NOT NULL UNIQUE, "
                  "label TEXT NOT NULL, team TEXT NOT NULL, runner_up TEXT, "

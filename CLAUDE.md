@@ -223,6 +223,15 @@ what the Phase-1 reconciliation is designed to arbitrate.
   follow the roster, new RB/WR/TE are added, nobody is ever removed. nflverse's
   roster can lag a real move by about a day. Failure is logged, never stops
   scoring.
+- 2026-09-27: LINEUP HISTORY. weekly_lineups holds only the latest version (a
+  save deletes and rewrites the week), so "did he have a lineup in before
+  Thursday?" could only be answered from PythonAnywhere's access log, which says
+  WHEN but not WHAT. lineup_history now appends a snapshot after every change:
+  source submit | trade | open | reverse | carry, saved_by (commissioner name;
+  NULL = the manager or the site), starters_json. repo.record_lineup never
+  blocks the change it records (a missing table is swallowed). Read it with
+  `manage.py lineup-history "<team>" [week]` — Central times, and +/- against
+  the previous version. Starts recording from deploy; earlier weeks have none.
 - 2026-09-27: KICKOFF LOCKS WERE OFF ON THE LIVE SITE, all of FF Week 1. The
   `enforce_locks` setting (locks.locks_enforced; absent = ON) is set to '0' by
   demo.py, whose games have all been played — and it is NOT season-scoped, so it

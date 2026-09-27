@@ -279,6 +279,7 @@ def carry_team(conn, sid: int, tid: int, wk: int) -> bool:
             "asset_kind,asset_ref,unit_type,is_rental,submitted_at,carried_from,carry_note) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (sid, tid, wk, l["slot"], kind, l["ref"], unit, int(l["rental"]), now, prev, note))
+    repo.record_lineup(conn, sid, tid, wk, "carry")
     return True
 
 
