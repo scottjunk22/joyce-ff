@@ -345,6 +345,32 @@ def test_lateral_yards_count_as_official_stats_do():
     assert out.loc["coleman", "receiving_yards"] == 1
 
 
+def test_a_hook_and_lateral_touchdown_belongs_to_the_man_who_scored():
+    """Purdy to Evans for 2, lateral to Samuel for 80 and the touchdown; then
+    Purdy to Evans for 23 and a touchdown. Evans scored once, Samuel once — the
+    play's receiver isn't always the scorer (Scott, 2026-09-27)."""
+    base = {"week": 3, "posteam": "SF", "rusher_player_id": None, "rusher_player_name": None,
+            "rushing_yards": None, "rush_touchdown": 0, "passer_player_id": "qb", "passer_player_name": "B.Purdy",
+            "return_touchdown": 0, "td_team": "SF", "lateral_rusher_player_id": None,
+            "lateral_rusher_player_name": None, "lateral_rushing_yards": None, "complete_pass": 1,
+            "receiver_player_id": "evans", "receiver_player_name": "M.Evans"}
+    pbp = pd.DataFrame([
+        {**base, "receiving_yards": 2, "passing_yards": 82, "pass_touchdown": 1,
+         "td_player_id": "samuel", "td_player_name": "D.Samuel",
+         "lateral_receiver_player_id": "samuel", "lateral_receiver_player_name": "D.Samuel",
+         "lateral_receiving_yards": 80},
+        {**base, "receiving_yards": 23, "passing_yards": 23, "pass_touchdown": 1,
+         "td_player_id": "evans", "td_player_name": "M.Evans",
+         "lateral_receiver_player_id": None, "lateral_receiver_player_name": None,
+         "lateral_receiving_yards": None},
+    ])
+    out = nv.player_week_stats(pbp).set_index("player_id")
+    assert out.loc["evans", "receiving_tds"] == 1          # not 2
+    assert out.loc["samuel", "receiving_tds"] == 1         # not 0
+    assert out.loc["samuel", "receiving_yards"] == 80
+    assert out.loc["qb", "passing_tds"] == 2               # the passer keeps both
+
+
 # --- does ESPN change a box score after Final? (settle.py) -----------------------
 
 def test_copies_are_kept_at_final_lock_and_30_minutes_and_changes_are_reported(season, monkeypatch):

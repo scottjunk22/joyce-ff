@@ -178,8 +178,7 @@ def player_week_stats(pbp: pd.DataFrame) -> pd.DataFrame:
             .groupby(["week", "rusher_player_id"], dropna=True)
             .agg(team=("posteam", "last"),
                  name=("rusher_player_name", "last"),
-                 rushing_yards=("rushing_yards", "sum"),
-                 rushing_tds=("rush_touchdown", "sum"))
+                 rushing_yards=("rushing_yards", "sum"))
             .reset_index().rename(columns={"rusher_player_id": "player_id"}))
 
     rec_plays = p[(p["receiver_player_id"].notna()) & (p["complete_pass"] == 1)]
@@ -188,9 +187,23 @@ def player_week_stats(pbp: pd.DataFrame) -> pd.DataFrame:
            .agg(team=("posteam", "last"),
                 name=("receiver_player_name", "last"),
                 receiving_yards=("receiving_yards", "sum"),
-                receptions=("complete_pass", "sum"),
-                receiving_tds=("pass_touchdown", "sum"))
+                receptions=("complete_pass", "sum"))
            .reset_index().rename(columns={"receiver_player_id": "player_id"}))
+
+    # Touchdowns go to the man who SCORED, not to the receiver or ball carrier
+    # the play is filed under. They're the same player on nearly every play —
+    # but on a hook-and-lateral the play's receiver pitched it to someone else:
+    # Mike Evans caught a 2-yard pass and lateraled to Deebo Samuel, who ran 80
+    # yards to score, and counting by receiver gave Evans two touchdowns and
+    # Samuel none (Scott, 2026-09-27; ESPN had it right). The passer still gets
+    # his TD pass, as officially scored.
+    tds = []
+    for flag, field in (("pass_touchdown", "receiving_tds"), ("rush_touchdown", "rushing_tds")):
+        tp = p[(p[flag] == 1) & (p["td_player_id"].notna())]
+        tds.append(tp.groupby(["week", "td_player_id"], dropna=True)
+                     .agg(team=("td_team", "last"), name=("td_player_name", "last"),
+                          **{field: (flag, "sum")})
+                     .reset_index().rename(columns={"td_player_id": "player_id"}))
 
     pas = (p[p["passer_player_id"].notna()]
            .groupby(["week", "passer_player_id"], dropna=True)
@@ -246,7 +259,7 @@ def player_week_stats(pbp: pd.DataFrame) -> pd.DataFrame:
                           .reset_index())
 
     out = rush
-    for frag in (rec, pas, ret, *laterals, *twos):
+    for frag in (rec, pas, ret, *tds, *laterals, *twos):
         out = out.merge(frag, on=["week", "player_id"], how="outer",
                         suffixes=("", "_y"))
         # prefer a non-null name/team

@@ -223,6 +223,16 @@ what the Phase-1 reconciliation is designed to arbitrate.
   follow the roster, new RB/WR/TE are added, nobody is ever removed. nflverse's
   roster can lag a real move by about a day. Failure is logged, never stops
   scoring.
+- 2026-09-27: A TOUCHDOWN BELONGS TO WHOEVER SCORED IT. The nflverse reader
+  counted receiving TDs by the play's receiver and rushing TDs by its ball
+  carrier. On a hook-and-lateral they differ: Evans caught 2 yards and pitched
+  to Samuel, who ran 80 and scored — nflverse gave Evans 2 TDs and Samuel 0,
+  and the cross-check raised a stat check (posted 6, "second source" 12).
+  ESPN was right; Keep. player_week_stats now counts TDs by td_player_id;
+  the passer still gets his TD pass. Across all 2025 + 2026 PBP every TD has a
+  scorer id and none differ from the receiver/carrier, so board history is
+  unchanged. Such a check can come in PAIRS — the scorer's line short by the
+  same TD — and both want Keep, not Change.
 - 2026-09-27: UNSAVED LINEUP CHANGES. Ribears switched Downs/Diggs on screen,
   closed Set Lineup, and believed it saved; the access log showed one save
   (Friday, Diggs) and nothing after. Set Lineup now compares the screen with
