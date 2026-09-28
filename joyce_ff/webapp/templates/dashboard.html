@@ -112,6 +112,15 @@
  .st{font-size:11px;border:1px solid var(--line);border-radius:6px;padding:2px 8px;margin-left:auto;cursor:pointer}.st.start{color:var(--good);border-color:var(--good)}.st.bench{color:var(--warn);border-color:var(--warn)}
  .st.off{color:var(--dim);border-style:dashed;cursor:default;white-space:nowrap}
  .st.lk{border-style:dashed;opacity:.55;cursor:default}
+ .srow.luch{background:color-mix(in srgb,var(--blue) 9%,transparent)}
+ .ludot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--blue);margin-right:5px;vertical-align:2px}
+ .luunsaved{color:var(--blue);font-weight:700}
+ .go.glow{box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 45%,transparent)}
+ .luprompt{margin-top:9px;border:1.5px solid var(--warn);border-radius:9px;padding:9px 10px;
+   background:color-mix(in srgb,var(--warn) 10%,var(--panel))}
+ .luprompt .t{color:var(--warn);font-weight:800;font-size:13px}
+ .luprompt .d{font-size:12.5px;margin-top:3px}
+ .luprompt .b{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
  .lnote{min-height:17px;font-size:12px;color:var(--warn);padding:5px 2px 0;transition:opacity .2s}
  .srow.off .nm{color:var(--dim)}
  .lban{border-radius:10px;padding:8px 11px;font-size:12.5px;margin:2px 0 10px;display:flex;gap:6px;align-items:flex-start}
@@ -291,7 +300,7 @@
    <div class="sub" id="seasonlbl" style="margin-top:5px"></div>
  </footer>
 </div>
-<div class="mb" id="mb"><div class="modal"><span class="x" onclick="closeM()">×</span><div id="mbody"></div></div></div>
+<div class="mb" id="mb"><div class="modal"><span class="x" onclick="tryCloseM()">×</span><div id="mbody"></div></div></div>
 
 <script>
 /* CUR = the scoreboard week the site opens on; LW = the lineup week managers
@@ -494,7 +503,14 @@ function closeM(){
   document.body.classList.remove('mopen'); document.body.style.top='';
   window.scrollTo(0,_pageY);
 }
-$('mb').addEventListener('click',e=>{if(e.target===$('mb'))closeM();});
+$('mb').addEventListener('click',e=>{if(e.target===$('mb'))tryCloseM();});
+/* A person closing the window (the ×, a tap outside it, or Escape). Code that
+   closes it after a successful save calls closeM() directly and isn't asked. */
+function tryCloseM(){
+  if($('luRows')&&luPending(true)) return luAskBeforeLeaving(closeM,'close');
+  closeM();
+}
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$('mb').classList.contains('show')) tryCloseM(); });
 
 /* final: the card's own verdict (both teams done). The box score only calls a
    winner — or a tie — when the card does; mid-game, being ahead isn't winning. */
@@ -660,6 +676,13 @@ async function lineupModal(id, wk){
   // sharing one ref — keyed by ref alone they collapse into one, the lineup
   // silently counts 8/9, and toggling one moves the other.
   const started=new Set((d.box||[]).map(x=>LUKEY(x.roster_slot,x.asset_ref)));
+  // What's actually saved, to tell apart from what's on screen. null = nothing
+  // has ever been submitted for this week (Scott, 2026-09-27: Ribears switched
+  // Downs and Diggs on screen, closed it, and believed it was saved).
+  LU.saved=started.size?new Set(started):null;
+  // A past week a manager can't change asks nothing; nor does opening an
+  // unsubmitted week just to look — only once he's actually touched a chip.
+  LU.readOnly=wk<LW&&!COMMISH_PC; LU.touched=false;
   if(started.size) items.forEach(i=>{if(started.has(LUKEY(i.slot,i.ref)))LU.sel.add(LUKEY(i.slot,i.ref));});
   else{ // No lineup yet: an Open starts ahead of the bye player it covers — it was bought to start.
        const pool=s=>[...items.filter(i=>i.slot===s&&i.rental&&!i.blocked),
@@ -693,10 +716,11 @@ async function lineupModal(id, wk){
     +waiting.map(i=>blockedText(i,wk,!!(d.last_week&&wk>=d.last_week),true)).join(' ')+`</span></div>`;
   let wkOpts='';for(let w=LW;w>=1;w--)wkOpts+=`<option value="${w}" ${w===wk?'selected':''}>${w}</option>`;
   openM(`<h3>${d.name} — Set Lineup</h3>
-    <div style="margin:2px 0 8px"><label class="sub">Week <select id="luwk" onchange="lineupModal(${id},+this.value)">${wkOpts}</select></label> <span class="sub">· earlier weeks are view only (the commissioner can change them)</span></div>
+    <div style="margin:2px 0 8px"><label class="sub">Week <select id="luwk" onchange="luSwitchWeek(${id},+this.value,this)">${wkOpts}</select></label> <span class="sub">· earlier weeks are view only (the commissioner can change them)</span></div>
     ${banner}${waitBan}
     <div id="luRows" style="margin-top:10px"></div><div class="lnote" id="luNote"></div><div class="explain" id="luHint"></div>
-    <div class="pass"><span>PIN:</span><input type="password" id="lpc" inputmode="numeric" placeholder="4-6 digits"><button class="go" onclick="submitLineup()">Submit lineup</button></div>`);
+    <div id="luPrompt"></div>
+    <div class="pass"><span>PIN:</span><input type="password" id="lpc" inputmode="numeric" placeholder="4-6 digits"><button class="go" id="luGo" onclick="submitLineup()">Submit lineup</button></div>`);
   renderLineup();
 }
 /* Each player's game this week: day and time (Central), BYE, or "locked" once
@@ -720,9 +744,45 @@ function renderLineup(){ const ord={'C':0,'K':1,'DEF/ST':2,'QB':3,'RB':4,'R':5},
     // is actually playing for you is the point of this screen) but stops being
     // a button. The commissioner, signed in, can still change him.
     if(luLocked(i)) return `<div class="srow"><span class="slot">${i.slot}</span><span class="nm">${i.name}${luGame(i)}</span><span class="st lk ${on?'start':'bench'}" onclick="luWhy(${n})">${on?'START':'BENCH'}</span></div>`;
-    return `<div class="srow"><span class="slot">${i.slot}</span><span class="nm">${i.name}${luGame(i)}</span><span class="st ${on?'start':'bench'}" ${clickable(i)?`onclick="toggleStart('${encodeURIComponent(key)}')"`:''}>${on?'START':'BENCH'}</span></div>`;}).join('');
+    const ch=LU.saved&&(LU.saved.has(key)!==on);
+    return `<div class="srow${ch?' luch':''}"><span class="slot">${i.slot}</span><span class="nm">${ch?'<span class="ludot"></span>':''}${i.name}${luGame(i)}</span><span class="st ${on?'start':'bench'}" ${clickable(i)?`onclick="toggleStart('${encodeURIComponent(key)}')"`:''}>${on?'START':'BENCH'}</span></div>`;}).join('');
   const c=s=>[...LU.sel].filter(k=>k.startsWith(s+'|')).length;
-  $('luHint').innerHTML=lineupCheck(c);
+  const p=luPending();
+  $('luHint').innerHTML=lineupCheck(c)
+    +(p==='new'?' <span class="luunsaved">\u00b7 not submitted yet</span>'
+      :p?` <span class="luunsaved">\u00b7 ${p.length} ${p.length===1?'change':'changes'} not saved yet</span>`:'');
+  const go=$('luGo'); if(go) go.classList.toggle('glow',!!p);
+  const pr=$('luPrompt'); if(pr&&!p) pr.innerHTML='';        // nothing left to lose
+}
+/* What on screen isn't saved: 'new' when this week has never been submitted,
+   else the rows that differ from the saved lineup (false when none do). */
+function luPending(forClose=false){
+  if(LU.readOnly) return false;
+  if(!LU.saved) return LU.sel.size&&(!forClose||LU.touched)?'new':false;
+  const diff=LU.items.filter(i=>{const k=LUKEY(i.slot,i.ref); return LU.saved.has(k)!==LU.sel.has(k);});
+  return diff.length?diff:false;
+}
+/* Closing Set Lineup with changes on screen asks first, inside the window —
+   the same on a phone as on a computer. `leave` is what happens if he chooses
+   to throw the changes away. */
+function luAskBeforeLeaving(leave,verb){
+  const p=luPending(true), pr=$('luPrompt'); if(!pr) return leave();
+  const nm=i=>i.plain||String(i.name).replace(/<[^>]*>/g,'').trim();
+  let what;
+  if(p==='new') what='Your lineup for this week hasn\'t been submitted \u2014 nothing on this screen is saved yet.';
+  else{
+    const on=p.filter(i=>LU.sel.has(LUKEY(i.slot,i.ref))).map(i=>'starting '+nm(i));
+    const off=p.filter(i=>!LU.sel.has(LUKEY(i.slot,i.ref))).map(i=>'benching '+nm(i));
+    const all=[...on,...off];
+    what=(all.length<=4?all.join(' and '):`${all.length} changes`).replace(/^./,x=>x.toUpperCase())
+      +` won\'t be saved if you ${verb} now.`;
+  }
+  LU.leave=leave;
+  pr.innerHTML=`<div class="luprompt"><div class="t">\u26a0 You haven\'t submitted this lineup</div>`
+    +`<div class="d">${what}</div><div class="b">`
+    +`<button class="go" onclick="$('luPrompt').innerHTML='';$('lpc').focus()">Go back and submit</button>`
+    +`<button class="btn" onclick="LU.leave&&LU.leave()">${verb==='close'?'Close':'Switch'} without saving</button></div></div>`;
+  pr.scrollIntoView({block:'nearest'});
 }
 /* His game has kicked off: the lineup can't change him either way. The
    commissioner, once signed in, still can — he enters moves phoned in late. */
@@ -780,7 +840,12 @@ function lineupCheck(c){
   if(rb===1&&r===4) return bad('4 receivers only when 2+ RBs are on bye — bench 1 R, start 1 more RB');
   return bad(`${rb} RB + ${r} R isn't allowed — start 2 RB, 3 R`);
 }
-function toggleStart(encKey){ const key=decodeURIComponent(encKey);
+function luSwitchWeek(id,wk,sel){
+  if(!luPending(true)) return lineupModal(id,wk);
+  sel.value=String(LU.week);                                  // stay put until he chooses
+  luAskBeforeLeaving(()=>lineupModal(id,wk),'switch weeks');
+}
+function toggleStart(encKey){ const key=decodeURIComponent(encKey); LU.touched=true;
   const it=LU.items.find(i=>LUKEY(i.slot,i.ref)===key); if(!it) return;
   const unit=['C','K','DEF/ST','QB'].includes(it.slot);
   if(unit&&LU.sel.has(key)&&(LU.flex||{})[it.slot]){ LU.sel.delete(key); }   // bench a bye QB/K

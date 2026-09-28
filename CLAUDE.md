@@ -223,6 +223,18 @@ what the Phase-1 reconciliation is designed to arbitrate.
   follow the roster, new RB/WR/TE are added, nobody is ever removed. nflverse's
   roster can lag a real move by about a day. Failure is logged, never stops
   scoring.
+- 2026-09-27: UNSAVED LINEUP CHANGES. Ribears switched Downs/Diggs on screen,
+  closed Set Lineup, and believed it saved; the access log showed one save
+  (Friday, Diggs) and nothing after. Set Lineup now compares the screen with
+  what's saved: changed rows get a blue dot + tint, the Ready line adds
+  "· N changes not saved yet" (or "· not submitted yet" for a week never
+  submitted), and Submit gets a halo. Closing (×, tap outside, Escape) or
+  switching weeks with changes pending shows an in-window prompt naming them —
+  "Go back and submit" / "Close without saving". Not asked: past weeks a manager
+  can't change, an unsubmitted week he only looked at (no chip touched), and
+  code closing it after a successful save (closeM() direct; people go through
+  tryCloseM()). The commissioner override is unchanged: signed in on the
+  Commissioner tab, his passcode in the PIN box saves with no kickoff locks.
 - 2026-09-27: "CAN'T START UNTIL NEXT WEEK" IS JUDGED AT THE TRADE'S OWN TIME.
   The rule (a man traded in for one who had ALREADY PLAYED can't start that
   week) was checked against whether the traded-away man's game had started
