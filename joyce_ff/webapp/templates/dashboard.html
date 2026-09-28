@@ -858,7 +858,15 @@ async function submitLineup(){ const starters=[...LU.sel].map(k=>{const j=k.inde
     return {roster_slot:k.slice(0,j), asset_ref:k.slice(j+1)};});
   const res=await fetch(`/api/team/${LU.team}/lineup`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:$('lpc').value,week:LU.week,starters})});
   const j=await res.json(); if(res.ok){alert('Lineup saved!');closeM();load(VIEW, SEASON);}
-  else { alert('⚠ '+(j.error||'error')); lineupModal(LU.team, LU.week); } }   // reload: the buttons must show what's actually saved
+  // A wrong or missing PIN says nothing about the picks, so they stay exactly as
+  // he left them and only the PIN is asked for again. Reloading here reset an
+  // unsaved lineup to the site's suggested nine — Ribears' Downs swap vanished
+  // that way and his next press, 11 seconds later, saved Diggs (Scott,
+  // 2026-09-27). Any other refusal is about the lineup itself, so the screen
+  // still reloads to show what's actually saved.
+  else if(res.status===403){ alert('⚠ '+(j.error||'wrong PIN')+' — your picks are still here.');
+    const pc=$('lpc'); if(pc){ pc.value=''; pc.focus(); } }
+  else { alert('⚠ '+(j.error||'error')); lineupModal(LU.team, LU.week); } }
 
 let TX={};
 async function txModal(id){
@@ -951,6 +959,10 @@ async function submitTx(){
   if(res.ok){ const isTrade=TX.mode==='trade';
     const feeMsg=j.fee_cents?`$${(j.fee_cents/100).toFixed(0)} fee`:`free move · ${j.free_left} left`;
     alert((isTrade?'Traded — permanent. ':`Opened for Week ${TX.openWeek} — 1 week only. `)+feeMsg+(j.lineup_note?'\n\n'+j.lineup_note:'')); closeM(); load(VIEW, SEASON);
+  } else if(res.status===403){
+    // Wrong PIN: the move is still what he wants, so keep both players picked.
+    TX.err=(j.error||'Wrong PIN')+' — your picks are still here; enter the PIN again.';
+    TX.pc=''; TX.step='build'; renderTxBuild();
   } else { TX.err=j.error||'That move did not go through.'; TX.in=null;TX.inName='';
     TX.step='build'; await txLoadAvail(); renderTxBuild(); } }
 
