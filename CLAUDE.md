@@ -233,6 +233,10 @@ what the Phase-1 reconciliation is designed to arbitrate.
   scorer id and none differ from the receiver/carrier, so board history is
   unchanged. Such a check can come in PAIRS — the scorer's line short by the
   same TD — and both want Keep, not Change.
+  2026-09-29, commissioner: a LATERAL IS NOT A TD PASS. On a hook-and-lateral
+  the touchdown pass stays with the QB who threw the forward pass (the QB slot),
+  as the NFL scores it; the player who pitched it gets nothing for the pitch.
+  The "RB/receiver who throws a TD pass gets 3" rule covers forward passes only.
 - 2026-09-27: UNSAVED LINEUP CHANGES. Ribears switched Downs/Diggs on screen,
   closed Set Lineup, and believed it saved; the access log showed one save
   (Friday, Diggs) and nothing after. Set Lineup now compares the screen with
