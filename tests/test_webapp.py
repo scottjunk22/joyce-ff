@@ -262,6 +262,13 @@ def test_a_unit_is_named_by_its_club_where_the_row_shows_the_slot(client):
     assert any(p["name"] == "ATL C" for p in r["pool"])      # the search pool keeps it
 
 
+def test_the_page_knows_when_the_lineup_week_starts(client):
+    """So the Tuesday-to-Thursday note can say which day the scoreboard flips —
+    usually Thursday, not always (Scott, 2026-09-29)."""
+    season = client.get("/api/state").get_json()["season"]
+    assert "lineup_first_kickoff" in season and "lineup_week" in season
+
+
 def test_pins_open_by_conference_and_stay_open_until_each_manager_sets_one(client):
     """At the Blue draft only Blue teams open; a team closes itself once its PIN
     is set, and the commissioner can close or open a single team (2026-09-16)."""

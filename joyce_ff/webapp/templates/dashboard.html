@@ -121,6 +121,14 @@
  .luprompt .t{color:var(--warn);font-weight:800;font-size:13px}
  .luprompt .d{font-size:12.5px;margin-top:3px}
  .luprompt .b{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+ .nextwk{border:1px solid color-mix(in srgb,var(--blue) 45%,var(--line));border-radius:10px;
+   background:color-mix(in srgb,var(--blue) 11%,var(--panel));padding:9px 12px;margin:0 0 10px}
+ .nextwk .l1{font-size:13px}.nextwk .l1 b{color:var(--blue)}
+ .nextwk .l2{font-size:12px;color:var(--dim);margin-top:4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+ .nwgo{border:1px solid var(--blue);color:var(--blue);background:transparent;border-radius:7px;
+   padding:2px 9px;font-size:11.5px;font-weight:700;white-space:nowrap;cursor:pointer}
+ #wk{transition:box-shadow .3s}
+ #wk.wkglow{box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 55%,transparent)}
  .lnote{min-height:17px;font-size:12px;color:var(--warn);padding:5px 2px 0;transition:opacity .2s}
  .srow.off .nm{color:var(--dim)}
  .lban{border-radius:10px;padding:8px 11px;font-size:12.5px;margin:2px 0 10px;display:flex;gap:6px;align-items:flex-start}
@@ -274,6 +282,7 @@
 <div class="wrap">
  <h2>Scoreboard <span class="sub" style="text-transform:none;letter-spacing:0" id="upd"></span></h2>
  <div class="snote" id="snote"></div>
+ <div id="nextwk" hidden></div>
  <div id="early" hidden></div>
  <div class="byestrip" id="byes"></div>
  <div class="scores" id="scores"></div>
@@ -334,7 +343,7 @@ async function load(week, seasonId){
   if(!STATE.season){ renderNoSeason(); return; }
   SEASON = STATE.season.id; VIEW = STATE.season.week; CUR = STATE.season.current; LW = STATE.season.lineup_week || CUR; TEAMS={};
   for(const c of ['BLUE','RED']) STATE.standings[c].forEach(t=>TEAMS[t.team_id]=t);
-  buildSeasonPicker(); buildWeekPicker(); renderScores(); renderEarly(); renderByes(); renderStandings(); renderElim(); renderTx();
+  buildSeasonPicker(); buildWeekPicker(); renderScores(); renderNextWeek(); renderEarly(); renderByes(); renderStandings(); renderElim(); renderTx();
   renderChrome();
   $('seasonlbl').textContent = STATE.season.label;
   /* Why the scoreboard is empty, when it is. A blank scoreboard and a
@@ -344,7 +353,12 @@ async function load(week, seasonId){
   if(sn){ if(note){ sn.innerHTML='<b>No scores yet.</b> '+note; sn.classList.add('on'); }
           else sn.classList.remove('on'); }
   const lu = STATE.season.last_updated;
-  $('upd').innerHTML = '— updates as games finish' + (lu ? ' · last updated '+new Date(lu).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '');
+  // Between the lineup week moving on (Tuesday) and the scoreboard following it
+  // (the next week's first game day), the page still shows the finished week —
+  // say so, since nothing else on it says which week you're looking at.
+  const finishedWeek = LW>CUR && VIEW===CUR;
+  $('upd').innerHTML = (finishedWeek ? `— Week ${VIEW} final` : '— updates as games finish')
+    + (lu ? ' · last updated '+new Date(lu).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : '');
 }
 function renderNoSeason(){
   renderChrome();
@@ -392,6 +406,29 @@ function _ord(n){ const t=n%100; if(t>=11&&t<=13) return 'th';
 function buildSeasonPicker(){
   $('yr').innerHTML = (STATE.season.seasons||[]).map(s=>`<option value="${s.id}" ${s.id===SEASON?'selected':''}>${s.label}</option>`).join('');
   $('yr').onchange = e => load(null, +e.target.value);   // switch season -> its current week
+}
+/* Tuesday to the next week's first game day: lineups have moved on, the
+   scoreboard hasn't. Lineups come first — the one thing everyone needs, and it
+   doesn't take the Week menu — then, smaller, a way to peek at the next
+   matchups for anyone curious (Scott, 2026-09-29: the site is new and people
+   are still learning it; retire this once they are). */
+function renderNextWeek(){
+  const el=$('nextwk'); if(!el) return;
+  const show = LW>CUR && VIEW===CUR;
+  el.hidden=!show;
+  if(!show){ el.innerHTML=''; return; }
+  const ko=STATE.season.lineup_first_kickoff;
+  const day=ko ? new Date(ko).toLocaleString([],{timeZone:'America/Chicago',weekday:'long'}) : 'Thursday';
+  el.innerHTML=`<div class="nextwk"><div class="l1"><b>Week ${LW} lineups are open</b> — tap <b>Lineup</b> next to your team.</div>`
+    +`<div class="l2"><span>Want to see your Week ${LW} opponent? The scoreboard switches to Week ${LW} on ${day} morning.</span>`
+    +`<button class="nwgo" onclick="seeNextWeek()">See Week ${LW} now →</button></div></div>`;
+}
+/* Switch the scoreboard, then make the Week menu glow for a moment so he
+   learns where it lives for next time. */
+async function seeNextWeek(){
+  await load(LW, SEASON);
+  const w=$('wk'); if(!w) return;
+  w.classList.add('wkglow'); setTimeout(()=>w.classList.remove('wkglow'),2200);
 }
 function buildWeekPicker(){
   $('wk').innerHTML = STATE.season.weeks.map(w=>`<option value="${w}" ${w===VIEW?'selected':''}>${w}</option>`).join('');

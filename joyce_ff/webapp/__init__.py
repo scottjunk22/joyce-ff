@@ -754,6 +754,11 @@ def create_app(db_path: str | None = None) -> Flask:
 
         return jsonify(season={"id": sid, "year": s["year"], "label": s["label"], "week": wk,
                                "current": board_wk, "lineup_week": lineup_wk,
+                               # the day the scoreboard will flip to the lineup
+                               # week — nearly always Thursday, but a Christmas
+                               # week can start on another day
+                               "lineup_first_kickoff": (lambda k: k.isoformat() if k else None)(
+                                   progress.kickoffs(conn, sid, lineup_wk)[0]),
                                "to_play_visible": progress.counts_visible(conn, sid, wk),
                                "weeks": weeks, "last_updated": last,
                                "ordinal": rules.season_ordinal(s["year"]),
