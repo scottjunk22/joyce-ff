@@ -60,6 +60,25 @@ def cmd_board_cache(_argv: list[str]) -> int:
     return 0
 
 
+def cmd_site_stats(argv: list[str]) -> int:
+    """How busy the live site has been — visitors, scoreboard views, box
+    scores, saves — from the web server's access log. Read-only; prints counts,
+    never anyone's address.
+
+        python manage.py site-stats        # last 7 days
+        python manage.py site-stats 14
+    """
+    from joyce_ff.league import sitestats
+
+    days = int(argv[0]) if argv else 7
+    s = sitestats.summarize(sitestats.parse(sitestats.read_logs()), days=days)
+    if not s["days"]:
+        print(f"No league traffic found in {sitestats.LOG_GLOB} for the last {days} days.")
+        return 0
+    print(sitestats.report(s))
+    return 0
+
+
 def cmd_lineup_history(argv: list[str]) -> int:
     """Every saved version of a team's lineup for a week, oldest first, in
     Central time, with what changed from the version before. Read-only.
@@ -455,6 +474,7 @@ COMMANDS = {
     "import-ecr": cmd_import_ecr,
     "refresh-players": cmd_refresh_players,
     "lineup-history": cmd_lineup_history,
+    "site-stats": cmd_site_stats,
     "set-platform-pass": cmd_set_platform_pass,
     "market": cmd_market,
     "schedule": cmd_schedule,
