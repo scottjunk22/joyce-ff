@@ -728,8 +728,9 @@ def create_app(db_path: str | None = None) -> Flask:
         # Lineup-submission status for the CURRENT week (independent of the
         # viewed week) — drives the straggler flags + commissioner summary.
         cur = lineup_wk
-        alive_ids = {r["id"] for r in conn.execute(
-            "SELECT id FROM teams WHERE season_id=? AND alive=1", (sid,))}
+        # Every team, eliminated or not: `alive` is the ELIMINATION POOL, a side
+        # pot. A team knocked out of it still plays its schedule and still sets
+        # a lineup — skipping it showed "3 of 21" after Week 1 (Scott, 2026-09-30).
         # A lineup carried forward doesn't count as "in": the manager didn't
         # submit it, and the commissioner still wants to see who that was.
         cur_counts = {r["team_id"]: r["c"] for r in conn.execute(
@@ -741,8 +742,6 @@ def create_app(db_path: str | None = None) -> Flask:
         lin_in, lin_notin = 0, []
         for cc in ("BLUE", "RED"):
             for t in stand[cc]:
-                if t["team_id"] not in alive_ids:
-                    continue                        # eliminated teams don't set lineups
                 if cur_counts.get(t["team_id"], 0) >= 9:
                     lin_in += 1
                 else:

@@ -120,6 +120,19 @@ def test_state_has_lineup_summary_and_alive_flag(client):
     assert row["alive"] is True and "team_number" in row
 
 
+def test_lineup_count_includes_teams_out_of_the_elimination_pool(client):
+    """The pool is a side pot: a team knocked out still plays and still sets a
+    lineup, so the commissioner's "N of M lineups in" keeps counting it."""
+    before = client.get("/api/state").get_json()["lineups"]
+    conn = schema.connect(client.dbpath)
+    conn.execute("UPDATE teams SET alive=0, eliminated_ff_week=1 WHERE id=?", (client.otb,))
+    conn.commit()
+    conn.close()
+    after = client.get("/api/state").get_json()["lineups"]
+    assert after["total"] == before["total"]
+    assert client.otb in {t["id"] for t in after["not_in"]}
+
+
 def test_admin_score_override(client):
     bad = client.post(f"/api/admin/team/{client.otb}/score",
                       json={"passcode": "otblitz", "week": 1, "points": 99})
