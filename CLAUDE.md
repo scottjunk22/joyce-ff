@@ -258,6 +258,15 @@ what the Phase-1 reconciliation is designed to arbitrate.
   Sunday noon). repo.played_before_trade compares the kickoff in
   nfl_week_games with transactions.created_at; both the Set Lineup chip and the
   set_lineup check use it. No kickoff on record = not blocked.
+  2026-10-04: AND ONLY WHEN THE MAN TRADED AWAY WAS A STARTER. The check asked
+  "had he played?" and never "was he in the lineup?", so a BENCH player who had
+  played blocked his replacement too — TallBoys swapped a benched Judkins
+  (Thursday) for Croskey-Merritt Sunday morning and couldn't start him. A bench
+  player scored nothing, so nobody "keeps the week"; it's an ordinary pickup and
+  the new man starts if his own game hasn't kicked off. "Was a starter" = still
+  in the week's saved lineup (repo.waiting_for_next_week, used by both the Set
+  Lineup chip and set_lineup). The NEXT WEEK chip is dead for the commissioner
+  too, so he could not override this one from the screen.
 - 2026-09-27: LINEUP HISTORY. weekly_lineups holds only the latest version (a
   save deletes and rewrites the week), so "did he have a lineup in before
   Thursday?" could only be answered from PythonAnywhere's access log, which says

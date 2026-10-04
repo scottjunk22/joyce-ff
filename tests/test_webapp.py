@@ -179,13 +179,19 @@ def test_an_open_reports_who_it_covers_for_the_roster_lineup_and_box_score(clien
         ("Jaylen Warren", "DEN", "p_bijan", "Bijan Robinson", "Robinson")
 
 
-def test_a_player_traded_in_for_someone_who_already_played_is_flagged(client):
-    """His replacement can't start this week, so Set Lineup can dim the button
-    and say why instead of only rejecting the submit (Scott, 2026-09-18)."""
+def _trade_bijan_after_his_game(client, monkeypatch, started: bool):
+    """Bijan's week-3 game is over; trade him for Warren. `started`: was he in
+    that week's lineup. Returns Warren's roster row."""
+    # the kickoff lock reads the real NFL schedule; say outright that he's played
+    monkeypatch.setattr("joyce_ff.league.locks.locked_assets", lambda *a, **k: {"ATL", "p_bijan"})
     conn = schema.connect(client.dbpath)
     sid = conn.execute("SELECT id FROM seasons ORDER BY id DESC LIMIT 1").fetchone()["id"]
     conn.execute("INSERT INTO nfl_week_games(season_id,ff_week,game_id,home_team,away_team,"
                  "kickoff,final) VALUES (?,3,'g3','ATL','DEN','2026-09-20T12:00:00-05:00',1)", (sid,))
+    if started:
+        conn.execute("INSERT INTO weekly_lineups(season_id,team_id,ff_week,roster_slot,asset_kind,"
+                     "asset_ref,unit_type) VALUES (?,?,3,'RB','PLAYER','p_bijan',NULL)",
+                     (sid, client.otb))
     conn.commit()
     conn.close()
     r = client.post(f"/api/team/{client.otb}/trade",      # commissioner: files against week 3
@@ -194,7 +200,20 @@ def test_a_player_traded_in_for_someone_who_already_played_is_flagged(client):
     assert r.status_code == 200, r.get_json()
     d = client.get(f"/api/team/{client.otb}/detail?week=3").get_json()
     (came_in,) = [e for e in d["roster"] if e["asset_ref"] == "p_warren"]
-    assert came_in["blocked_by"] == "Bijan Robinson"
+    return came_in
+
+
+def test_a_player_traded_in_for_a_starter_who_already_played_is_flagged(client, monkeypatch):
+    """His replacement can't start this week, so Set Lineup can dim the button
+    and say why instead of only rejecting the submit (Scott, 2026-09-18)."""
+    assert _trade_bijan_after_his_game(client, monkeypatch, started=True)["blocked_by"] == "Bijan Robinson"
+
+
+def test_a_player_traded_in_for_a_bench_player_who_already_played_is_not(client, monkeypatch):
+    """TallBoys swapped a benched Judkins (played Thursday) for Croskey-Merritt
+    on Sunday morning. Judkins scored nothing for them, so nobody "keeps the
+    week" and the new man may start (Scott, 2026-10-04)."""
+    assert _trade_bijan_after_his_game(client, monkeypatch, started=False)["blocked_by"] is None
 
 
 def test_the_commissioner_can_see_every_move_of_the_season(client):

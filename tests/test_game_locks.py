@@ -762,6 +762,26 @@ def test_the_replacement_cannot_start_anywhere_when_the_man_he_replaced_has_play
     repo.set_lineup(conn, sid, otb, 5, starting("fa_r", "w1", "w2"), locked_refs={"w3"})
 
 
+def test_the_replacement_for_a_bench_player_who_has_played_can_start(lg):
+    """TallBoys, 2026-10-04: Judkins sat on the bench Thursday, was traded for
+    Croskey-Merritt on Sunday morning, and the site refused to start Merritt.
+    A bench player scored nothing, so he doesn't keep the week — only a starter
+    locked into the lineup does."""
+    conn, sid, otb = lg
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])     # w4 is the bench receiver
+    club = conn.execute("SELECT nfl_team_abbr a FROM nfl_players WHERE season_id=? AND gsis_id='w4'",
+                        (sid,)).fetchone()["a"]
+    _kickoff(conn, sid, 4, club, "2020-01-01T12:00:00+00:00")     # w4 played long ago
+    repo.do_trade(conn, sid, otb, "R", "w4", "fa_r", 4, locked_refs={"w4"})
+    assert repo.waiting_for_next_week(conn, sid, otb, 4) == {}
+    units = [{"roster_slot": s, "asset_ref": r}
+             for s, r in (("C", "KC"), ("K", "BAL"), ("DEF/ST", "PIT"), ("QB", "CIN"))]
+    rbs = [{"roster_slot": "RB", "asset_ref": r} for r in ("r1", "r2")]
+    repo.set_lineup(conn, sid, otb, 4, units + rbs + [
+        {"roster_slot": "R", "asset_ref": r} for r in ("fa_r", "w1", "w2")], locked_refs={"w4"})
+    assert _got(conn, sid, otb, 4)[1] == {"fa_r", "w1", "w2"}
+
+
 def test_the_commissioner_cannot_trade_a_played_starter_out_of_a_lineup(lg):
     """He may enter a move the kickoff rule would refuse — a trade phoned in
     earlier — but whose points these are can't depend on who typed it. A man

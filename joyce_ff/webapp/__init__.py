@@ -823,15 +823,14 @@ def create_app(db_path: str | None = None) -> Flask:
                 "WHERE season_id=? AND team_id=? AND ff_week=? AND type='TRADE' AND reversed=0",
                 (sid, team_id, wk)):
             replaced_by[(t["position"], t["out_asset_ref"])] = t["in_asset_ref"]
-            # ...and the man who came in for a starter whose game had already
-            # begun WHEN HE WAS TRADED can't play this week at all: the one he
-            # replaced is locked into the lineup and keeps the points. Judged
-            # at the trade's own time, never now (repo.played_before_trade).
-            if repo.played_before_trade(conn, sid, wk, t["out_asset_kind"],
-                                        t["out_asset_ref"], t["created_at"]):
-                blocked_by[(t["position"], t["in_asset_ref"])] = _dname(
-                    conn, sid, t["out_asset_kind"], t["out_asset_ref"],
-                    t["position"] if t["out_asset_kind"] == "TEAM_UNIT" else None)
+        # ...and the man who came in for a STARTER whose game had already begun
+        # WHEN HE WAS TRADED can't play this week at all: the one he replaced
+        # is locked into the lineup and keeps the points. A bench player traded
+        # away blocks nobody (repo.waiting_for_next_week).
+        for (position, in_ref), (out_kind, out_ref) in repo.waiting_for_next_week(
+                conn, sid, team_id, wk).items():
+            blocked_by[(position, in_ref)] = _dname(
+                conn, sid, out_kind, out_ref, position if out_kind == "TEAM_UNIT" else None)
         for e in roster:
             e["blocked_by"] = blocked_by.get((e["slot"], e["asset_ref"]))
         traded_out = []

@@ -214,6 +214,38 @@ def played_before_trade(conn, season_id, ff_week, kind, ref, traded_at) -> bool:
         return False
 
 
+def waiting_for_next_week(conn, season_id, team_id, ff_week) -> dict:
+    """{(position, in_ref): (out_kind, out_ref)} — the players traded in this
+    week who can't start until next week, and the man each one replaced.
+
+    Only a man traded for a STARTER who had already played waits: that starter
+    stays locked in the week's lineup with his points, and starting his
+    replacement as well would give the team both. A BENCH player who had played
+    scored nothing for the team, so swapping him out is an ordinary pickup and
+    the new man may start if his own game hasn't kicked off. The first version
+    asked only "had the traded-away man played?" and blocked both — TallBoys
+    swapped a benched Judkins (Thursday) for Croskey-Merritt on Sunday morning
+    and couldn't start him (Scott, 2026-10-04).
+
+    "Was a starter" = he is still in the week's saved lineup: a trade made
+    before his kickoff swaps him out of it, and a bench player was never in it."""
+    in_lineup = {(r["roster_slot"], r["asset_ref"]) for r in conn.execute(
+        "SELECT roster_slot, asset_ref FROM weekly_lineups "
+        "WHERE season_id=? AND team_id=? AND ff_week=? AND is_rental=0",
+        (season_id, team_id, ff_week))}
+    out = {}
+    for t in conn.execute(
+            "SELECT position, out_asset_kind, out_asset_ref, in_asset_ref, created_at "
+            "FROM transactions WHERE season_id=? "
+            "AND team_id=? AND ff_week=? AND type='TRADE' AND reversed=0",
+            (season_id, team_id, ff_week)):
+        if (t["position"], t["out_asset_ref"]) in in_lineup and played_before_trade(
+                conn, season_id, ff_week, t["out_asset_kind"], t["out_asset_ref"],
+                t["created_at"]):
+            out[(t["position"], t["in_asset_ref"])] = (t["out_asset_kind"], t["out_asset_ref"])
+    return out
+
+
 def record_lineup(conn, season_id, team_id, ff_week, source, saved_by=None) -> None:
     """Append the week's lineup AS IT NOW STANDS to lineup_history. Called after
     every change to weekly_lineups — a save, a trade or Open swapping someone
@@ -764,25 +796,18 @@ def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
     if problem:
         raise RuleError(problem)
 
-    # A player traded IN this week can only start if the player he replaced
-    # hadn't played yet (commissioner, 2026-09-16). Otherwise the team would
-    # have both: the man it traded away, locked into this week's lineup with his
-    # points, and his replacement starting somewhere else — an extra player for
-    # the week (Scott, 2026-09-18).
+    # A player traded IN this week for a STARTER who had already played can't
+    # start (commissioner, 2026-09-16). Otherwise the team would have both: the
+    # man it traded away, locked into this week's lineup with his points, and
+    # his replacement starting somewhere else — an extra player for the week
+    # (Scott, 2026-09-18). A bench player traded away blocks nobody.
     if locked_refs:
         started = {(s["roster_slot"], s["asset_ref"]) for s in starters}
-        for t in conn.execute(
-                "SELECT position, out_asset_kind, out_asset_ref, in_asset_ref, created_at "
-                "FROM transactions WHERE season_id=? "
-                "AND team_id=? AND ff_week=? AND type='TRADE' AND reversed=0",
-                (season_id, team_id, ff_week)):
-            if (t["position"], t["in_asset_ref"]) in started and played_before_trade(
-                    conn, season_id, ff_week, t["out_asset_kind"], t["out_asset_ref"],
-                    t["created_at"]):
-                came_in = _asset_label(conn, season_id, _kind_for(t["position"]),
-                                       t["in_asset_ref"], t["position"])
-                went_out = _asset_label(conn, season_id, _kind_for(t["position"]),
-                                        t["out_asset_ref"], t["position"])
+        for (position, in_ref), (_, out_ref) in waiting_for_next_week(
+                conn, season_id, team_id, ff_week).items():
+            if (position, in_ref) in started:
+                came_in = _asset_label(conn, season_id, _kind_for(position), in_ref, position)
+                went_out = _asset_label(conn, season_id, _kind_for(position), out_ref, position)
                 raise RuleError(
                     f"{came_in} can't start this week — {went_out}'s game had already started when "
                     f"you traded him, so he keeps week {ff_week} and {came_in} starts next week")
