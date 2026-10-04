@@ -194,7 +194,22 @@ def test_a_player_traded_in_for_someone_who_already_played_is_flagged(client):
     assert r.status_code == 200, r.get_json()
     d = client.get(f"/api/team/{client.otb}/detail?week=3").get_json()
     (came_in,) = [e for e in d["roster"] if e["asset_ref"] == "p_warren"]
-    assert came_in["blocked_by"] == "Bijan Robinson"
+    assert came_in["blocked_by"] == "Bijan Robinson" and came_in["blocked_for"] is None
+
+    # ...and trading the waiting man on doesn't free the spot: the next man
+    # waits too, and is told about both of them (Scott, 2026-10-04).
+    conn = schema.connect(client.dbpath)
+    conn.execute("INSERT INTO nfl_players(season_id,gsis_id,name,position,nfl_team_abbr) "
+                 "VALUES (?,'p_hall','Breece Hall','RB','ATL')", (sid,))
+    conn.commit()
+    conn.close()
+    r = client.post(f"/api/team/{client.otb}/trade",
+                    json={"passcode": "commish", "position": "RB", "out": "p_warren",
+                          "in": "p_hall", "week": 3})
+    assert r.status_code == 200, r.get_json()
+    d = client.get(f"/api/team/{client.otb}/detail?week=3").get_json()
+    (last,) = [e for e in d["roster"] if e["asset_ref"] == "p_hall"]
+    assert (last["blocked_by"], last["blocked_for"]) == ("Bijan Robinson", "Jaylen Warren")
 
 
 def test_the_commissioner_can_see_every_move_of_the_season(client):

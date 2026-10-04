@@ -258,6 +258,27 @@ what the Phase-1 reconciliation is designed to arbitrate.
   Sunday noon). repo.played_before_trade compares the kickoff in
   nfl_week_games with transactions.created_at; both the Set Lineup chip and the
   set_lineup check use it. No kickoff on record = not blocked.
+- 2026-10-04: "NEXT WEEK" IS ABOUT THE ROSTER SPOT, NOT THE SINGLE TRADE
+  (Scott). A spot is USED for the week once a player in it was on the roster
+  when his own game kicked off — STARTING OR BENCHED (the team had him to choose
+  from; trading a benched man who has played for a fresh one is the "4th RB").
+  Whoever comes into a used spot waits until next week, and so does whoever is
+  traded for him, through any number of trades. A player picked up AFTER his
+  kickoff was never the team's to start and does NOT use the spot, so trading
+  him on is a redo — same as trading the original man straight for the last one.
+  Judging each trade alone ("had the man traded away played?") got both ends
+  wrong: it blocked the redo (TallBoys: Croskey-Merritt -> Judkins during
+  Judkins' Thursday game -> Merritt back Sunday 8:11 AM, shown NEXT WEEK; Scott
+  corrected that lineup by hand), and it let a second trade free a used spot
+  (start St. Brown Thursday -> Parkinson, waits -> Downs before Parkinson's
+  game: Downs could start, a 5th receiver). repo.waiting_for_next_week walks the
+  week's trades in order and is the ONE place that decides it, for the Set
+  Lineup chip and the submit check. When a man joined comes from
+  roster_entries.created_at; unreadable = taken to have been there all along
+  (the stricter reading). After a chain the chip's sentence names both men:
+  "you traded Parkinson for him, and Parkinson was already waiting: St. Brown's
+  game had kicked off…" (detail sends blocked_for only then). The commissioner
+  is still exempt in set_lineup, but a NEXT WEEK chip is dead for him too.
 - 2026-09-27: LINEUP HISTORY. weekly_lineups holds only the latest version (a
   save deletes and rewrites the week), so "did he have a lineup in before
   Thursday?" could only be answered from PythonAnywhere's access log, which says

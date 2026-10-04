@@ -762,6 +762,79 @@ def test_the_replacement_cannot_start_anywhere_when_the_man_he_replaced_has_play
     repo.set_lineup(conn, sid, otb, 5, starting("fa_r", "w1", "w2"), locked_refs={"w3"})
 
 
+# --- the rule is about the roster SPOT, through every trade (Scott, 2026-10-04) ---
+
+PLAYED, TO_COME = "2020-01-01T12:00:00+00:00", "2099-01-01T12:00:00+00:00"
+_UNITS = [{"roster_slot": s, "asset_ref": r}
+          for s, r in (("C", "KC"), ("K", "BAL"), ("DEF/ST", "PIT"), ("QB", "CIN"))]
+
+
+def _starting(*receivers):
+    return (_UNITS + [{"roster_slot": "RB", "asset_ref": r} for r in ("r1", "r2")]
+            + [{"roster_slot": "R", "asset_ref": r} for r in receivers])
+
+
+def _free_agent(conn, sid, ref, club):
+    conn.execute("INSERT INTO nfl_teams(season_id,abbr,name,bye_ff_week) VALUES (?,?,?,NULL)",
+                 (sid, club, club))
+    conn.execute("INSERT INTO nfl_players(season_id,gsis_id,name,position,nfl_team_abbr) "
+                 "VALUES (?,?,?,'WR',?)", (sid, ref, ref, club))
+    conn.commit()
+
+
+def test_a_bench_player_who_was_on_the_roster_at_his_kickoff_uses_the_spot(lg):
+    """Benched or started, the team had him to choose from when his game began —
+    trading him for a fresh man afterwards would be a fifth receiver."""
+    conn, sid, otb = lg
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])     # w4 sits
+    _kickoff(conn, sid, 4, "T7", PLAYED)                          # ...and his game has been played
+    _kickoff(conn, sid, 4, "T8", TO_COME)
+    repo.do_trade(conn, sid, otb, "R", "w4", "fa_r", 4, locked_refs={"w4"})
+    assert repo.waiting_for_next_week(conn, sid, otb, 4) == {
+        ("R", "fa_r"): {"by": ("PLAYER", "w4"), "for": ("PLAYER", "w4")}}
+    with pytest.raises(repo.RuleError, match="can't start this week"):
+        repo.set_lineup(conn, sid, otb, 4, _starting("fa_r", "w1", "w2"), locked_refs={"w4"})
+
+
+def test_a_player_picked_up_after_his_game_does_not_use_the_spot(lg):
+    """The redo. TallBoys took Judkins during his Thursday game and on Sunday
+    morning traded him on; the man who came in showed NEXT WEEK. Judkins was
+    never theirs to start, so the spot hasn't had its game — it's the same as
+    trading the original man straight for the last one."""
+    conn, sid, otb = lg
+    _free_agent(conn, sid, "fa_2", "T9")
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])     # w4 sits
+    _kickoff(conn, sid, 4, "T7", TO_COME)                         # w4 hasn't played
+    _kickoff(conn, sid, 4, "T8", PLAYED)                          # fa_r's game is over
+    _kickoff(conn, sid, 4, "T9", TO_COME)
+    repo.do_trade(conn, sid, otb, "R", "w4", "fa_r", 4, locked_refs={"fa_r"})    # too late to play
+    assert repo.waiting_for_next_week(conn, sid, otb, 4) == {}
+    repo.do_trade(conn, sid, otb, "R", "fa_r", "fa_2", 4, locked_refs={"fa_r"})  # ...so trade him on
+    assert repo.waiting_for_next_week(conn, sid, otb, 4) == {}
+    repo.set_lineup(conn, sid, otb, 4, _starting("fa_2", "w1", "w2"), locked_refs={"fa_r"})
+    assert _got(conn, sid, otb, 4)[1] == {"fa_2", "w1", "w2"}
+
+
+def test_a_second_trade_cannot_free_a_spot_that_has_had_its_game(lg):
+    """The loophole. St. Brown starts Thursday; trade him for Parkinson (who
+    waits), then Parkinson for Downs before Parkinson's own game. Each trade
+    judged alone let Downs start — a fifth receiver for one extra move."""
+    conn, sid, otb = lg
+    _free_agent(conn, sid, "fa_2", "T9")
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])
+    _kickoff(conn, sid, 4, "T6", PLAYED)                          # w3 started and has played
+    _kickoff(conn, sid, 4, "T8", TO_COME)
+    _kickoff(conn, sid, 4, "T9", TO_COME)
+    repo.do_trade(conn, sid, otb, "R", "w3", "fa_r", 4, locked_refs={"w3"})
+    repo.do_trade(conn, sid, otb, "R", "fa_r", "fa_2", 4, locked_refs={"w3"})
+    assert repo.waiting_for_next_week(conn, sid, otb, 4) == {
+        ("R", "fa_2"): {"by": ("PLAYER", "w3"), "for": ("PLAYER", "fa_r")}}
+    with pytest.raises(repo.RuleError, match="fa_2 can't start this week — w3's game"):
+        repo.set_lineup(conn, sid, otb, 4, _starting("w3", "w1", "fa_2"), locked_refs={"w3"})
+    repo.set_lineup(conn, sid, otb, 4, _starting("w3", "w1", "w2"), locked_refs={"w3"})   # fine
+    repo.set_lineup(conn, sid, otb, 5, _starting("fa_2", "w1", "w2"), locked_refs=set())  # next week
+
+
 def test_the_commissioner_cannot_trade_a_played_starter_out_of_a_lineup(lg):
     """He may enter a move the kickoff rule would refuse — a trade phoned in
     earlier — but whose points these are can't depend on who typed it. A man

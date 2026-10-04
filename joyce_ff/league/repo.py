@@ -198,20 +198,88 @@ def played_before_trade(conn, season_id, ff_week, kind, ref, traded_at) -> bool:
     man's game began, days later (Scott, 2026-09-27: Eddy's Pats NYJ->SF DEF/ST
     on Thursday, blocked from Sunday noon). No kickoff on record, or a
     timestamp that won't parse: not blocked — nothing proves he had played."""
+    kickoff = _kickoff_of(conn, season_id, ff_week, kind, ref)
+    try:
+        return kickoff is not None and kickoff <= datetime.fromisoformat(traded_at)
+    except (TypeError, ValueError):
+        return False
+
+
+def _kickoff_of(conn, season_id, ff_week, kind, ref):
+    """When this asset's game for the week kicks off, or None (a bye, or no
+    kickoff on record)."""
     club = ref if kind == "TEAM_UNIT" else (conn.execute(
         "SELECT nfl_team_abbr FROM nfl_players WHERE season_id=? AND gsis_id=?",
         (season_id, ref)).fetchone() or {"nfl_team_abbr": None})["nfl_team_abbr"]
-    if not club or not traded_at:
-        return False
+    if not club:
+        return None
     row = conn.execute("SELECT kickoff FROM nfl_week_games WHERE season_id=? AND ff_week=? "
                        "AND (home_team=? OR away_team=?) AND kickoff IS NOT NULL",
                        (season_id, ff_week, club, club)).fetchone()
-    if not row:
-        return False
     try:
-        return datetime.fromisoformat(row["kickoff"]) <= datetime.fromisoformat(traded_at)
+        return datetime.fromisoformat(row["kickoff"]) if row else None
     except (TypeError, ValueError):
-        return False
+        return None
+
+
+def _joined(conn, team_id, position, ref, by):
+    """When the man traded away at `by` had come onto this roster — the start of
+    the stint that trade ended. None when it can't be told; the caller then
+    takes him to have been here all along."""
+    row = conn.execute(
+        "SELECT MAX(created_at) c FROM roster_entries WHERE team_id=? AND roster_slot=? "
+        "AND asset_ref=? AND created_at<=?", (team_id, position, ref, by)).fetchone()
+    try:
+        return datetime.fromisoformat(row["c"])
+    except (TypeError, ValueError):
+        return None
+
+
+def waiting_for_next_week(conn, season_id, team_id, ff_week) -> dict:
+    """{(position, ref): {"by": (kind, ref), "for": (kind, ref)}} — the players
+    on this roster who can't start until next week because of a trade: `by` is
+    the man whose game used the roster spot, `for` the man this one was
+    actually traded for (the same man unless there was a chain of trades).
+
+    The rule is about the ROSTER SPOT, not the single trade (Scott, 2026-10-04):
+
+      * a spot is USED for the week once a player in it was on the roster when
+        his own game kicked off — starting or on the bench, since either way
+        the team had him to choose from;
+      * whoever comes into a used spot waits until next week, and so does
+        whoever is traded for HIM, however many trades follow;
+      * a player picked up AFTER his game kicked off was never the team's to
+        start, so he doesn't use the spot — trading him on is a redo, the same
+        as trading the original man straight for the last one.
+
+    Judging each trade alone ("had the man traded away already played?") got
+    both ends wrong. It blocked the redo: TallBoys took Judkins during his
+    Thursday game, swapped him back out on Sunday morning and couldn't start the
+    man who came in. And it let a second trade launder a used spot: start St.
+    Brown on Thursday, trade him for Parkinson (waits), trade Parkinson for
+    Downs before Parkinson's game — Downs started, a fifth receiver.
+
+    The time a man joined comes from his roster entry; when it can't be read
+    he is taken to have been here all along, which is the stricter reading."""
+    spots = {}                       # (position, who holds the spot now) -> why he waits
+    for t in conn.execute(
+            "SELECT position, out_asset_kind, out_asset_ref, in_asset_ref, created_at "
+            "FROM transactions WHERE season_id=? AND team_id=? AND ff_week=? "
+            "AND type='TRADE' AND reversed=0 ORDER BY id",
+            (season_id, team_id, ff_week)):
+        position, out = t["position"], (t["out_asset_kind"], t["out_asset_ref"])
+        used_by = (spots.pop((position, out[1]), None) or {}).get("by")
+        if used_by is None:
+            kickoff = _kickoff_of(conn, season_id, ff_week, *out)
+            try:
+                left = datetime.fromisoformat(t["created_at"])
+                joined = _joined(conn, team_id, position, out[1], t["created_at"])
+                if kickoff is not None and kickoff <= left and (joined is None or joined <= kickoff):
+                    used_by = out
+            except (TypeError, ValueError):
+                pass                 # no usable time on the trade: nothing proves he had played
+        spots[(position, t["in_asset_ref"])] = {"by": used_by, "for": out}
+    return {who: why for who, why in spots.items() if why["by"]}
 
 
 def record_lineup(conn, season_id, team_id, ff_week, source, saved_by=None) -> None:
@@ -764,25 +832,18 @@ def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
     if problem:
         raise RuleError(problem)
 
-    # A player traded IN this week can only start if the player he replaced
-    # hadn't played yet (commissioner, 2026-09-16). Otherwise the team would
-    # have both: the man it traded away, locked into this week's lineup with his
-    # points, and his replacement starting somewhere else — an extra player for
-    # the week (Scott, 2026-09-18).
+    # A player traded into a roster spot that has already had its game this
+    # week can't start (commissioner, 2026-09-16). Otherwise the team would have
+    # an extra player for the week: the man it traded away, who was its to start
+    # at his kickoff, AND his replacement (Scott, 2026-09-18). The spot carries
+    # this through any later trades — see waiting_for_next_week.
     if locked_refs:
         started = {(s["roster_slot"], s["asset_ref"]) for s in starters}
-        for t in conn.execute(
-                "SELECT position, out_asset_kind, out_asset_ref, in_asset_ref, created_at "
-                "FROM transactions WHERE season_id=? "
-                "AND team_id=? AND ff_week=? AND type='TRADE' AND reversed=0",
-                (season_id, team_id, ff_week)):
-            if (t["position"], t["in_asset_ref"]) in started and played_before_trade(
-                    conn, season_id, ff_week, t["out_asset_kind"], t["out_asset_ref"],
-                    t["created_at"]):
-                came_in = _asset_label(conn, season_id, _kind_for(t["position"]),
-                                       t["in_asset_ref"], t["position"])
-                went_out = _asset_label(conn, season_id, _kind_for(t["position"]),
-                                        t["out_asset_ref"], t["position"])
+        for (position, in_ref), why in waiting_for_next_week(
+                conn, season_id, team_id, ff_week).items():
+            if (position, in_ref) in started:
+                came_in = _asset_label(conn, season_id, _kind_for(position), in_ref, position)
+                went_out = _asset_label(conn, season_id, _kind_for(position), why["by"][1], position)
                 raise RuleError(
                     f"{came_in} can't start this week — {went_out}'s game had already started when "
                     f"you traded him, so he keeps week {ff_week} and {came_in} starts next week")

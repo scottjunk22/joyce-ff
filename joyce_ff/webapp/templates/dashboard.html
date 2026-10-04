@@ -700,7 +700,8 @@ async function lineupModal(id, wk){
     for(let i=tradedLeft.length-1;i>=0;i--){ const t=tradedLeft[i];
       if(t.replaced_by===r.asset_ref&&t.slot===r.slot){ items.push(tradedItem(t)); tradedLeft.splice(i,1); } }
     items.push({slot:r.slot,ref:r.asset_ref,name:r.name+(r.new?' <span class="tag-new">NEW</span>':''),
-                plain:r.name,game_state:r.game_state,game_at:r.game_at,blocked:r.blocked_by||null});
+                plain:r.name,game_state:r.game_state,game_at:r.game_at,blocked:r.blocked_by||null,
+                blockedFor:r.blocked_for||null});
     for(let i=opensLeft.length-1;i>=0;i--){ const o=opensLeft[i];
       if(o.covering===r.asset_ref&&o.position===r.slot){ items.push(rental(o)); opensLeft.splice(i,1); } }
   });
@@ -830,8 +831,13 @@ function luLocked(i){ return !COMMISH_PC && STARTED.includes(i.game_state); }
    in the season's last week there is no next week to send him to. */
 function blockedText(i,wk,last,bold){
   const head=last?`${i.plain} can't start in Week ${wk}`:`${i.plain} can't start until Week ${wk+1}`;
-  return (bold?`<b>${head}</b>`:head)+` — you traded for him after ${i.blocked}'s game had kicked off, `
-    +`so ${i.blocked} keeps ${last?'the week':'Week '+wk}.`;
+  const keeps=`so ${i.blocked} keeps ${last?'the week':'Week '+wk}.`;
+  // After a chain of trades the man he was traded for isn't the one who played:
+  // name both, so "who is that?" has an answer (Scott, 2026-10-04).
+  return (bold?`<b>${head}</b>`:head)+(i.blockedFor
+    ? ` — you traded ${i.blockedFor} for him, and ${i.blockedFor} was already waiting: `
+      +`${i.blocked}'s game had kicked off, ${keeps}`
+    : ` — you traded for him after ${i.blocked}'s game had kicked off, ${keeps}`);
 }
 /* A chip that can't be pressed still answers when you press it — under the
    rows, above the count, where a rejected submit used to put it (2026-09-18). */
