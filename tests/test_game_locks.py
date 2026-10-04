@@ -789,7 +789,10 @@ def test_a_bench_player_who_was_on_the_roster_at_his_kickoff_uses_the_spot(lg):
     _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])     # w4 sits
     _kickoff(conn, sid, 4, "T7", PLAYED)                          # ...and his game has been played
     _kickoff(conn, sid, 4, "T8", TO_COME)
-    repo.do_trade(conn, sid, otb, "R", "w4", "fa_r", 4, locked_refs={"w4"})
+    notes = []
+    repo.do_trade(conn, sid, otb, "R", "w4", "fa_r", 4, locked_refs={"w4"}, notes=notes)
+    # the trade says it there and then — he doesn't find out in Set Lineup
+    assert notes == ["fa_r can't start until Week 5 — w4 was on your bench when his game kicked off."]
     assert repo.waiting_for_next_week(conn, sid, otb, 4) == {
         ("R", "fa_r"): {"by": ("PLAYER", "w4"), "for": ("PLAYER", "w4")}}
     with pytest.raises(repo.RuleError, match="can't start this week"):
@@ -807,10 +810,13 @@ def test_a_player_picked_up_after_his_game_does_not_use_the_spot(lg):
     _kickoff(conn, sid, 4, "T7", TO_COME)                         # w4 hasn't played
     _kickoff(conn, sid, 4, "T8", PLAYED)                          # fa_r's game is over
     _kickoff(conn, sid, 4, "T9", TO_COME)
-    repo.do_trade(conn, sid, otb, "R", "w4", "fa_r", 4, locked_refs={"fa_r"})    # too late to play
+    notes = []
+    repo.do_trade(conn, sid, otb, "R", "w4", "fa_r", 4, locked_refs={"fa_r"},    # too late to play
+                  notes=notes)
     assert repo.waiting_for_next_week(conn, sid, otb, 4) == {}
-    repo.do_trade(conn, sid, otb, "R", "fa_r", "fa_2", 4, locked_refs={"fa_r"})  # ...so trade him on
-    assert repo.waiting_for_next_week(conn, sid, otb, 4) == {}
+    repo.do_trade(conn, sid, otb, "R", "fa_r", "fa_2", 4, locked_refs={"fa_r"},  # ...so trade him on
+                  notes=notes)
+    assert repo.waiting_for_next_week(conn, sid, otb, 4) == {} and notes == []
     repo.set_lineup(conn, sid, otb, 4, _starting("fa_2", "w1", "w2"), locked_refs={"fa_r"})
     assert _got(conn, sid, otb, 4)[1] == {"fa_2", "w1", "w2"}
 
@@ -825,14 +831,28 @@ def test_a_second_trade_cannot_free_a_spot_that_has_had_its_game(lg):
     _kickoff(conn, sid, 4, "T6", PLAYED)                          # w3 started and has played
     _kickoff(conn, sid, 4, "T8", TO_COME)
     _kickoff(conn, sid, 4, "T9", TO_COME)
-    repo.do_trade(conn, sid, otb, "R", "w3", "fa_r", 4, locked_refs={"w3"})
-    repo.do_trade(conn, sid, otb, "R", "fa_r", "fa_2", 4, locked_refs={"w3"})
+    first, second = [], []
+    repo.do_trade(conn, sid, otb, "R", "w3", "fa_r", 4, locked_refs={"w3"}, notes=first)
+    assert "keeps his points" in first[0]            # the starter's own message, as before
+    waiting = repo.waiting_for_next_week(conn, sid, otb, 4)
+    assert repo.waiting_reason(conn, sid, otb, 4, "R", waiting[("R", "fa_r")]) == (
+        "you traded for him after w3's game had kicked off, so w3 keeps Week 4.")
+    repo.do_trade(conn, sid, otb, "R", "fa_r", "fa_2", 4, locked_refs={"w3"}, notes=second)
+    assert second == ["fa_2 can't start until Week 5 — you traded fa_r for him, and fa_r was "
+                      "already waiting: w3's game had kicked off, so w3 keeps Week 4."]
     assert repo.waiting_for_next_week(conn, sid, otb, 4) == {
         ("R", "fa_2"): {"by": ("PLAYER", "w3"), "for": ("PLAYER", "fa_r")}}
     with pytest.raises(repo.RuleError, match="fa_2 can't start this week — w3's game"):
         repo.set_lineup(conn, sid, otb, 4, _starting("w3", "w1", "fa_2"), locked_refs={"w3"})
     repo.set_lineup(conn, sid, otb, 4, _starting("w3", "w1", "w2"), locked_refs={"w3"})   # fine
     repo.set_lineup(conn, sid, otb, 5, _starting("fa_2", "w1", "w2"), locked_refs=set())  # next week
+
+
+def test_short_names_keep_a_two_word_surname():
+    assert repo.short_name("Amon-Ra St. Brown") == "St. Brown"
+    assert repo.short_name("Marvin Harrison Jr.") == "Harrison"
+    assert repo.short_name("Jacory Croskey-Merritt") == "Croskey-Merritt"
+    assert repo.short_name("Colby Parkinson") == "Parkinson"
 
 
 def test_the_commissioner_cannot_trade_a_played_starter_out_of_a_lineup(lg):

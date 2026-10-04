@@ -275,10 +275,24 @@ what the Phase-1 reconciliation is designed to arbitrate.
   week's trades in order and is the ONE place that decides it, for the Set
   Lineup chip and the submit check. When a man joined comes from
   roster_entries.created_at; unreadable = taken to have been there all along
-  (the stricter reading). After a chain the chip's sentence names both men:
-  "you traded Parkinson for him, and Parkinson was already waiting: St. Brown's
-  game had kicked off…" (detail sends blocked_for only then). The commissioner
-  is still exempt in set_lineup, but a NEXT WEEK chip is dead for him too.
+  (the stricter reading). The commissioner is still exempt in set_lineup, but a
+  NEXT WEEK chip is dead for him too.
+  THE SENTENCE (same day, Scott picked it from a phone-width mock): ONE sentence,
+  the same in the trade's pop-up and on the NEXT WEEK chip, built in one place
+  (repo.waiting_head + waiting_reason; detail sends it as blocked_why). The
+  reason turns on the man whose game used the spot — STARTED: "you traded for
+  him after St. Brown's game had kicked off, so St. Brown keeps Week 2"
+  (unchanged); BENCHED: "Colby Parkinson can't start until Week 3 — St. Brown
+  was on your bench when his game kicked off." (last names, to stay three lines
+  on a phone; repo.short_name keeps "St. Brown" whole); can't tell (no lineup
+  that week, or a team unit): "…'s game had already kicked off." After a chain
+  it leads with "you traded Parkinson for him, and Parkinson was already
+  waiting: …". The trade used to say nothing unless the man traded away was a
+  starter, so a benched trade's NEXT WEEK was first seen in Set Lineup; do_trade
+  now adds the sentence whenever the lineup note didn't already speak. Rejected:
+  a second sentence ("Your lineup hasn't changed" / "can't change for players
+  whose game kicked off") — the new man isn't locked, so it reads as the wrong
+  reason and costs lines.
 - 2026-09-27: LINEUP HISTORY. weekly_lineups holds only the latest version (a
   save deletes and rewrites the week), so "did he have a lineup in before
   Thursday?" could only be answered from PythonAnywhere's access log, which says

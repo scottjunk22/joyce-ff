@@ -192,9 +192,13 @@ def test_a_player_traded_in_for_someone_who_already_played_is_flagged(client):
                     json={"passcode": "commish", "position": "RB", "out": "p_bijan",
                           "in": "p_warren", "week": 3})
     assert r.status_code == 200, r.get_json()
+    # the trade's own pop-up says so, and Set Lineup gives the same reason
+    why = "Bijan Robinson's game had already kicked off."
+    assert r.get_json()["lineup_note"].startswith("Jaylen Warren can't start ")
+    assert r.get_json()["lineup_note"].endswith(" — " + why)
     d = client.get(f"/api/team/{client.otb}/detail?week=3").get_json()
     (came_in,) = [e for e in d["roster"] if e["asset_ref"] == "p_warren"]
-    assert came_in["blocked_by"] == "Bijan Robinson" and came_in["blocked_for"] is None
+    assert (came_in["blocked_by"], came_in["blocked_why"]) == ("Bijan Robinson", why)
 
     # ...and trading the waiting man on doesn't free the spot: the next man
     # waits too, and is told about both of them (Scott, 2026-10-04).
@@ -207,9 +211,12 @@ def test_a_player_traded_in_for_someone_who_already_played_is_flagged(client):
                     json={"passcode": "commish", "position": "RB", "out": "p_warren",
                           "in": "p_hall", "week": 3})
     assert r.status_code == 200, r.get_json()
+    why = ("you traded Jaylen Warren for him, and Jaylen Warren was already waiting: "
+           "Bijan Robinson's game had already kicked off.")
+    assert r.get_json()["lineup_note"].endswith(" — " + why)
     d = client.get(f"/api/team/{client.otb}/detail?week=3").get_json()
     (last,) = [e for e in d["roster"] if e["asset_ref"] == "p_hall"]
-    assert (last["blocked_by"], last["blocked_for"]) == ("Bijan Robinson", "Jaylen Warren")
+    assert (last["blocked_by"], last["blocked_why"]) == ("Bijan Robinson", why)
 
 
 def test_the_commissioner_can_see_every_move_of_the_season(client):

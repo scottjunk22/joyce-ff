@@ -825,18 +825,18 @@ def create_app(db_path: str | None = None) -> Flask:
             replaced_by[(t["position"], t["out_asset_ref"])] = t["in_asset_ref"]
         # ...and a man traded into a roster spot that has already had its game
         # this week can't play until next week. blocked_by is whose game used
-        # the spot; blocked_for is who he was actually traded for, sent only
-        # when a chain of trades makes that someone else
-        # (repo.waiting_for_next_week).
-        blocked_for = {}
+        # the spot; blocked_why is the reason as a sentence, the same one the
+        # trade's own pop-up gave (repo.waiting_for_next_week / waiting_reason).
+        blocked_why = {}
         for (position, in_ref), why in repo.waiting_for_next_week(conn, sid, team_id, wk).items():
-            name = lambda a: _dname(conn, sid, a[0], a[1], position if a[0] == "TEAM_UNIT" else None)
-            blocked_by[(position, in_ref)] = name(why["by"])
-            if why["for"] != why["by"]:
-                blocked_for[(position, in_ref)] = name(why["for"])
+            name = lambda kind, ref: _dname(conn, sid, kind, ref,
+                                            position if kind == "TEAM_UNIT" else None)
+            blocked_by[(position, in_ref)] = name(*why["by"])
+            blocked_why[(position, in_ref)] = repo.waiting_reason(
+                conn, sid, team_id, wk, position, why, name=name)
         for e in roster:
             e["blocked_by"] = blocked_by.get((e["slot"], e["asset_ref"]))
-            e["blocked_for"] = blocked_for.get((e["slot"], e["asset_ref"]))
+            e["blocked_why"] = blocked_why.get((e["slot"], e["asset_ref"]))
         traded_out = []
         for l in conn.execute("SELECT roster_slot, asset_kind, asset_ref, unit_type FROM weekly_lineups "
                               "WHERE season_id=? AND team_id=? AND ff_week=? AND is_rental=0",

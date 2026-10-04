@@ -282,6 +282,71 @@ def waiting_for_next_week(conn, season_id, team_id, ff_week) -> dict:
     return {who: why for who, why in spots.items() if why["by"]}
 
 
+_NAME_SUFFIXES = {"JR", "SR", "II", "III", "IV", "V"}
+_NAME_PARTICLES = {"st", "van", "von", "de", "del", "la", "le", "da", "di"}
+
+
+def short_name(full) -> str:
+    """A player's last name, as a phone-width sentence has room for:
+    "Amon-Ra St. Brown" -> "St. Brown", "Marvin Harrison Jr." -> "Harrison"."""
+    parts = [p for p in str(full or "").split() if p.rstrip(".").upper() not in _NAME_SUFFIXES]
+    if len(parts) > 2 and parts[-2].rstrip(".").lower() in _NAME_PARTICLES:
+        return " ".join(parts[-2:])
+    return parts[-1] if parts else str(full or "")
+
+
+def _is_last_week(conn, season_id, ff_week) -> bool:
+    last = conn.execute("SELECT MAX(ff_week) m FROM matchups WHERE season_id=? "
+                        "AND kind<>'NO_PLAY'", (season_id,)).fetchone()["m"]
+    return last is not None and ff_week >= last
+
+
+def waiting_head(conn, season_id, ff_week, who) -> str:
+    """"Colby Parkinson can't start until Week 3" — or, in the season's last
+    week, where there is no next week to send him to, "...can't start in Week 15"."""
+    if _is_last_week(conn, season_id, ff_week):
+        return f"{who} can't start in Week {ff_week}"
+    return f"{who} can't start until Week {ff_week + 1}"
+
+
+def waiting_reason(conn, season_id, team_id, ff_week, position, why, name=None) -> str:
+    """Why a man traded into a used roster spot has to wait — the half of the
+    sentence after the dash. The trade's pop-up and the NEXT WEEK chip in Set
+    Lineup both say exactly this (Scott, 2026-10-04).
+
+    `why` is one value from waiting_for_next_week. What it says turns on the
+    man whose game used the spot:
+      * he STARTED (still in the week's lineup): he keeps the week — the
+        wording managers already know;
+      * he was BENCHED: say so, since a player who scored nothing for the
+        team is otherwise a puzzling reason. Last names, to stay one sentence
+        on a phone;
+      * neither can be told (no lineup that week, or a team unit, which is
+        never benched): just that his game had kicked off.
+    After a chain of trades it first names the man this one was traded for."""
+    name = name or (lambda kind, ref: _asset_label(conn, season_id, kind, ref, position))
+    lineup = {(r["roster_slot"], r["asset_ref"]) for r in conn.execute(
+        "SELECT roster_slot, asset_ref FROM weekly_lineups "
+        "WHERE season_id=? AND team_id=? AND ff_week=? AND is_rental=0",
+        (season_id, team_id, ff_week))}
+    by, was_for = why["by"], why["for"]
+    benched = bool(lineup) and by[0] == "PLAYER" and (position, by[1]) not in lineup
+    said = (lambda a: short_name(name(*a))) if benched else (lambda a: name(*a))
+    chain = by != was_for
+    if (position, by[1]) in lineup:
+        keeps = "the week" if _is_last_week(conn, season_id, ff_week) else f"Week {ff_week}"
+        reason = f"{said(by)}'s game had kicked off, so {said(by)} keeps {keeps}."
+        if not chain:
+            return "you traded for him after " + reason
+    elif benched:
+        reason = f"{said(by)} was on your bench when his game kicked off."
+    else:
+        reason = f"{said(by)}'s game had already kicked off."
+    if chain:
+        return f"you traded {said(was_for)} for him, and {said(was_for)} was already waiting: {reason}"
+    return reason
+
+
 def record_lineup(conn, season_id, team_id, ff_week, source, saved_by=None) -> None:
     """Append the week's lineup AS IT NOW STANDS to lineup_history. Called after
     every change to weekly_lineups — a save, a trade or Open swapping someone
@@ -427,10 +492,21 @@ def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
              position, ff_week, order, _now()))
         note = _trade_into_lineup(conn, season_id, team_id, ff_week, position, out_ref, in_ref,
                                   locked_refs if lineup_locked_refs is None else lineup_locked_refs)
+        tx = _log_tx(conn, season_id, team_id, ff_week, "TRADE", position,
+                     out_ref, in_ref, kind, entered_by=actor)
+        if not note:
+            # The man traded away wasn't in the lineup, so nothing above spoke —
+            # but the new man may still have landed in a used roster spot (a
+            # benched player who had played, or the second trade of a chain).
+            # Tell the manager now, not when he opens Set Lineup.
+            why = waiting_for_next_week(conn, season_id, team_id, ff_week).get((position, in_ref))
+            if why:
+                who = _asset_label(conn, season_id, kind, in_ref, position)
+                note = (waiting_head(conn, season_id, ff_week, who) + " — "
+                        + waiting_reason(conn, season_id, team_id, ff_week, position, why))
         if note and notes is not None:
             notes.append(note)
-        return _log_tx(conn, season_id, team_id, ff_week, "TRADE", position,
-                       out_ref, in_ref, kind, entered_by=actor)
+        return tx
     except Exception:
         if mine:                       # never leave the write lock held
             conn.rollback()
