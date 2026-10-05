@@ -109,6 +109,73 @@ def refresh_nfl_players_daily(conn, season_id: int, year: int, now) -> dict | No
     return res
 
 
+LOOK_BACK_SEASONS = 3
+
+
+def _same_name(a, b) -> bool:
+    squash = lambda s: "".join(ch for ch in str(s or "").lower() if ch.isalnum())
+    return bool(squash(a)) and squash(a) == squash(b)
+
+
+def add_free_agent(conn, season_id: int, year: int, name: str, gsis_id: str | None = None,
+                   load=None) -> dict:
+    """Put a player who is on NO NFL roster into the pool, so a manager can pick
+    him up before he signs (Scott, 2026-10-05: Tyreek Hill, unsigned, last a
+    Dolphin). The daily refresh only knows players nflverse lists THIS season,
+    so an unsigned veteran isn't in the pool and can't get in by himself until
+    he signs.
+
+    He goes in with NO team: no game, no bye, no kickoff lock, no points —
+    which is the truth. Giving him his old club would show that club's game time
+    and lock him at its kickoff. When he signs, nflverse lists him and the
+    refresh fills the team in.
+
+    The entry carries his OFFICIAL id, read from nflverse's rosters for this
+    season or the three before — never typed in, never made up. The refresh
+    matches on that id, so it updates this entry rather than adding a second
+    Tyreek Hill. A name nflverse doesn't know, or one that fits two different
+    players (pass gsis_id to say which), is refused.
+
+    Returns {"added": bool, "gsis_id", "name", "position", "team", "last_team",
+    "last_season"}; added=False means he was already in the pool."""
+    import pandas as pd
+
+    from ..data_sources import nflverse as nv
+
+    load = load or nv.load_roster
+    val = lambda v: None if v is None or (isinstance(v, float) and pd.isna(v)) else v
+    found: dict[str, dict] = {}                  # id -> his most recent listing
+    for season in range(year, year - LOOK_BACK_SEASONS - 1, -1):
+        for r in load(season).to_dict("records"):
+            gid, pos = val(r.get("gsis_id")), val(r.get("position"))
+            if not gid or pos not in PLAYER_POSITIONS or gid in found:
+                continue
+            if gid == gsis_id if gsis_id else _same_name(r.get("full_name"), name):
+                found[gid] = {"gsis_id": gid, "name": val(r.get("full_name")), "position": pos,
+                              "last_team": val(r.get("team")), "last_season": season}
+    if not found:
+        who = f"id {gsis_id}" if gsis_id else f"{name!r}"
+        raise ValueError(f"nflverse has no RB, WR or TE matching {who} in {year - LOOK_BACK_SEASONS}"
+                         f"-{year} — check the spelling; nobody was added")
+    if len(found) > 1:
+        listing = "; ".join(f"{p['name']} {p['position']} {p['last_team']} {p['last_season']} "
+                            f"(id {p['gsis_id']})" for p in found.values())
+        raise ValueError(f"{name!r} fits more than one player: {listing} — "
+                         f"run it again with the id of the one you mean; nobody was added")
+    (p,) = found.values()
+    # On a roster THIS season after all? Then that team is the truth.
+    team = p["last_team"] if p["last_season"] == year else None
+    have = conn.execute("SELECT nfl_team_abbr FROM nfl_players WHERE season_id=? AND gsis_id=?",
+                        (season_id, p["gsis_id"])).fetchone()
+    if have:
+        return {**p, "added": False, "team": have["nfl_team_abbr"]}
+    conn.execute("INSERT INTO nfl_players(season_id,gsis_id,name,position,nfl_team_abbr,status) "
+                 "VALUES (?,?,?,?,?,?)", (season_id, p["gsis_id"], p["name"], p["position"],
+                                          team, None if team else "FA"))
+    conn.commit()
+    return {**p, "added": True, "team": team}
+
+
 def assign_numbers_and_slots(conn, season_id: int) -> None:
     """Give each team a team_number (schedule) and draft_slot (card), 1-11 per
     conference. Deterministic — real draws replace these on draft day."""

@@ -165,6 +165,42 @@ def cmd_refresh_players(_argv: list[str]) -> int:
     return 0
 
 
+def cmd_add_player(argv: list[str]) -> int:
+    """Add a player who isn't on any NFL team, so a manager can pick him up
+    before he signs. He goes in with no team; the daily refresh fills it in
+    once he signs and nflverse lists him. His official id is looked up, never
+    typed — unless two players share the name, when you say which.
+
+        python manage.py add-player "Tyreek Hill"
+        python manage.py add-player "Mike Williams" 00-0033536
+    """
+    from joyce_ff.league import connect, setup
+
+    if not argv:
+        print('usage: add-player "<full name>" [id]', file=sys.stderr)
+        return 1
+    conn = connect()
+    s = conn.execute("SELECT id, year FROM seasons ORDER BY id DESC LIMIT 1").fetchone()
+    if not s:
+        print("no season yet — start one first", file=sys.stderr)
+        return 1
+    try:
+        p = setup.add_free_agent(conn, s["id"], s["year"], argv[0],
+                                 gsis_id=argv[1] if len(argv) > 1 else None)
+    except ValueError as e:
+        print(f"Not added: {e}", file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+    where = p["team"] or "no NFL team"
+    if not p["added"]:
+        print(f"{p['name']} ({p['position']}, {where}) is already in the player list — nothing changed.")
+        return 0
+    print(f"Added {p['name']} ({p['position']}, {where}), id {p['gsis_id']}. "
+          f"Last listed with {p['last_team']} in {p['last_season']}.")
+    return 0
+
+
 def cmd_import_ecr(argv: list[str]) -> int:
     """Import a FantasyPros rankings CSV (downloaded by a logged-in user — we
     never scrape them) so the board can show their consensus beside our VOR."""
@@ -473,6 +509,7 @@ COMMANDS = {
     "board-cache": cmd_board_cache,
     "import-ecr": cmd_import_ecr,
     "refresh-players": cmd_refresh_players,
+    "add-player": cmd_add_player,
     "lineup-history": cmd_lineup_history,
     "site-stats": cmd_site_stats,
     "set-platform-pass": cmd_set_platform_pass,

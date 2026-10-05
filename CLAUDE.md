@@ -223,6 +223,20 @@ what the Phase-1 reconciliation is designed to arbitrate.
   follow the roster, new RB/WR/TE are added, nobody is ever removed. nflverse's
   roster can lag a real move by about a day. Failure is logged, never stops
   scoring.
+  2026-10-05: UNSIGNED PLAYERS (Scott; Tyreek Hill, no team, last a Dolphin).
+  The refresh only knows players nflverse lists THIS season, so an unsigned
+  veteran isn't in the pool. `manage.py add-player "<full name>" [id]`
+  (setup.add_free_agent) puts him in with NO TEAM — not his old club, which
+  would show that club's game time and lock him at its kickoff. No team = "no
+  game", no bye, no lock, no points; the site already copes with the blank. His
+  OFFICIAL id is looked up in nflverse's rosters for this season or the three
+  before, never typed or invented, so when he signs the refresh updates the
+  same entry (it matches on id) and there is no second Tyreek Hill. A name
+  nflverse doesn't know, or one shared by two players (pass the id), is refused.
+  Live database only. Considered and left out: setting a team by hand. KNOWN
+  GAP: between his signing and nflverse listing him he has no team, so he does
+  NOT lock at kickoff. Whether an unsigned player may be picked up at all is the
+  commissioner's call.
 - 2026-09-27: A TOUCHDOWN BELONGS TO WHOEVER SCORED IT. The nflverse reader
   counted receiving TDs by the play's receiver and rushing TDs by its ball
   carrier. On a hook-and-lateral they differ: Evans caught 2 yards and pitched

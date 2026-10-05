@@ -411,3 +411,45 @@ def test_rosters_page_lists_every_team_by_conference_with_the_player_pool(client
     d = client.get("/api/rosters").get_json()
     ot = next(t for t in d["conferences"]["BLUE"] if t["name"] == "OT Blitz")
     assert [p["ref"] for p in ot["players"]] == ["p_warren"]
+
+
+def test_a_player_with_no_nfl_team_can_be_picked_up_and_shown(client):
+    """An unsigned free agent added by hand (manage.py add-player) has no team:
+    no game, no bye, no lock. Every screen that lists him has to cope with the
+    blank (Scott, 2026-10-05, Tyreek Hill)."""
+    conn = schema.connect(client.dbpath)
+    sid = conn.execute("SELECT id FROM seasons ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    conn.execute("INSERT INTO nfl_players(season_id,gsis_id,name,position,nfl_team_abbr,status) "
+                 "VALUES (?,'p_hill','Tyreek Hill','RB',NULL,'FA')", (sid,))   # RB: the fixture's one slot
+    conn.commit()
+    conn.close()
+    avail = client.get(f"/api/team/{client.otb}/available?position=RB").get_json()["available"]
+    (hill,) = [a for a in avail if a["gsis_id"] == "p_hill"]
+    assert hill["nfl_team_abbr"] is None
+    r = client.post(f"/api/team/{client.otb}/trade",
+                    json={"passcode": "otblitz", "position": "RB", "out": "p_bijan", "in": "p_hill"})
+    assert r.status_code == 200, r.get_json()
+    d = client.get(f"/api/team/{client.otb}/detail").get_json()
+    (row,) = [e for e in d["roster"] if e["asset_ref"] == "p_hill"]
+    assert row["team"] is None and row["bye"] is False and row["blocked_by"] is None
+    assert row["game_at"] is None                                   # nothing to lock him at
+    assert client.get("/api/state").status_code == 200              # scoreboard, alerts, lineup flags
+    rosters = client.get("/api/rosters").get_json()
+    assert "Tyreek Hill" in str(rosters)
+    # ...and if a manager starts him anyway: a box score row with no game, and a
+    # blank (not "null") team in the commissioner's weekly points
+    wk = d["lineup_notice"]["week"] if isinstance(d.get("lineup_notice"), dict) and "week" in d["lineup_notice"]         else client.get("/api/state").get_json()["season"]["lineup_week"]
+    conn = schema.connect(client.dbpath)
+    conn.execute("INSERT INTO weekly_lineups(season_id,team_id,ff_week,roster_slot,asset_kind,"
+                 "asset_ref,unit_type) VALUES (?,?,?,'RB','PLAYER','p_hill',NULL)", (sid, client.otb, wk))
+    conn.execute("INSERT INTO asset_week_scores(season_id,ff_week,asset_kind,asset_ref,unit_type,"
+                 "points,breakdown_json,computed_at) VALUES (?,?,'PLAYER','p_hill','',0,'[]','t')", (sid, wk))
+    conn.commit()
+    conn.close()
+    d = client.get(f"/api/team/{client.otb}/detail?week={wk}").get_json()
+    (box,) = [b for b in d["box"] if b.get("asset_ref") == "p_hill"]
+    assert box["state"] == "nogame" and box["kickoff"] is None
+    wp = client.post("/api/admin/weekly-points", json={"passcode": "commish", "week": wk})
+    assert wp.status_code == 200, wp.get_json()
+    (line,) = [r for r in wp.get_json()["rows"] if r["name"] == "Tyreek Hill"]
+    assert line["team"] == "" and line["state"] == "nogame"
