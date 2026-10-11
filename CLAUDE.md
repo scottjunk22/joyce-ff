@@ -210,6 +210,13 @@ what the Phase-1 reconciliation is designed to arbitrate.
   an extra starter fills the slot he covers, tagged with his real position and
   "· for Buffalo QB" or "· bye flex", tappable for the reason; an unfilled slot
   shows "no starter" (webapp _box_in_slots; display only, roster_slot unchanged).
+  2026-10-10 (Scott): a starter on BYE shows a DASH in the box score, not 0,
+  until the week is settled. His 0 isn't final — an Open can still cover him, or
+  a bye QB/K's slot can go to a bench player — and a bold 0 beside the BYE tag
+  read as a game already played (Low Riders' copied Week 3 lineup: KC K and KC
+  DEF/ST). Once the week settles every row's state is "final" and he reads 0.
+  Box score only (dashboard counts()); the team total is the same either way,
+  and the commissioner's Weekly points still shows 0 on a bye.
 - 2026-09-16: 48-HOUR RE-ACQUIRE (commissioner). A team can't TRADE back a
   player (or unit) it traded away within 48 hours — closes renting a player via
   two trades around kickoff. Applies to trades the commissioner enters too.

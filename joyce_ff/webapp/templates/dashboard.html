@@ -554,7 +554,12 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$('mb').classList.
    winner — or a tie — when the card does; mid-game, being ahead isn't winning. */
 async function boxScore(homeId,awayId,final){
   const [h,a]=await Promise.all([fetch(`/api/team/${homeId}/detail?week=${VIEW}&season=${SEASON}`).then(r=>r.json()),fetch(`/api/team/${awayId}/detail?week=${VIEW}&season=${SEASON}`).then(r=>r.json())]);
-  const counts=x=>!x.state||x.state==='final'||x.state==='bye';   // a number that won't change
+  // A number that won't change. NOT a bye: his 0 can still become an Open
+  // rental's points, or his slot an extra RB's or receiver's (a bye QB or K) —
+  // and a bold 0 beside a BYE tag read as a game already played (Scott,
+  // 2026-10-10, Low Riders' KC kicker and defense). He shows a dash like anyone
+  // still to play; once the week is settled every row is final and he reads 0.
+  const counts=x=>!x.state||x.state==='final';
   const tot=t=> (t.adjusted && t.team_total!=null) ? t.team_total
     : t.box.reduce((s,x)=>s+(counts(x)?(x.points||0):0),0);
   const th=tot(h), ta=tot(a);
@@ -572,8 +577,9 @@ async function boxScore(homeId,awayId,final){
   /* Every starter who isn't finished gets a tag; a row with none is final,
      even at 0 points. His points show as a dash until his game locks: a
      mid-game stats update can hold half a game, and a number a manager sees
-     must never go on to change. A bye player shows 0 — he has no game, so 0
-     is what he'll score. Same rule for the column total and the breakdown
+     must never go on to change. A bye player shows a dash too, until the
+     week is over: an Open or a flex can still take his place, so his 0 isn't
+     settled yet. Same rule for the column total and the breakdown
      (counts() is defined above tot, which needs it first). */
   const kick=iso=>new Date(iso).toLocaleString([],{timeZone:'America/Chicago',weekday:'short',hour:'numeric',minute:'2-digit'});
   const stTag=x=>({playing:' <span class="tag-when now">in progress</span>',
