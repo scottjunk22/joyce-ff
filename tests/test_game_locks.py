@@ -682,6 +682,29 @@ def test_qb_and_k_both_on_bye_free_two_slots_but_an_open_closes_one(lg):
         _lineup(conn, sid, otb, 6, ["r1", "r2", "r3"], ["w1", "w2", "w3", "w4"], skip=("QB", "K"))
 
 
+def test_two_opens_for_the_same_nfl_team_can_both_start(lg):
+    """Low Riders, 2026-10-11: KC's kicker and defense on bye, Chicago's kicker
+    and Chicago's defense Opened to cover them — with Chicago's QB already on
+    the roster. The Opens were kept by team code alone, so the second replaced
+    the first and the lineup couldn't be submitted: "CHI isn't on your roster
+    or an active Open"."""
+    conn, sid, otb = lg
+    conn.execute("UPDATE nfl_teams SET bye_ff_week=6 WHERE abbr IN ('BAL','PIT')")
+    conn.commit()
+    repo.do_open(conn, sid, otb, "DEF/ST", "PIT", "CIN", 6)       # CIN is also his QB
+    repo.do_open(conn, sid, otb, "K", "BAL", "CIN", 6)
+    repo.set_lineup(conn, sid, otb, 6,
+                    [{"roster_slot": s, "asset_ref": r} for s, r in
+                     (("C", "KC"), ("K", "CIN"), ("DEF/ST", "CIN"), ("QB", "CIN"))]
+                    + [{"roster_slot": "RB", "asset_ref": r} for r in ("r1", "r2")]
+                    + [{"roster_slot": "R", "asset_ref": r} for r in ("w1", "w2", "w3")])
+    rows = _got(conn, sid, otb, 6)[2]
+    assert {(r["roster_slot"], r["asset_ref"], r["is_rental"]) for r in rows
+            if r["asset_ref"] == "CIN"} == {("K", "CIN", 1), ("DEF/ST", "CIN", 1), ("QB", "CIN", 0)}
+    with pytest.raises(repo.RuleError, match="isn't on your roster or an active Open"):
+        _lineup(conn, sid, otb, 7, ["r1", "r2"], ["w1", "w2", "fa_r"])   # the check still bites
+
+
 def test_the_copy_fills_a_bye_qb_from_the_bench_and_brings_him_back_after(lg):
     conn, sid, otb = lg
     conn.execute("UPDATE nfl_teams SET bye_ff_week=6 WHERE abbr='CIN'")

@@ -418,6 +418,14 @@ what the Phase-1 reconciliation is designed to arbitrate.
   never wraps, so rows stay level across teams; covered name last so a trim
   drops it before the game state) and always tappable, even at 0, opening
   with "Open for Travis Kelce (bye)".
+  2026-10-11: TWO OPENS FOR THE SAME NFL TEAM. Low Riders covered KC's kicker
+  and KC's defense (bye) with Chicago's kicker and Chicago's defense, owning
+  Chicago's QB too. set_lineup kept the week's Opens by team code alone, so the
+  second replaced the first and EVERY submit was refused: "CHI isn't on your
+  roster or an active Open for week 3". The Opens themselves had gone into the
+  saved lineup correctly; only resubmitting was broken. repo._open_rentals is
+  now a set of (position, ref). A team code is not an id — one club is four
+  different units — so never key units by ref alone.
 - 2026-09-15: LINEUP LABELS (commissioner). Most managers submit Sunday
   morning, so cards only say: "⚠ Thu player" (team hasn't submitted and has an
   RB/R whose game is before Sunday; tap opens Set Lineup) until that kickoff;

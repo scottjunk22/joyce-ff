@@ -803,9 +803,14 @@ def _log_tx(conn, season_id, team_id, ff_week, typ, position, out_ref, in_ref, i
     return int(cur.lastrowid)
 
 
-def _open_rentals(conn, season_id, team_id, ff_week) -> dict[str, str]:
-    """{in_asset_ref: position} the team may start this week via an OPEN."""
-    return {r["in_asset_ref"]: r["position"] for r in conn.execute(
+def _open_rentals(conn, season_id, team_id, ff_week) -> set[tuple[str, str]]:
+    """{(position, in_asset_ref)} the team may start this week via an OPEN.
+
+    Keyed by position AND ref: one NFL team can be rented in two slots at once.
+    Low Riders Opened Chicago's kicker and Chicago's defense for a KC bye; keyed
+    by ref alone the second Open overwrote the first, and every submit was
+    refused with "CHI isn't on your roster or an active Open" (2026-10-11)."""
+    return {(r["position"], r["in_asset_ref"]) for r in conn.execute(
         "SELECT in_asset_ref, position FROM transactions WHERE season_id=? AND team_id=? "
         "AND ff_week=? AND type='OPEN' AND reversed=0", (season_id, team_id, ff_week))}
 
@@ -937,7 +942,7 @@ def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
         on = _find_on_roster(conn, team_id, slot, ref)
         if on:
             resolved.append((slot, on["asset_kind"], ref, on["unit_type"], 0))
-        elif rentals.get(ref) == slot:
+        elif (slot, ref) in rentals:
             resolved.append((slot, _kind_for(slot), ref,
                              slot if slot in UNIT_POS else None, 1))
         elif (slot, ref) in kept and (locked_refs is None or ref in set(locked_refs)):
