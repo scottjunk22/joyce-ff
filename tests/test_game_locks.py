@@ -915,3 +915,50 @@ def test_a_missing_history_table_never_stops_a_lineup_save(lg):
     conn.commit()
     _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])
     assert _got(conn, sid, otb, 4)[1] == {"w1", "w2", "w3"}
+
+
+# --- one press of Confirm, one Open (Juggernuts, 2026-10-11) ---------------------
+
+def _two_receivers_on_bye(lg):
+    """Week 5: w1 and w2 are both on bye; w1 starts, w2 sits (as Rice and Coker did)."""
+    conn, sid, otb = lg
+    _set(conn, sid, otb, 5, ["r1", "r2"], ["w1", "w3", "w4"])
+    return conn, sid, otb
+
+
+def test_the_same_open_cannot_be_bought_twice(lg):
+    conn, sid, otb = _two_receivers_on_bye(lg)
+    repo.do_open(conn, sid, otb, "R", "w2", "fa_r", 5)
+    with pytest.raises(repo.RuleError, match="fa_r is already Opened for w2 in Week 5"):
+        repo.do_open(conn, sid, otb, "R", "w2", "fa_r", 5)            # the second press
+    assert conn.execute("SELECT COUNT(*) n FROM transactions WHERE type='OPEN'").fetchone()["n"] == 1
+    assert repo.fee_balance_cents(conn, otb)["free_used"] == 1
+    # he can still start him in place of the bye receiver who was in the lineup
+    repo.set_lineup(conn, sid, otb, 5,
+                    [{"roster_slot": s, "asset_ref": r} for s, r in UNITS_NO.items()]
+                    + [{"roster_slot": "RB", "asset_ref": r} for r in ("r1", "r2")]
+                    + [{"roster_slot": "R", "asset_ref": r} for r in ("fa_r", "w3", "w4")],
+                    locked_refs={"w3"})
+
+
+def test_cleaning_up_repeated_opens_keeps_the_first_and_the_lineup(lg):
+    """What the 12 presses left behind: one real Open and eleven copies, five
+    free moves gone and $14 in fees. Reversing the copies must leave the rental
+    in the lineup and the account as if he had pressed once."""
+    conn, sid, otb = _two_receivers_on_bye(lg)
+    repo.do_open(conn, sid, otb, "R", "w1", "fa_r", 5)                 # covers the STARTER: swapped in
+    assert _got(conn, sid, otb, 5)[1] == {"fa_r", "w3", "w4"}
+    for _ in range(11):                                                # the copies, as they were recorded
+        repo._log_tx(conn, sid, otb, 5, "OPEN", "R", "w1", "fa_r", "PLAYER")
+    assert repo.fee_balance_cents(conn, otb)["tx_fee_cents"] == 1400
+    extra = repo.duplicate_opens(conn, sid)
+    assert len(extra) == 11 and all(t["team"] == "OT Blitz" for t in extra)
+    for t in extra:
+        repo.reverse_transaction(conn, t["id"])
+    assert repo.duplicate_opens(conn, sid) == []
+    f = repo.fee_balance_cents(conn, otb)
+    assert (f["free_used"], f["tx_fee_cents"]) == (1, 0)
+    assert _got(conn, sid, otb, 5)[1] == {"fa_r", "w3", "w4"}          # still starting
+    (last,) = conn.execute("SELECT id FROM transactions WHERE type='OPEN' AND reversed=0").fetchall()
+    repo.reverse_transaction(conn, last["id"])                          # the real one: now he comes out
+    assert _got(conn, sid, otb, 5)[1] == {"w1", "w3", "w4"}

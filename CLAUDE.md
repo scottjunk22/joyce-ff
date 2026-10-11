@@ -426,6 +426,23 @@ what the Phase-1 reconciliation is designed to arbitrate.
   saved lineup correctly; only resubmitting was broken. repo._open_rentals is
   now a set of (position, ref). A team code is not an id — one club is four
   different units — so never key units by ref alone.
+  2026-10-11: ONE PRESS, ONE MOVE. Juggernuts' manager Opened Khalil Shakir for
+  Jalen Coker TWELVE times in 11 seconds (12:30 PM, site slow at kickoff): the
+  Confirm button stayed live while the first request was on its way, and
+  nothing stopped a repeat Open — a rented player isn't "owned", so the
+  availability check passes every time (a repeat TRADE is refused: "already on
+  your roster"). Five free moves gone and $14 in fees for one rental. Three
+  fixes: (1) Confirm goes grey ("Sending… one moment") until the answer is back,
+  and comes back with a message if there is none; (2) repo.do_open refuses the
+  same Open again — "already Opened for … — it went through the first time";
+  (3) reversing a repeat no longer pulls the rental out of the lineup while
+  another Open still rents him. Clean-up: `manage.py dedupe-opens` lists
+  repeats, `--apply` reverses them, keeping the FIRST of each set (the
+  cheapest: a fee is fixed when the move is made). NOT a bug: his Open didn't
+  start by itself because it covered Coker, who was on his BENCH; the bye
+  player in his lineup was Rice. He benches Rice and starts Shakir himself.
+  Still open, a rule question: a DIFFERENT rental for a player an Open already
+  covers is still allowed.
 - 2026-09-15: LINEUP LABELS (commissioner). Most managers submit Sunday
   morning, so cards only say: "⚠ Thu player" (team hasn't submitted and has an
   RB/R whose game is before Sunday; tap opens Set Lineup) until that kickoff;

@@ -201,6 +201,53 @@ def cmd_add_player(argv: list[str]) -> int:
     return 0
 
 
+def cmd_dedupe_opens(argv: list[str]) -> int:
+    """Reverse Opens that repeat an earlier one (a Confirm button pressed more
+    than once). The first of each set is kept. Reversed moves cost nothing and
+    don't count against the five free ones. Lists them and stops; add --apply
+    to actually reverse them.
+
+        python manage.py dedupe-opens
+        python manage.py dedupe-opens --apply
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from joyce_ff.league import connect, repo
+
+    conn = connect()
+    s = conn.execute("SELECT id FROM seasons ORDER BY id DESC LIMIT 1").fetchone()
+    if not s:
+        print("no season yet — start one first", file=sys.stderr)
+        return 1
+    extra = repo.duplicate_opens(conn, s["id"])
+    if not extra:
+        print("No repeated Opens.")
+        conn.close()
+        return 0
+    when = lambda iso: datetime.fromisoformat(iso).astimezone(ZoneInfo("America/Chicago")).strftime(
+        "%a %b %d, %I:%M:%S %p CT")
+    label = lambda t, ref: repo._asset_label(conn, s["id"], t["out_asset_kind"], ref, t["position"])
+    apply = "--apply" in argv
+    print(f"{len(extra)} repeated Open{'s' if len(extra) != 1 else ''} "
+          f"({'reversing' if apply else 'nothing changed yet'}):")
+    for t in extra:
+        print(f"  {t['team']} · Week {t['ff_week']} · {label(t, t['in_asset_ref'])} for "
+              f"{label(t, t['out_asset_ref'])} · {when(t['created_at'])} · "
+              f"{'free move' if not t['fee_cents'] else '$%d fee' % (t['fee_cents'] // 100)}")
+        if apply:
+            repo.reverse_transaction(conn, t["id"])
+    if apply:
+        for name, tid in sorted({(t["team"], t["team_id"]) for t in extra}):
+            f = repo.fee_balance_cents(conn, tid)
+            print(f"{name} now: {f['free_used']} of 5 free moves used, "
+                  f"${f['tx_fee_cents'] // 100} in move fees.")
+    else:
+        print("Run it again with --apply to reverse them. The first Open of each set is kept.")
+    conn.close()
+    return 0
+
+
 def cmd_import_ecr(argv: list[str]) -> int:
     """Import a FantasyPros rankings CSV (downloaded by a logged-in user — we
     never scrape them) so the board can show their consensus beside our VOR."""
@@ -510,6 +557,7 @@ COMMANDS = {
     "import-ecr": cmd_import_ecr,
     "refresh-players": cmd_refresh_players,
     "add-player": cmd_add_player,
+    "dedupe-opens": cmd_dedupe_opens,
     "lineup-history": cmd_lineup_history,
     "site-stats": cmd_site_stats,
     "set-platform-pass": cmd_set_platform_pass,

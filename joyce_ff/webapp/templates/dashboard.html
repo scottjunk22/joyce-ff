@@ -998,9 +998,26 @@ function renderTxReview(){ const isTrade=TX.mode==='trade', mismatch=isTrade&&TX
     ${mismatch?`<div class="txwarn"><div style="font-weight:800;color:var(--warn)">⚠ ${TX.outName} is on his bye in Week ${TX.openWeek}</div><div style="font-size:13px;margin:5px 0 10px">A <b>Trade is permanent</b> and can't be undone. Since he's on bye, did you mean to <b>Open</b> him — a 1-week rental that keeps him on your roster?</div><button class="go" style="background:var(--blue)" onclick="txSwitchOpen()">Switch to Open</button></div>`:''}
     <div style="font-weight:700;color:${isTrade?'var(--bad)':'var(--blue)'};margin-bottom:4px">${isTrade?'⇄ Permanent trade':'＋ Open · 1-week rental for Week '+TX.openWeek}</div>
     <div style="font-size:13px;line-height:1.6">Drop <b>${TX.outName}</b>${isTrade?'':' for Week '+TX.openWeek}<br>${isTrade?'Add':'Start'} <b>${TX.inName}</b>${isTrade?' — <span style="color:var(--bad)">permanently</span>':' — Week '+TX.openWeek+' only; '+TX.outName+' stays rostered'}</div>
-    <div class="pass"><button class="chip" onclick="txBack()">← Back</button><span style="flex:1"></span><button class="go" style="${isTrade?'background:var(--bad);color:#fff':''}" onclick="submitTx()">${isTrade?'Confirm — trade permanently':'Confirm — Open for Week '+TX.openWeek}</button></div>`;
+    <div class="pass"><button class="chip" onclick="txBack()">← Back</button><span style="flex:1"></span><button class="go" style="${isTrade?'background:var(--bad);color:#fff':''}" onclick="submitTx(this)">${isTrade?'Confirm — trade permanently':'Confirm — Open for Week '+TX.openWeek}</button></div>`;
 }
-async function submitTx(){
+/* One press, one move. With the site slow at kickoff a manager pressed Confirm
+   12 times in 11 seconds and got 12 Opens (Juggernuts, 2026-10-11): the button
+   stayed live while the first request was still on its way. Now it goes grey
+   and says so until the answer is back; the server refuses a repeat as well. */
+let TXBUSY=false;
+async function submitTx(btn){
+  if(TXBUSY) return;
+  TXBUSY=true;
+  const was=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.style.opacity='.55'; btn.textContent='Sending… one moment'; }
+  try{ await sendTx(); }
+  catch(e){ // never got an answer: give the button back. Pressing again is safe —
+            // a move that did go through is refused as a repeat, not made twice.
+    if(btn){ btn.disabled=false; btn.style.opacity=''; btn.textContent=was; }
+    alert('⚠ No answer from the site — check your connection, then press Confirm again.'); }
+  finally{ TXBUSY=false; }
+}
+async function sendTx(){
   const res=await fetch(`/api/team/${TX.team}/${TX.mode}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:TX.pc,position:TX.outPos,out:TX.out,in:TX.in,week:TX.mode==='open'?TX.openWeek:undefined})});
   const j=await res.json();
   if(res.ok){ const isTrade=TX.mode==='trade';

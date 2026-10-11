@@ -536,6 +536,20 @@ def do_open(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
             raise RuleError("you don't own that player at that position")
         if not is_on_bye(conn, season_id, out["asset_kind"], out_ref, ff_week):
             raise RuleError("Open is only allowed to cover a player on his NFL bye that week")
+        # The same Open twice is a second press of Confirm, never a second
+        # wish. A rented player isn't "owned", so nothing else stops it: on
+        # 2026-10-11 the site was slow at kickoff, Juggernuts' manager pressed
+        # Confirm 12 times in 11 seconds, and every press was recorded — five
+        # free moves gone and $14 in fees for one rental.
+        if conn.execute(
+                "SELECT 1 FROM transactions WHERE season_id=? AND team_id=? AND ff_week=? "
+                "AND type='OPEN' AND reversed=0 AND position=? AND out_asset_ref=? AND in_asset_ref=?",
+                (season_id, team_id, ff_week, position, out_ref, in_ref)).fetchone():
+            kind = _kind_for(position)
+            raise RuleError(
+                f"{_asset_label(conn, season_id, kind, in_ref, position)} is already Opened for "
+                f"{_asset_label(conn, season_id, kind, out_ref, position)} in Week {ff_week} — "
+                f"it went through the first time")
         conf = _team_conf(conn, team_id)
         _assert_available(conn, season_id, conf, position, in_ref, team_id)
         tx = _log_tx(conn, season_id, team_id, ff_week, "OPEN", position,
@@ -747,6 +761,12 @@ def reverse_transaction(conn, tx_id) -> None:
         conn.execute("UPDATE roster_entries SET released_ff_week=NULL WHERE team_id=? AND "
                      "asset_ref=? AND released_ff_week=?",
                      (tx["team_id"], tx["out_asset_ref"], tx["ff_week"]))
+    elif conn.execute(
+            "SELECT 1 FROM transactions WHERE season_id=? AND team_id=? AND ff_week=? AND type='OPEN' "
+            "AND reversed=0 AND position=? AND in_asset_ref=? AND id<>?",
+            (tx["season_id"], tx["team_id"], tx["ff_week"], tx["position"], tx["in_asset_ref"],
+             tx_id)).fetchone():
+        pass   # a duplicate: another Open still rents him, so the lineup keeps him
     else:  # OPEN — the rental's start goes back to the player it covered
         key = (tx["season_id"], tx["team_id"], tx["ff_week"])
         back = conn.execute("SELECT 1 FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=? "
@@ -765,6 +785,24 @@ def reverse_transaction(conn, tx_id) -> None:
         record_lineup(conn, tx["season_id"], tx["team_id"], tx["ff_week"], "reverse")
     conn.execute("UPDATE transactions SET reversed=1 WHERE id=?", (tx_id,))
     conn.commit()
+
+
+def duplicate_opens(conn, season_id) -> list[dict]:
+    """Every Open that repeats an earlier one — same team, week, position,
+    covered player and rental, none reversed. The EARLIEST of each set is the
+    real one and is not listed; it is also the cheapest, since fees are set when
+    a move is made. Read-only; manage.py dedupe-opens reverses what it returns."""
+    seen, extra = set(), []
+    for t in conn.execute(
+            "SELECT tr.id, tr.team_id, t.name team, tr.ff_week, tr.position, tr.out_asset_kind, "
+            "tr.out_asset_ref, tr.in_asset_ref, tr.fee_cents, tr.created_at "
+            "FROM transactions tr JOIN teams t ON t.id=tr.team_id "
+            "WHERE tr.season_id=? AND tr.type='OPEN' AND tr.reversed=0 ORDER BY tr.id", (season_id,)):
+        key = (t["team_id"], t["ff_week"], t["position"], t["out_asset_ref"], t["in_asset_ref"])
+        if key in seen:
+            extra.append(dict(t))
+        seen.add(key)
+    return extra
 
 
 def convert_transaction(conn, season_id, tx_id) -> int:
