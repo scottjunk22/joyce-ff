@@ -163,6 +163,19 @@ CREATE TABLE IF NOT EXISTS lineup_history (
 );
 CREATE INDEX IF NOT EXISTS ix_lineup_history ON lineup_history(season_id, team_id, ff_week);
 
+-- ---- announcements: the commissioner's notes on the main page -------------
+-- League-wide, not per season; they stay until removed (league/announcements.py).
+CREATE TABLE IF NOT EXISTS announcements (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    title      TEXT,                   -- optional headline
+    body       TEXT NOT NULL,          -- plain text as typed; the page escapes it
+    posted_by  TEXT,                   -- commissioner's name
+    created_at TEXT NOT NULL,          -- UTC ISO
+    updated_at TEXT,                   -- set when the words were edited
+    removed_at TEXT,                   -- NULL = showing; removed ones are kept
+    removed_by TEXT
+);
+
 -- ---- transactions (trade = permanent, open = one-week rental) -----------
 CREATE TABLE IF NOT EXISTS transactions (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -389,6 +402,16 @@ def migrate(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE TABLE IF NOT EXISTS chat_messages ("
                  "id INTEGER PRIMARY KEY AUTOINCREMENT, author TEXT NOT NULL, "
                  "body TEXT NOT NULL, created_at TEXT NOT NULL)")
+    conn.executescript("""CREATE TABLE IF NOT EXISTS announcements (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    title      TEXT,                   -- optional headline
+    body       TEXT NOT NULL,          -- plain text as typed; the page escapes it
+    posted_by  TEXT,                   -- commissioner's name
+    created_at TEXT NOT NULL,          -- UTC ISO
+    updated_at TEXT,                   -- set when the words were edited
+    removed_at TEXT,                   -- NULL = showing; removed ones are kept
+    removed_by TEXT
+);""")
     conn.executescript("""CREATE TABLE IF NOT EXISTS lineup_history (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     season_id     INTEGER NOT NULL REFERENCES seasons(id),

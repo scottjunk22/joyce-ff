@@ -164,6 +164,21 @@
  .cic{font-size:14px;margin-right:2px;opacity:.85}.cchk .cic{margin-right:6px}
  .cbig{display:block;text-align:left;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px 14px;font-size:15px;font-weight:700;cursor:pointer;min-width:260px}
  .cbig span{display:block;font-size:12px;font-weight:400;color:var(--dim);margin-top:2px}
+ /* Announcements: solid panel cards, like the scoreboard's, so they read the
+    same in light and dark (no see-through tints directly on the page). */
+ .ann{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 13px;margin:0 0 8px}
+ .ann .at{font-weight:700;color:var(--bright);font-size:14px;margin-bottom:3px;overflow-wrap:anywhere}
+ .ann .ab{white-space:pre-line;font-size:13.5px;line-height:1.5;overflow-wrap:anywhere}
+ .ann .am{color:var(--dim);font-size:11.5px;margin-top:6px}
+ .annmore{background:none;border:0;color:var(--blue);font:inherit;font-size:12.5px;padding:2px 0;cursor:pointer}
+ .annf input,.annf textarea{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);
+   border-radius:8px;padding:8px 10px;font:inherit;font-size:14px}
+ .annf textarea{min-height:92px;resize:vertical;margin-top:8px;line-height:1.45}
+ .annf .annbar{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+ .annf .annbar .sub{flex:1;min-width:150px}
+ .annrow{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line)}
+ .annrow .ax{min-width:0;overflow-wrap:anywhere;font-size:13px}
+ .annrow .ak{display:flex;gap:6px;white-space:nowrap}
  .cfold{border-top:1px solid var(--line)}.cfold>summary{cursor:pointer;padding:10px 2px;font-size:14px;list-style-position:inside}
  .cfold .cfbody{padding:2px 2px 12px}
  .mvwk{margin:10px 0 2px;font-weight:800;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--dim)}
@@ -288,6 +303,8 @@
  <div class="byestrip" id="byes"></div>
  <div class="scores" id="scores"></div>
 
+ <div id="annBox" hidden></div>
+
  <h2>Standings</h2>
  <div class="leagues">
   <div class="lg blue"><div class="cap">BLUE CONFERENCE</div><div class="tblwrap"><table><thead><tr><th>#</th><th>Team</th><th>W-L</th><th>Conf</th><th>PF</th><th>PA</th></tr></thead><tbody id="blue"></tbody></table></div></div>
@@ -344,7 +361,7 @@ async function load(week, seasonId){
   if(!STATE.season){ renderNoSeason(); return; }
   SEASON = STATE.season.id; VIEW = STATE.season.week; CUR = STATE.season.current; LW = STATE.season.lineup_week || CUR; TEAMS={};
   for(const c of ['BLUE','RED']) STATE.standings[c].forEach(t=>TEAMS[t.team_id]=t);
-  buildSeasonPicker(); buildWeekPicker(); renderScores(); renderNextWeek(); renderEarly(); renderByes(); renderStandings(); renderElim(); renderTx();
+  buildSeasonPicker(); buildWeekPicker(); renderScores(); renderAnnouncements(); renderNextWeek(); renderEarly(); renderByes(); renderStandings(); renderElim(); renderTx();
   renderChrome();
   $('seasonlbl').textContent = STATE.season.label;
   /* Why the scoreboard is empty, when it is. A blank scoreboard and a
@@ -430,6 +447,25 @@ async function seeNextWeek(){
   await load(LW, SEASON);
   const w=$('wk'); if(!w) return;
   w.classList.add('wkglow'); setTimeout(()=>w.classList.remove('wkglow'),2200);
+}
+/* Announcements (Scott, 2026-10-11): the commissioner's notes, between the
+   scoreboard and the standings. The two newest show; older ones sit behind one
+   link. No announcements, no section — not even the heading.
+   The words are HIS, typed into a box, so every one of them is escaped here:
+   nothing he pastes can turn into markup. Line breaks are kept by the CSS. */
+const escH=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const annWhen=iso=>{ const d=new Date(iso); return isNaN(d)?'':d.toLocaleDateString('en-US',{timeZone:'America/Chicago',weekday:'short',month:'short',day:'numeric'}); };
+const annBy=a=>[a.by,annWhen(a.at)].filter(Boolean).map(escH).join(' · ');
+const ANN_SHOWN=2; let ANN_ALL=false;
+function renderAnnouncements(){
+  const el=$('annBox'); if(!el) return;
+  const list=STATE.announcements||[];
+  el.hidden=!list.length;
+  if(!list.length){ el.innerHTML=''; return; }
+  const card=a=>`<div class="ann">${a.title?`<div class="at">${escH(a.title)}</div>`:''}<div class="ab">${escH(a.body)}</div><div class="am">${annBy(a)}</div></div>`;
+  const older=list.length-ANN_SHOWN;
+  el.innerHTML=`<h2>Announcements</h2>`+(ANN_ALL?list:list.slice(0,ANN_SHOWN)).map(card).join('')
+    +(older>0?`<button class="annmore" onclick="ANN_ALL=!ANN_ALL;renderAnnouncements()">${ANN_ALL?'Show fewer':`Show ${older} older announcement${older>1?'s':''}`}</button>`:'');
 }
 function buildWeekPicker(){
   $('wk').innerHTML = STATE.season.weeks.map(w=>`<option value="${w}" ${w===VIEW?'selected':''}>${w}</option>`).join('');
@@ -1138,6 +1174,7 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
   const teams=`<div class="csec">Teams</div>`+table(byNum(STATE.standings.BLUE),'BLUE CONFERENCE','var(--blue)')
     +table(byNum(STATE.standings.RED),'RED CONFERENCE','var(--red)');
   const folds=`<div style="margin-top:18px">`
+    +cfold('ann',`Announcements${(STATE.announcements||[]).length?` <span class="sub">· ${STATE.announcements.length} posted</span>`:''}`,annPanel())
     +cfold('score','Scores seem stuck? Score now',`<div class="sub" style="margin-bottom:8px">Scores post on their own about 10–15 minutes after each game ends. Use this only if one hasn't shown up.</div><button class="btn" onclick="runCurrent()">▶ Score now</button>`)
     +cfold('earlier','Earlier score checks',`<div id="earlierBox"><span class="sub">loading…</span></div>`)
     +cfold('moves','Recent moves and entries for managers',(txSection||'<div class="sub">No moves yet.</div>')+`<div id="auditBox"></div>`)
@@ -1148,6 +1185,45 @@ function renderCommish(){ if(!$('commBody')) return;   // modal closed — nothi
     +`</div>`;
   $('commBody').innerHTML=attention+thisWeek+tools+money+teams+folds;
   loadAudit(); loadScoreChecks(); loadAllMoves(); loadMoney();
+}
+/* The commissioner's side of Announcements. The tab redraws itself after every
+   button press anywhere on it, so what he has typed is kept in ANN (not just in
+   the boxes) and put back — a half-written note must survive a redraw. */
+let ANN={id:null,title:'',body:''};
+function annPanel(){
+  const list=STATE.announcements||[], editing=ANN.id!=null;
+  const rows=list.map(a=>`<div class="annrow"><div class="ax">${a.title?`<b>${escH(a.title)}</b><br>`:''}${escH(a.body.length>140?a.body.slice(0,140)+'…':a.body)}`
+      +`<div class="sub">${annBy(a)}${a.edited?' · edited':''}${ANN.id===a.id?' · <b>editing above</b>':''}</div></div>`
+      +`<div class="ak"><button class="chip" onclick="annEdit(${a.id})">Edit</button>`
+      +`<button class="chip" style="border-color:var(--bad);color:var(--bad)" onclick="annRemove(${a.id})">Remove</button></div></div>`).join('');
+  return `<div class="annf">
+    <input id="annTitle" maxlength="80" placeholder="Headline (optional)" value="${escH(ANN.title)}" oninput="ANN.title=this.value">
+    <textarea id="annBody" maxlength="1500" placeholder="Write your announcement" oninput="ANN.body=this.value">${escH(ANN.body)}</textarea>
+    <div class="annbar"><span class="sub">${editing?'Changing an announcement that is already posted.':'Shows on the main page for everyone, under the scoreboard.'}</span>
+      ${editing?`<button class="chip" onclick="annCancel()">Cancel</button>`:''}
+      <button class="btn" onclick="annSave(this)">${editing?'Save changes':'Post'}</button></div>
+    ${list.length?`<div class="sub" style="margin:12px 0 2px;font-weight:700">Posted — the two newest show; older ones are behind a link</div>${rows}`:''}
+  </div>`;
+}
+function annRedraw(j){ STATE.announcements=j.announcements; renderAnnouncements(); renderCommish(); }
+async function annSave(btn){
+  if(!ANN.body.trim()){ alert('⚠ Write a message first — the announcement is empty.'); return; }
+  if(btn){ btn.disabled=true; }                       // one press, one post
+  const j=await apost('/api/admin/announcement'+(ANN.id!=null?'/'+ANN.id:''),{title:ANN.title,body:ANN.body});
+  if(!j){ if(btn) btn.disabled=false; return; }       // refused: his words are still in the boxes
+  ANN={id:null,title:'',body:''}; annRedraw(j);
+}
+function annEdit(id){ const a=(STATE.announcements||[]).find(x=>x.id===id); if(!a) return;
+  if((ANN.title||ANN.body)&&ANN.id!==id&&!confirm('Replace what you have typed with this announcement, to edit it?')) return;
+  ANN={id:a.id,title:a.title||'',body:a.body}; renderCommish();
+  const t=$('annBody'); if(t){ t.focus(); t.scrollIntoView({block:'center'}); } }
+function annCancel(){ ANN={id:null,title:'',body:''}; renderCommish(); }
+async function annRemove(id){ const a=(STATE.announcements||[]).find(x=>x.id===id); if(!a) return;
+  const what=a.title||(a.body.length>60?a.body.slice(0,60)+'…':a.body);
+  if(!confirm(`Remove this announcement from the main page?\n\n"${what}"`)) return;
+  const j=await apost(`/api/admin/announcement/${id}/delete`,{}); if(!j) return;
+  if(ANN.id===id) ANN={id:null,title:'',body:''};
+  annRedraw(j);
 }
 /* A folded section. Which ones are open survives a redraw (every button press
    reloads the page data and redraws the tab). */

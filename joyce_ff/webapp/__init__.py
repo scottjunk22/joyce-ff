@@ -18,8 +18,8 @@ from pathlib import Path
 
 from flask import Flask, g, jsonify, redirect, render_template, request
 
-from ..league import (auth, display, progress, repo, runner, schema, score_checks, scoring,
-                      tiebreak, titles)
+from ..league import (announcements, auth, display, progress, repo, runner, schema, score_checks,
+                      scoring, tiebreak, titles)
 from ..scoring import rules
 from ..league import standings as st
 
@@ -595,6 +595,7 @@ def create_app(db_path: str | None = None) -> Flask:
                            fees={}, pool={"alive": [], "eliminated": []},
                            transactions={"BLUE": [], "RED": []}, lineups=None,
                            byes=[], payout=None, titles={}, stat_checks=[],
+                           announcements=announcements.active(conn),
                            champion=_latest_champion())
         sid = s["id"]
         # The site opens on the SCOREBOARD week; managers act on the LINEUP week
@@ -766,6 +767,7 @@ def create_app(db_path: str | None = None) -> Flask:
                                            for r in all_seasons]},
                        standings=stand, scoreboard=board, fees=fees, pool=pool,
                        transactions=tx, lineups=lineups, byes=byes,
+                       announcements=announcements.active(conn),
                        champion=_latest_champion(),
                        titles=titles.for_season(conn, sid),
                        scoring_note=runner.scoring_note(conn, sid),
@@ -1225,6 +1227,30 @@ def create_app(db_path: str | None = None) -> Flask:
         return jsonify(ok=True, collected_cents=collected, owed=owed,
                        owed_cents=sum(o["cents"] for o in owed),
                        settled=settled, teams=teams, payments=pays)
+
+    # ---- announcements (commissioner posts; everyone reads them in /api/state) ----
+    def _announce(change):
+        """Run one change to the announcements and send back the list as it now
+        stands, or the reason it was refused in words he can act on."""
+        if (bad := _commish()):
+            return bad
+        try:
+            change(request.get_json(force=True), auth.commissioner_name(db(), _passcode()))
+        except announcements.AnnouncementError as e:
+            return jsonify(error=str(e)), 400
+        return jsonify(ok=True, announcements=announcements.active(db()))
+
+    @app.post("/api/admin/announcement")
+    def admin_announcement_post():
+        return _announce(lambda b, who: announcements.post(db(), b.get("title"), b.get("body"), who))
+
+    @app.post("/api/admin/announcement/<int:ann_id>")
+    def admin_announcement_edit(ann_id):
+        return _announce(lambda b, who: announcements.edit(db(), ann_id, b.get("title"), b.get("body")))
+
+    @app.post("/api/admin/announcement/<int:ann_id>/delete")
+    def admin_announcement_delete(ann_id):
+        return _announce(lambda b, who: announcements.remove(db(), ann_id, who))
 
     @app.post("/api/admin/payment/<int:pay_id>/delete")
     def admin_payment_delete(pay_id):

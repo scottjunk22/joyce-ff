@@ -134,6 +134,22 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-10-11: ANNOUNCEMENTS (Scott, for his dad). A section on the main page
+  BETWEEN the scoreboard and the standings; the commissioner writes them in a
+  FOLDED row at the top of the commissioner tab's folds (kept folded so the tab
+  stays clean). Scott's answers from the mock: headline OPTIONAL; the TWO newest
+  show, older ones behind "Show N older announcements"; they NEVER expire — he
+  removes them himself; web addresses stay plain text (no auto-links; revisit
+  if he starts pasting them); NO highlight on the newest (the order and the
+  date say which is new). No announcements = no section, not even the heading.
+  Each shows "Steve · Sun, Oct 11" (who posted, Central date). League-wide, not
+  per season. Edit overwrites the words (marked "edited" in his list only);
+  Remove hides it but keeps the row (removed_at/by). The text is stored as
+  typed and ESCAPED ON THE PAGE (escH) — the first place the site shows free
+  text a person typed, so never print it raw. Limits: headline 80, message
+  1500. What he has typed is held in JS (ANN) because the tab redraws after
+  every button press. Code: league/announcements.py, /api/admin/announcement
+  (+ /<id>, /<id>/delete), `announcements` in /api/state.
 - 2026-09-20: LIGHT MODE (Scott; his dad's screen is light). The site follows
   the device (dark is the default look). In light mode: the header AND the
   champion band stay dark navy (gold lettering on the band) so both themes open
