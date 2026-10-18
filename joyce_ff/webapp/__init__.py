@@ -201,7 +201,7 @@ def create_app(db_path: str | None = None) -> Flask:
         opens = {}
         for t in conn.execute("SELECT team_id, position, out_asset_ref, in_asset_ref, in_asset_kind "
                               "FROM transactions WHERE season_id=? AND ff_week=? AND type='OPEN' "
-                              "AND reversed=0", (sid, wk)):
+                              "AND reversed=0 AND replaced_by IS NULL", (sid, wk)):
             in_team = _asset_team(conn, sid, t["in_asset_kind"], t["in_asset_ref"])
             opens.setdefault((t["team_id"], t["position"], t["out_asset_ref"]), []).append({
                 "ref": t["in_asset_ref"], "team": display.team(in_team) if in_team else None,
@@ -862,7 +862,7 @@ def create_app(db_path: str | None = None) -> Flask:
         for t in conn.execute(
                 "SELECT in_asset_ref, in_asset_kind, out_asset_ref, out_asset_kind, position "
                 "FROM transactions WHERE season_id=? AND team_id=? AND ff_week=? AND type='OPEN' "
-                "AND reversed=0", (sid, team_id, wk)):
+                "AND reversed=0 AND replaced_by IS NULL", (sid, team_id, wk)):
             in_team = _asset_team(conn, sid, t["in_asset_kind"], t["in_asset_ref"])
             g = games.get(in_team) or {}
             unit = t["position"] if t["out_asset_kind"] == "TEAM_UNIT" else None
@@ -1015,13 +1015,16 @@ def create_app(db_path: str | None = None) -> Flask:
         if not is_comm and wk not in allowed:
             return jsonify(error=f"Opens can be for Week {' or Week '.join(map(str, allowed))} right now"), 400
         from ..league.locks import locked_assets
+        notes: list[str] = []
         try:
             tx = repo.do_open(db(), sid, team_id, b["position"], b["out"], b["in"], wk,
                               actor=auth.commissioner_name(db(), _passcode()),
-                              locked_refs=None if is_comm else locked_assets(db(), sid, wk))
+                              locked_refs=None if is_comm else locked_assets(db(), sid, wk),
+                              notes=notes)
         except repo.RuleError as e:
             return jsonify(error=str(e)), 400
-        return jsonify(ok=True, transaction_id=tx, **_tx_fee_info(tx, team_id))
+        return jsonify(ok=True, transaction_id=tx, lineup_note=notes[0] if notes else None,
+                       **_tx_fee_info(tx, team_id))
 
     @app.post("/api/team/<int:team_id>/lineup")
     def lineup(team_id):
@@ -1525,7 +1528,8 @@ def create_app(db_path: str | None = None) -> Flask:
                 "SELECT tr.position, tr.in_asset_kind, tr.in_asset_ref, tr.out_asset_kind, "
                 "tr.out_asset_ref, t.name team, c.code conf FROM transactions tr "
                 "JOIN teams t ON t.id=tr.team_id JOIN conferences c ON c.id=t.conference_id "
-                "WHERE tr.season_id=? AND tr.ff_week=? AND tr.type='OPEN' AND tr.reversed=0",
+                "WHERE tr.season_id=? AND tr.ff_week=? AND tr.type='OPEN' AND tr.reversed=0 "
+                "AND tr.replaced_by IS NULL",
                 (sid, wk)):
             owners.setdefault(key(r["in_asset_kind"], r["in_asset_ref"], r["position"]), []).append(
                 {"team": r["team"], "conf": r["conf"], "open": True,

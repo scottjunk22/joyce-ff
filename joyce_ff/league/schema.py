@@ -192,7 +192,10 @@ CREATE TABLE IF NOT EXISTS transactions (
     reversed       INTEGER NOT NULL DEFAULT 0,   -- commissioner can reverse
     note           TEXT,
     entered_by     TEXT,               -- NULL = the manager; else commissioner name
-    created_at     TEXT NOT NULL
+    created_at     TEXT NOT NULL,
+    replaced_by    INTEGER             -- an OPEN superseded by a later Open for the same
+                                       -- bye player: no longer a rental, still a move
+                                       -- that was made and paid for (2026-10-18)
 );
 CREATE INDEX IF NOT EXISTS ix_tx_team ON transactions(season_id, team_id, reversed);
 
@@ -430,6 +433,9 @@ CREATE INDEX IF NOT EXISTS ix_lineup_history ON lineup_history(season_id, team_i
                  "id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER NOT NULL UNIQUE, "
                  "label TEXT NOT NULL, team TEXT NOT NULL, runner_up TEXT, "
                  "manager TEXT, note TEXT)")
+    tcols = {r["name"] for r in conn.execute("PRAGMA table_info(transactions)")}
+    if tcols and "replaced_by" not in tcols:
+        conn.execute("ALTER TABLE transactions ADD COLUMN replaced_by INTEGER")
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='champions'").fetchone():
         ccols = {r["name"] for r in conn.execute("PRAGMA table_info(champions)")}
         if "runner_up" not in ccols:

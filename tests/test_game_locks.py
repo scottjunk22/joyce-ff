@@ -1046,3 +1046,60 @@ def test_a_rented_player_can_be_traded_for_once_his_game_that_week_kicks_off(lg)
     with pytest.raises(repo.RuleError, match="on an Open for Week 5"):
         repo.do_open(conn, sid, rival, "R", f"bye{rival}", "fa_r", 5)   # still his for an Open that week
     repo.do_trade(conn, sid, rival, "R", f"keep{rival}", "fa_r", 5)    # but a trade goes through
+
+
+# --- a new Open for the same bye player replaces the old one (2026-10-18) ---------
+
+def _renting_w1(lg):
+    """Week 5: w1 (starting) and w2 are on bye; fa_r (T8) and fa_2 (T9) both play
+    later that week. OT Blitz Opens fa_r for w1, which swaps him into the lineup."""
+    conn, sid, otb = lg
+    _free_agent(conn, sid, "fa_2", "T9")
+    _kickoff(conn, sid, 5, "T8", TO_COME)
+    _kickoff(conn, sid, 5, "T9", TO_COME)
+    _set(conn, sid, otb, 5, ["r1", "r2"], ["w1", "w3", "w4"])
+    first = repo.do_open(conn, sid, otb, "R", "w1", "fa_r", 5)
+    assert _got(conn, sid, otb, 5)[1] == {"fa_r", "w3", "w4"}
+    return conn, sid, otb, first
+
+
+def test_a_second_open_for_the_same_bye_player_replaces_the_first(lg):
+    """TallBears: Romeo Doubs Opened for Jameson Williams on Wednesday, Isaiah
+    Likely for him on Sunday — and both stayed rented."""
+    conn, sid, otb, first = _renting_w1(lg)
+    notes = []
+    repo.do_open(conn, sid, otb, "R", "w1", "fa_2", 5, notes=notes)
+    assert notes == ["fa_2 replaces fa_r as your Open for w1 in Week 5. The fa_r Open still counts as a move."]
+    assert repo._open_rentals(conn, sid, otb, 5) == {("R", "fa_2")}           # one rental, the new one
+    assert _got(conn, sid, otb, 5)[1] == {"fa_2", "w3", "w4"}                 # and he took the spot
+    assert repo.fee_balance_cents(conn, otb)["free_used"] == 2                  # no refund: both were moves
+    rival = _rival(conn, sid, otb)
+    repo.do_open(conn, sid, rival, "R", f"bye{rival}", "fa_r", 5)              # fa_r is free for others
+
+
+def test_the_first_rental_stays_once_his_game_has_kicked_off(lg):
+    conn, sid, otb, first = _renting_w1(lg)
+    conn.execute("UPDATE nfl_week_games SET kickoff=? WHERE game_id='G5_T8'", (PLAYED,))
+    conn.commit()
+    with pytest.raises(repo.RuleError, match="fa_r is already your Open for w1 in Week 5, and his game "
+                                             "has started — he stays your Open this week"):
+        repo.do_open(conn, sid, otb, "R", "w1", "fa_2", 5)
+    assert repo._open_rentals(conn, sid, otb, 5) == {("R", "fa_r")}
+
+
+def test_reversing_the_replacement_brings_the_first_open_back(lg):
+    conn, sid, otb, first = _renting_w1(lg)
+    second = repo.do_open(conn, sid, otb, "R", "w1", "fa_2", 5)
+    repo.reverse_transaction(conn, second)
+    assert repo._open_rentals(conn, sid, otb, 5) == {("R", "fa_r")}
+    assert _got(conn, sid, otb, 5)[1] == {"fa_r", "w3", "w4"}
+    assert repo.fee_balance_cents(conn, otb)["free_used"] == 1                  # the reversed one is gone
+
+
+def test_a_database_from_before_gets_the_replaced_by_column(tmp_path):
+    c = schema.connect(tmp_path / "old.sqlite")
+    schema.init_db(c)
+    c.execute("ALTER TABLE transactions DROP COLUMN replaced_by")      # as the live database is today
+    c.commit()
+    schema.migrate(c)
+    assert "replaced_by" in {r["name"] for r in c.execute("PRAGMA table_info(transactions)")}

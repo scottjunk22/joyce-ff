@@ -457,8 +457,19 @@ what the Phase-1 reconciliation is designed to arbitrate.
   cheapest: a fee is fixed when the move is made). NOT a bug: his Open didn't
   start by itself because it covered Coker, who was on his BENCH; the bye
   player in his lineup was Rice. He benches Rice and starts Shakir himself.
-  Still open, a rule question: a DIFFERENT rental for a player an Open already
-  covers is still allowed.
+  2026-10-18 (commissioner, settles the question left open above): A NEW OPEN
+  FOR THE SAME BYE PLAYER REPLACES THE OLD ONE, NO REFUND. TallBears Opened
+  Romeo Doubs for Jameson Williams (Wed) and Isaiah Likely for him (Sun); both
+  stayed rented — with one receiver on bye a team could rent two and have an
+  extra receiver to choose from. Now do_open marks the earlier Open
+  transactions.replaced_by = the new one: its rental ends (the player is free
+  for others, the new rental takes his lineup spot if he had it), but it is
+  STILL A MOVE — counted toward the 5 free and its fee kept (Dad: "the team is
+  still charged"). Refused once the earlier rental's game has kicked off ("…
+  his game has started — he stays your Open this week"). Reversing the
+  replacement brings the earlier Open back into its spot. Every query that
+  means "an Open renting someone now" filters replaced_by IS NULL; fees, move
+  counts and move lists don't. TallBears' Week 4 pair was left as it was.
   2026-10-18 (commissioner): A RENTAL IS THE RENTING TEAM'S FOR ITS WEEK, in
   its conference. Until now an Open took nobody off the board (availability
   looked at rosters only), and in Week 4 it happened twice: Swerski's Opened NE

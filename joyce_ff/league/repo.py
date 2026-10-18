@@ -159,7 +159,8 @@ def rented_in_conference(conn, season_id, conf_id, position, from_week, exclude_
     for r in conn.execute(
             "SELECT tr.in_asset_ref ref, tr.team_id, t.name tname, tr.ff_week FROM transactions tr "
             "JOIN teams t ON t.id=tr.team_id WHERE tr.season_id=? AND t.conference_id=? "
-            "AND tr.type='OPEN' AND tr.reversed=0 AND tr.position=? AND tr.ff_week>=? "
+            "AND tr.type='OPEN' AND tr.reversed=0 AND tr.replaced_by IS NULL AND tr.position=? "
+            "AND tr.ff_week>=? "
             "ORDER BY tr.ff_week, tr.id", (season_id, conf_id, position, from_week)):
         if (r["team_id"] != exclude_team and r["ref"] not in out
                 and not _rental_kicked_off(conn, season_id, r["ff_week"], position, r["ref"], now)):
@@ -191,7 +192,8 @@ def _assert_not_rented(conn, season_id, conf_id, position, asset_ref, team_id, f
     for r in conn.execute(
             "SELECT tr.team_id, t.name tname, tr.ff_week FROM transactions tr "
             "JOIN teams t ON t.id=tr.team_id WHERE tr.season_id=? AND t.conference_id=? "
-            f"AND tr.type='OPEN' AND tr.reversed=0 AND tr.position=? AND tr.in_asset_ref=? AND {week_test} "
+            f"AND tr.type='OPEN' AND tr.reversed=0 AND tr.replaced_by IS NULL AND tr.position=? "
+            f"AND tr.in_asset_ref=? AND {week_test} "
             "ORDER BY tr.ff_week, tr.id", (season_id, conf_id, position, asset_ref, ff_week)):
         who = _asset_label(conn, season_id, kind, asset_ref, position)
         if r["team_id"] == team_id:
@@ -591,7 +593,7 @@ def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
 
 
 def do_open(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
-            actor=None, locked_refs=None) -> int:
+            actor=None, locked_refs=None, notes: list | None = None, now=None) -> int:
     """One-week rental: start in_ref for out_ref THIS week only. Requires the
     outgoing player to be on his NFL bye. $2 fee. Roster is unchanged.
 
@@ -618,29 +620,56 @@ def do_open(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
         # 2026-10-11 the site was slow at kickoff, Juggernuts' manager pressed
         # Confirm 12 times in 11 seconds, and every press was recorded — five
         # free moves gone and $14 in fees for one rental.
-        if conn.execute(
-                "SELECT 1 FROM transactions WHERE season_id=? AND team_id=? AND ff_week=? "
-                "AND type='OPEN' AND reversed=0 AND position=? AND out_asset_ref=? AND in_asset_ref=?",
-                (season_id, team_id, ff_week, position, out_ref, in_ref)).fetchone():
-            kind = _kind_for(position)
-            raise RuleError(
-                f"{_asset_label(conn, season_id, kind, in_ref, position)} is already Opened for "
-                f"{_asset_label(conn, season_id, kind, out_ref, position)} in Week {ff_week} — "
-                f"it went through the first time")
+        kind = _kind_for(position)
+        label = lambda ref: _asset_label(conn, season_id, kind, ref, position)
+        prior = conn.execute(
+            "SELECT id, in_asset_ref FROM transactions WHERE season_id=? AND team_id=? AND ff_week=? "
+            "AND type='OPEN' AND reversed=0 AND replaced_by IS NULL AND position=? AND out_asset_ref=? "
+            "ORDER BY id", (season_id, team_id, ff_week, position, out_ref)).fetchall()
+        if any(p["in_asset_ref"] == in_ref for p in prior):
+            raise RuleError(f"{label(in_ref)} is already Opened for {label(out_ref)} in Week {ff_week} — "
+                            f"it went through the first time")
+        # A DIFFERENT rental for a bye player who already has one REPLACES it
+        # (commissioner, 2026-10-18): TallBears Opened Romeo Doubs for Jameson
+        # Williams on Wednesday and Isaiah Likely for him on Sunday, and both
+        # stayed rented — a team with one receiver on bye could rent two and
+        # have an extra receiver to choose from. Not once the earlier rental's
+        # game has kicked off: he may already be playing for this team.
+        when = now or datetime.now(timezone.utc)
+        for p in prior:
+            ko = _kickoff_of(conn, season_id, ff_week, kind, p["in_asset_ref"])
+            if ko is not None and when >= ko:
+                he = "he stays" if kind == "PLAYER" else "it stays"
+                raise RuleError(f"{label(p['in_asset_ref'])} is already your Open for {label(out_ref)} "
+                                f"in Week {ff_week}, and {'his' if kind == 'PLAYER' else 'its'} game has "
+                                f"started — {he} your Open this week")
         conf = _team_conf(conn, team_id)
         _assert_available(conn, season_id, conf, position, in_ref, team_id,
                           ff_week=ff_week, permanent=False)
         tx = _log_tx(conn, season_id, team_id, ff_week, "OPEN", position,
-                     out_ref, in_ref, _kind_for(position), entered_by=actor)
+                     out_ref, in_ref, kind, entered_by=actor)
+        swapped = False
+        for p in prior:
+            # Still a move that was made, and still paid for (no refund, his
+            # call): only its rental ends. That frees the player for others.
+            conn.execute("UPDATE transactions SET replaced_by=? WHERE id=?", (tx, p["id"]))
+            cur = conn.execute("UPDATE weekly_lineups SET asset_ref=? WHERE season_id=? AND team_id=? "
+                               "AND ff_week=? AND roster_slot=? AND asset_ref=? AND is_rental=1",
+                               (in_ref, season_id, team_id, ff_week, position, p["in_asset_ref"]))
+            swapped = swapped or bool(cur.rowcount)
+        if prior and notes is not None:
+            was = ", ".join(label(p["in_asset_ref"]) for p in prior)
+            notes.append(f"{label(in_ref)} replaces {was} as your Open for {label(out_ref)} in "
+                         f"Week {ff_week}. The {was} Open still counts as a move.")
         # A lineup already saved for the week that starts the bye player now starts
         # the rental in his place (commissioner, 2026-09-15): an Open is only ever
         # bought to start it, and the manager shouldn't have to resubmit.
         cur = conn.execute("UPDATE weekly_lineups SET asset_ref=?, asset_kind=?, unit_type=?, is_rental=1 "
                            "WHERE season_id=? AND team_id=? AND ff_week=? AND roster_slot=? "
                            "AND asset_ref=? AND is_rental=0",
-                           (in_ref, _kind_for(position), position if position in UNIT_POS else None,
+                           (in_ref, kind, position if position in UNIT_POS else None,
                             season_id, team_id, ff_week, position, out_ref))
-        if cur.rowcount:
+        if cur.rowcount or swapped:
             record_lineup(conn, season_id, team_id, ff_week, "open", actor)
         conn.commit()
         return tx
@@ -839,9 +868,19 @@ def reverse_transaction(conn, tx_id) -> None:
         conn.execute("UPDATE roster_entries SET released_ff_week=NULL WHERE team_id=? AND "
                      "asset_ref=? AND released_ff_week=?",
                      (tx["team_id"], tx["out_asset_ref"], tx["ff_week"]))
+    elif (prior := conn.execute("SELECT id, in_asset_ref FROM transactions WHERE replaced_by=? "
+                                "ORDER BY id DESC LIMIT 1", (tx_id,)).fetchone()):
+        # Undoing an Open that replaced another: the earlier one is the rental
+        # again, back in the lineup spot this one had taken.
+        conn.execute("UPDATE transactions SET replaced_by=NULL WHERE replaced_by=?", (tx_id,))
+        conn.execute("UPDATE weekly_lineups SET asset_ref=? WHERE season_id=? AND team_id=? AND ff_week=? "
+                     "AND roster_slot=? AND asset_ref=? AND is_rental=1",
+                     (prior["in_asset_ref"], tx["season_id"], tx["team_id"], tx["ff_week"],
+                      tx["position"], tx["in_asset_ref"]))
+        record_lineup(conn, tx["season_id"], tx["team_id"], tx["ff_week"], "reverse")
     elif conn.execute(
             "SELECT 1 FROM transactions WHERE season_id=? AND team_id=? AND ff_week=? AND type='OPEN' "
-            "AND reversed=0 AND position=? AND in_asset_ref=? AND id<>?",
+            "AND reversed=0 AND replaced_by IS NULL AND position=? AND in_asset_ref=? AND id<>?",
             (tx["season_id"], tx["team_id"], tx["ff_week"], tx["position"], tx["in_asset_ref"],
              tx_id)).fetchone():
         pass   # a duplicate: another Open still rents him, so the lineup keeps him
@@ -875,7 +914,8 @@ def duplicate_opens(conn, season_id) -> list[dict]:
             "SELECT tr.id, tr.team_id, t.name team, tr.ff_week, tr.position, tr.out_asset_kind, "
             "tr.out_asset_ref, tr.in_asset_ref, tr.fee_cents, tr.created_at "
             "FROM transactions tr JOIN teams t ON t.id=tr.team_id "
-            "WHERE tr.season_id=? AND tr.type='OPEN' AND tr.reversed=0 ORDER BY tr.id", (season_id,)):
+            "WHERE tr.season_id=? AND tr.type='OPEN' AND tr.reversed=0 AND tr.replaced_by IS NULL "
+            "ORDER BY tr.id", (season_id,)):
         key = (t["team_id"], t["ff_week"], t["position"], t["out_asset_ref"], t["in_asset_ref"])
         if key in seen:
             extra.append(dict(t))
@@ -928,7 +968,8 @@ def _open_rentals(conn, season_id, team_id, ff_week) -> set[tuple[str, str]]:
     refused with "CHI isn't on your roster or an active Open" (2026-10-11)."""
     return {(r["position"], r["in_asset_ref"]) for r in conn.execute(
         "SELECT in_asset_ref, position FROM transactions WHERE season_id=? AND team_id=? "
-        "AND ff_week=? AND type='OPEN' AND reversed=0", (season_id, team_id, ff_week))}
+        "AND ff_week=? AND type='OPEN' AND reversed=0 AND replaced_by IS NULL",
+        (season_id, team_id, ff_week))}
 
 
 # --- lineups (with bye-flex) --------------------------------------------
@@ -939,7 +980,8 @@ def _bye_count(conn, season_id, team_id, slot, ff_week) -> int:
     bye-week flex: the Open already filled the hole the flex exists to fill."""
     covered = {r["out_asset_ref"] for r in conn.execute(
         "SELECT out_asset_ref FROM transactions WHERE season_id=? AND team_id=? "
-        "AND ff_week=? AND type='OPEN' AND reversed=0", (season_id, team_id, ff_week))}
+        "AND ff_week=? AND type='OPEN' AND reversed=0 AND replaced_by IS NULL",
+        (season_id, team_id, ff_week))}
     n = 0
     for e in current_roster(conn, team_id):
         if (e["roster_slot"] == slot and e["asset_ref"] not in covered
@@ -957,7 +999,8 @@ def unit_on_bye_uncovered(conn, season_id, team_id, slot, ff_week) -> bool:
     2026-09-16). A covered unit doesn't qualify: the Open already fills it."""
     covered = {r["out_asset_ref"] for r in conn.execute(
         "SELECT out_asset_ref FROM transactions WHERE season_id=? AND team_id=? AND ff_week=? "
-        "AND type='OPEN' AND reversed=0 AND position=?", (season_id, team_id, ff_week, slot))}
+        "AND type='OPEN' AND reversed=0 AND replaced_by IS NULL AND position=?",
+        (season_id, team_id, ff_week, slot))}
     return any(e["roster_slot"] == slot and e["asset_ref"] not in covered
                and is_on_bye(conn, season_id, e["asset_kind"], e["asset_ref"], ff_week)
                for e in current_roster(conn, team_id))

@@ -56,6 +56,7 @@ def _opens(conn, sid, tid, wk) -> list[dict]:
     return [dict(r) for r in conn.execute(
         "SELECT position, out_asset_ref out_ref, in_asset_ref in_ref FROM transactions "
         "WHERE season_id=? AND team_id=? AND ff_week=? AND type='OPEN' AND reversed=0 "
+        "AND replaced_by IS NULL "
         "ORDER BY id", (sid, tid, wk))]
 
 
