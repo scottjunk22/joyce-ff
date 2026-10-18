@@ -929,9 +929,17 @@ def create_app(db_path: str | None = None) -> Flask:
         # A player this team traded away in the last 48 hours can't come back to
         # it by Trade yet — marked so the list can grey him out with the time.
         waiting = repo.recently_traded_away(conn, s["id"], team_id)
+        # On an Open by another team in this conference, this week or later:
+        # the list greys him out with who has him and for which week. A Trade
+        # can't take him; an Open can't for that same week (2026-10-18).
+        rented = repo.rented_in_conference(conn, s["id"], conf["conference_id"], pos,
+                                           progress.lineup_week(conn, s["id"]), exclude_team=team_id)
         for x in data:
-            back = waiting.get((pos, x.get("gsis_id") or x.get("abbr")))
+            ref = x.get("gsis_id") or x.get("abbr")
+            back = waiting.get((pos, ref))
             x["back_at"] = repo._ct_when(back) if back else None
+            r = rented.get(ref)
+            x["rented"] = {"team": r["team"], "week": r["week"]} if r else None
         return jsonify(position=pos, available=data)
 
     @app.get("/api/team/<int:team_id>/claim-check")
@@ -945,8 +953,13 @@ def create_app(db_path: str | None = None) -> Flask:
         conf = conn.execute("SELECT conference_id FROM teams WHERE id=?", (team_id,)).fetchone()
         if not conf or pos not in repo.INDIVIDUAL_POS | repo.UNIT_POS:
             return jsonify(error="unknown team or position"), 404
+        # A Trade is checked against every rental from the lineup week on; an Open
+        # only against rentals for its own week (sent by the page).
+        is_open = request.args.get("mode") == "open"
+        wk = int(request.args.get("week") or progress.lineup_week(conn, s["id"]))
         try:
-            repo._assert_available(conn, s["id"], conf["conference_id"], pos, ref, team_id)
+            repo._assert_available(conn, s["id"], conf["conference_id"], pos, ref, team_id,
+                                   ff_week=wk, permanent=not is_open)
         except repo.RuleError as e:
             return jsonify(available=False, error=str(e))
         return jsonify(available=True)

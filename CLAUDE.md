@@ -459,6 +459,22 @@ what the Phase-1 reconciliation is designed to arbitrate.
   player in his lineup was Rice. He benches Rice and starts Shakir himself.
   Still open, a rule question: a DIFFERENT rental for a player an Open already
   covers is still allowed.
+  2026-10-18 (commissioner): A RENTAL IS THE RENTING TEAM'S FOR ITS WEEK, in
+  its conference. Until now an Open took nobody off the board (availability
+  looked at rosters only), and in Week 4 it happened twice: Swerski's Opened NE
+  DEF/ST (Tue) and TallBoys then TRADED for it (Wed); TTS Opened IND DEF/ST
+  (Tue) and Barn Burners traded for it (Thu) — both pairs started the same
+  defense. Dad: LET BOTH STAND, rule from now on. repo._assert_not_rented
+  (via _assert_available with ff_week): another team in the conference may NOT
+  Open him for the same week, and may NOT TRADE for him while any rental of him
+  in the trade's week or later is still on record; he's free again the week
+  after. The other conference is untouched (separate pools). The renting team
+  may trade for him itself (making it permanent) but can't Open him twice in
+  one week. A reversed Open frees him. Move screen: greyed "Opened by Swerski's ·
+  Week 4" (txWhyNot; no "'s's"), the review-step claim-check passes mode/week
+  and says the same as the confirm: "Swerski's has NE DEF/ST on an Open for
+  Week 4 — it's available again from Week 5". The rosters page's "Find a
+  player" already showed "(Open, this week)".
 - 2026-09-15: LINEUP LABELS (commissioner). Most managers submit Sunday
   morning, so cards only say: "⚠ Thu player" (team hasn't submitted and has an
   RB/R whose game is before Sunday; tap opens Set Lineup) until that kickoff;

@@ -140,17 +140,67 @@ def _took_when(conn, season_id, team_id, position, asset_ref) -> str | None:
         return None
 
 
-def _assert_available(conn, season_id, conf_id, position, asset_ref, team_id=None):
+def rented_in_conference(conn, season_id, conf_id, position, from_week, exclude_team=None) -> dict:
+    """{asset_ref: {"team", "team_id", "week"}} — everything at this position on
+    an Open by a team in this conference for `from_week` or later, the earliest
+    such week each. A rental is the renting team's for its week."""
+    out = {}
+    for r in conn.execute(
+            "SELECT tr.in_asset_ref ref, tr.team_id, t.name tname, tr.ff_week FROM transactions tr "
+            "JOIN teams t ON t.id=tr.team_id WHERE tr.season_id=? AND t.conference_id=? "
+            "AND tr.type='OPEN' AND tr.reversed=0 AND tr.position=? AND tr.ff_week>=? "
+            "ORDER BY tr.ff_week, tr.id", (season_id, conf_id, position, from_week)):
+        if r["team_id"] != exclude_team and r["ref"] not in out:
+            out[r["ref"]] = {"team": r["tname"], "team_id": r["team_id"], "week": r["ff_week"]}
+    return out
+
+
+def _assert_not_rented(conn, season_id, conf_id, position, asset_ref, team_id, ff_week, permanent):
+    """A player (or unit) on an Open belongs to the team renting him for that
+    week, in that conference — nobody else may Open him that week, or trade for
+    him while the rental is still to come (commissioner, 2026-10-18). Before
+    this an Open took nobody off the board: in Week 4 Swerski's rented NE's
+    DEF/ST and TallBoys then traded for it; TTS rented IND's and Barn Burners
+    traded for it — and both pairs started the same defense. (Those two were
+    left to stand.)
+
+    permanent: a TRADE, which keeps him for every week from ff_week on, so any
+    rental in ff_week or later blocks it. An OPEN only clashes with a rental for
+    the same week. The other conference is a separate pool and is never
+    affected. Trading for a player you are renting yourself is fine; Opening
+    him a second time is not."""
+    kind = _kind_for(position)
+    week_test = "tr.ff_week>=?" if permanent else "tr.ff_week=?"
+    for r in conn.execute(
+            "SELECT tr.team_id, t.name tname, tr.ff_week FROM transactions tr "
+            "JOIN teams t ON t.id=tr.team_id WHERE tr.season_id=? AND t.conference_id=? "
+            f"AND tr.type='OPEN' AND tr.reversed=0 AND tr.position=? AND tr.in_asset_ref=? AND {week_test} "
+            "ORDER BY tr.ff_week, tr.id", (season_id, conf_id, position, asset_ref, ff_week)):
+        who = _asset_label(conn, season_id, kind, asset_ref, position)
+        if r["team_id"] == team_id:
+            if permanent:
+                continue                     # making your own rental permanent
+            raise RuleError(f"You already have {who} on an Open for Week {r['ff_week']}")
+        free = "he's" if kind == "PLAYER" else "it's"
+        raise RuleError(f"{r['tname']} has {who} on an Open for Week {r['ff_week']} — "
+                        f"{free} available again from Week {r['ff_week'] + 1}")
+
+
+def _assert_available(conn, season_id, conf_id, position, asset_ref, team_id=None,
+                      ff_week=None, permanent=True):
     """He's free in this conference — checked again here, against the database,
     because the list a manager is looking at is a photograph of when his screen
     loaded. Two guys can pick the same player on a Sunday morning; the second
     one to press confirm gets told who beat him to it, not "not available"
-    (Scott, 2026-09-18)."""
+    (Scott, 2026-09-18). With ff_week, someone else's Open counts as taken too
+    (_assert_not_rented): permanent=True for a Trade, False for an Open."""
     if position in INDIVIDUAL_POS:
         refs = {p["gsis_id"] for p in available_players(conn, season_id, conf_id, position)}
     else:
         refs = {u["abbr"] for u in available_units(conn, season_id, conf_id, position)}
     if asset_ref in refs:
+        if ff_week is not None:
+            _assert_not_rented(conn, season_id, conf_id, position, asset_ref, team_id, ff_week, permanent)
         return
     kind = _kind_for(position)
     who = _asset_label(conn, season_id, kind, asset_ref, position)
@@ -477,7 +527,8 @@ def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
             raise RuleError(f"{who} was traded away by this team in the last 48 hours — "
                             f"he can't come back until {_ct_when(back)}")
         conf = _team_conf(conn, team_id)
-        _assert_available(conn, season_id, conf, position, in_ref, team_id)
+        _assert_available(conn, season_id, conf, position, in_ref, team_id,
+                          ff_week=ff_week, permanent=True)
 
         conn.execute("UPDATE roster_entries SET released_ff_week=? WHERE id=?",
                      (ff_week, out["id"]))
@@ -551,7 +602,8 @@ def do_open(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
                 f"{_asset_label(conn, season_id, kind, out_ref, position)} in Week {ff_week} — "
                 f"it went through the first time")
         conf = _team_conf(conn, team_id)
-        _assert_available(conn, season_id, conf, position, in_ref, team_id)
+        _assert_available(conn, season_id, conf, position, in_ref, team_id,
+                          ff_week=ff_week, permanent=False)
         tx = _log_tx(conn, season_id, team_id, ff_week, "OPEN", position,
                      out_ref, in_ref, _kind_for(position), entered_by=actor)
         # A lineup already saved for the week that starts the bye player now starts

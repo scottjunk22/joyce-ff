@@ -962,3 +962,65 @@ def test_cleaning_up_repeated_opens_keeps_the_first_and_the_lineup(lg):
     (last,) = conn.execute("SELECT id FROM transactions WHERE type='OPEN' AND reversed=0").fetchall()
     repo.reverse_transaction(conn, last["id"])                          # the real one: now he comes out
     assert _got(conn, sid, otb, 5)[1] == {"w1", "w3", "w4"}
+
+
+# --- a rental is the renting team's for its week (commissioner, 2026-10-18) ------
+
+def _rival(conn, sid, otb, same_conference=True):
+    """Another team, in OT Blitz's conference or the other one, holding a
+    receiver on bye in week 5 (club T4) and one who isn't (T7)."""
+    conf = conn.execute("SELECT conference_id c FROM teams WHERE id=?", (otb,)).fetchone()["c"]
+    op = "=" if same_conference else "<>"
+    tid = conn.execute(f"SELECT id FROM teams WHERE season_id=? AND id<>? AND conference_id{op}? "
+                       "ORDER BY id LIMIT 1", (sid, otb, conf)).fetchone()["id"]
+    for ref, club in ((f"bye{tid}", "T4"), (f"keep{tid}", "T7")):
+        conn.execute("INSERT INTO nfl_players(season_id,gsis_id,name,position,nfl_team_abbr) "
+                     "VALUES (?,?,?,'WR',?)", (sid, ref, ref, club))
+        conn.execute("INSERT INTO roster_entries(season_id,team_id,asset_kind,asset_ref,roster_slot,"
+                     "acquired_ff_week,acquired_via,created_at) VALUES (?,?,'PLAYER',?,'R',1,'DRAFT','t')",
+                     (sid, tid, ref))
+    conn.commit()
+    return tid
+
+
+def test_nobody_else_in_the_conference_can_open_or_trade_for_a_rented_player(lg):
+    """Week 4: Swerski's rented NE's defense and TallBoys traded for it; TTS
+    rented IND's and Barn Burners traded for it. Both pairs started the same
+    defense, because an Open took nobody off the board."""
+    conn, sid, otb = lg
+    rival = _rival(conn, sid, otb)
+    repo.do_open(conn, sid, otb, "R", "w1", "fa_r", 5)                 # OT Blitz rents fa_r for week 5
+    with pytest.raises(repo.RuleError, match="OT Blitz has fa_r on an Open for Week 5 — he's "
+                                             "available again from Week 6"):
+        repo.do_open(conn, sid, rival, "R", f"bye{rival}", "fa_r", 5)
+    for wk in (4, 5):                                                  # the rental is still to come
+        with pytest.raises(repo.RuleError, match="on an Open for Week 5"):
+            repo.do_trade(conn, sid, rival, "R", f"keep{rival}", "fa_r", wk)
+    repo.do_trade(conn, sid, rival, "R", f"keep{rival}", "fa_r", 6)    # after it: fine
+    assert "fa_r" in {e["asset_ref"] for e in repo.current_roster(conn, rival)}
+
+
+def test_the_other_conference_is_a_separate_pool(lg):
+    conn, sid, otb = lg
+    other = _rival(conn, sid, otb, same_conference=False)
+    repo.do_open(conn, sid, otb, "R", "w1", "fa_r", 5)
+    repo.do_open(conn, sid, other, "R", f"bye{other}", "fa_r", 5)      # both may rent him
+
+
+def test_the_renting_team_may_keep_him_but_not_rent_him_twice(lg):
+    conn, sid, otb = lg
+    repo.do_open(conn, sid, otb, "R", "w1", "fa_r", 5)
+    with pytest.raises(repo.RuleError, match="You already have fa_r on an Open for Week 5"):
+        repo.do_open(conn, sid, otb, "R", "w2", "fa_r", 5)            # w2 is on bye too
+    repo.do_trade(conn, sid, otb, "R", "w4", "fa_r", 5)               # making the rental permanent
+
+
+def test_a_reversed_open_frees_him_and_an_open_for_another_week_doesnt_clash(lg):
+    conn, sid, otb = lg
+    rival = _rival(conn, sid, otb)
+    conn.execute("UPDATE nfl_teams SET bye_ff_week=6 WHERE abbr='T7'")  # rival's keeper: bye week 6
+    conn.commit()
+    tx = repo.do_open(conn, sid, otb, "R", "w1", "fa_r", 5)
+    repo.do_open(conn, sid, rival, "R", f"keep{rival}", "fa_r", 6)     # the week after: no clash
+    repo.reverse_transaction(conn, tx)
+    repo.do_open(conn, sid, rival, "R", f"bye{rival}", "fa_r", 5)      # freed

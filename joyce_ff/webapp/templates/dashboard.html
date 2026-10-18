@@ -959,9 +959,21 @@ async function txModal(id){
   openM('<div id="txbody"></div>'); renderTxBuild();
 }
 function txSetMode(m){ if(m==='open'&&!(TX.out&&TX.outBye))return; TX.mode=m;
-  // switching to Trade drops a pick that Trade doesn't allow (traded away within 48 hours)
-  if(m==='trade'&&TX.in){ const x=TX.avail.find(a=>(a.gsis_id||a.abbr)===TX.in); if(x&&x.back_at){TX.in=null;TX.inName='';} }
+  // switching drops a pick the new mode doesn't allow (traded away within 48
+  // hours, or on another team's Open)
+  if(TX.in){ const x=TX.avail.find(a=>(a.gsis_id||a.abbr)===TX.in); if(x&&txWhyNot(x)){TX.in=null;TX.inName='';} }
   renderTxBuild(); }
+/* Why this player can't be picked right now, or '' if he can.
+   - Traded away by this team in the last 48 hours: no Trade back yet (an Open
+     is a rental, so it's still allowed).
+   - On another team's Open in this conference (2026-10-18): no Trade while that
+     rental is still to come, and no Open for that same week. */
+function txWhyNot(x){
+  if(TX.mode==='trade'&&x.back_at) return `you traded him · back ${x.back_at}`;
+  const r=x.rented;
+  if(r&&(TX.mode==='trade'||r.week===TX.openWeek)) return `Opened by ${r.team} · Week ${r.week}`;   // not "Swerski's's"
+  return '';
+}
 async function pickOut(ref,pos,byeWeek){
   // match slot as well: a club's units share one asset_ref (BAL C and BAL QB)
   const r=TX.roster.find(x=>x.asset_ref===ref&&x.slot===pos)||{};
@@ -989,10 +1001,8 @@ function availHtml(){ if(!TX.out)return '<div class="sub" style="padding:14px 12
   const nm=x=>x.name||x.abbr, list=TX.avail.filter(x=>nm(x).toLowerCase().includes((TX.filter||'').toLowerCase()));
   if(!list.length)return '<div class="sub" style="padding:14px;text-align:center">no matches</div>';
   return list.map(x=>{const key=x.gsis_id||x.abbr;
-    // Traded away by this team in the last 48 hours: can't come back by Trade
-    // yet (an Open is a rental, so it's still allowed).
-    const wait=TX.mode==='trade'&&x.back_at;
-    return `<div class="pl ${TX.in===key?'sel':''}${wait?' plwait':''}" data-key="${key}" ${wait?'':`onclick='pickIn(${JSON.stringify(key)})'`}><span><span class="pos">${TX.outPos}</span>${nm(x)}${x.nfl_team_abbr?` <span class="team">${x.nfl_team_abbr}</span>`:''}</span>${wait?`<span class="sub">you traded him · back ${x.back_at}</span>`:''}</div>`;}).join('');
+    const why=txWhyNot(x);                       // greyed, with the reason, instead of hidden
+    return `<div class="pl ${TX.in===key?'sel':''}${why?' plwait':''}" data-key="${key}" ${why?'':`onclick='pickIn(${JSON.stringify(key)})'`}><span><span class="pos">${TX.outPos}</span>${nm(x)}${x.nfl_team_abbr?` <span class="team">${x.nfl_team_abbr}</span>`:''}</span>${why?`<span class="sub">${why}</span>`:''}</div>`;}).join('');
 }
 function renderTxBuild(){ if(TX.step==='review')return renderTxReview();
   // Keep every scroll position across a redraw: the panel's, and each list's own
@@ -1022,7 +1032,8 @@ async function txReview(){ if(!TX.out||!TX.in){alert('Pick a player to move out 
   // The list on screen is a photograph of when it loaded. Ask the server whether
   // he's still free before showing the PIN step (Scott, 2026-09-18) — the confirm
   // still checks too, since someone can take him in the seconds in between.
-  const q=`position=${encodeURIComponent(TX.outPos)}&ref=${encodeURIComponent(TX.in)}`;
+  const q=`position=${encodeURIComponent(TX.outPos)}&ref=${encodeURIComponent(TX.in)}&mode=${TX.mode}`
+    +(TX.mode==='open'&&TX.openWeek?`&week=${TX.openWeek}`:'');
   const c=await (await fetch(`/api/team/${TX.team}/claim-check?${q}`)).json().catch(()=>({available:true}));
   if(c&&c.available===false){ TX.err=c.error||'He is no longer available.'; TX.in=null;TX.inName='';
     await txLoadAvail(); renderTxBuild(); return; }

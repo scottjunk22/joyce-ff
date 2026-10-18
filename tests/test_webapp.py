@@ -453,3 +453,26 @@ def test_a_player_with_no_nfl_team_can_be_picked_up_and_shown(client):
     assert wp.status_code == 200, wp.get_json()
     (line,) = [r for r in wp.get_json()["rows"] if r["name"] == "Tyreek Hill"]
     assert line["team"] == "" and line["state"] == "nogame"
+
+
+def test_the_trade_list_greys_out_a_player_on_another_teams_open(client):
+    """The move screen shows him with who has him and for which week, and the
+    review step's check says the same thing the confirm would (2026-10-18)."""
+    conn = schema.connect(client.dbpath)
+    sid = conn.execute("SELECT id FROM seasons ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    conf = conn.execute("SELECT conference_id c FROM teams WHERE id=?", (client.otb,)).fetchone()["c"]
+    rival = conn.execute("SELECT id FROM teams WHERE season_id=? AND conference_id=? AND id<>? LIMIT 1",
+                         (sid, conf, client.otb)).fetchone()["id"]
+    conn.close()
+    r = client.post(f"/api/team/{client.otb}/open",          # Bijan's bye is week 7: rent Warren for it
+                    json={"passcode": "commish", "position": "RB", "out": "p_bijan", "in": "p_warren", "week": 7})
+    assert r.status_code == 200, r.get_json()
+    avail = client.get(f"/api/team/{rival}/available?position=RB").get_json()["available"]
+    (w,) = [a for a in avail if a["gsis_id"] == "p_warren"]
+    assert w["rented"] == {"team": "OT Blitz", "week": 7}
+    trade = client.get(f"/api/team/{rival}/claim-check?position=RB&ref=p_warren&mode=trade").get_json()
+    assert trade["available"] is False and "OT Blitz has Jaylen Warren on an Open for Week 7" in trade["error"]
+    other_week = client.get(f"/api/team/{rival}/claim-check?position=RB&ref=p_warren&mode=open&week=8").get_json()
+    assert other_week["available"] is True
+    mine = client.get(f"/api/team/{client.otb}/available?position=RB").get_json()["available"]
+    assert all(a["rented"] is None for a in mine)              # his own rental isn't "someone else's"
