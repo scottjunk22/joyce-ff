@@ -140,22 +140,35 @@ def _took_when(conn, season_id, team_id, position, asset_ref) -> str | None:
         return None
 
 
-def rented_in_conference(conn, season_id, conf_id, position, from_week, exclude_team=None) -> dict:
+def _rental_kicked_off(conn, season_id, ff_week, position, ref, now=None) -> bool:
+    """Has the rented man's game in his rental week kicked off? From then on a
+    rival who trades for him can't start him that week anyway (kickoff lock), so
+    the rental no longer stands in the way of a trade. No game on record: not
+    kicked off — the stricter reading."""
+    kickoff = _kickoff_of(conn, season_id, ff_week, _kind_for(position), ref)
+    return kickoff is not None and (now or datetime.now(timezone.utc)) >= kickoff
+
+
+def rented_in_conference(conn, season_id, conf_id, position, from_week, exclude_team=None,
+                         now=None) -> dict:
     """{asset_ref: {"team", "team_id", "week"}} — everything at this position on
-    an Open by a team in this conference for `from_week` or later, the earliest
-    such week each. A rental is the renting team's for its week."""
+    an Open by a team in this conference for `from_week` or later whose game in
+    that week hasn't kicked off yet, the earliest such week each. These are the
+    ones the move screen greys out (_assert_not_rented says why)."""
     out = {}
     for r in conn.execute(
             "SELECT tr.in_asset_ref ref, tr.team_id, t.name tname, tr.ff_week FROM transactions tr "
             "JOIN teams t ON t.id=tr.team_id WHERE tr.season_id=? AND t.conference_id=? "
             "AND tr.type='OPEN' AND tr.reversed=0 AND tr.position=? AND tr.ff_week>=? "
             "ORDER BY tr.ff_week, tr.id", (season_id, conf_id, position, from_week)):
-        if r["team_id"] != exclude_team and r["ref"] not in out:
+        if (r["team_id"] != exclude_team and r["ref"] not in out
+                and not _rental_kicked_off(conn, season_id, r["ff_week"], position, r["ref"], now)):
             out[r["ref"]] = {"team": r["tname"], "team_id": r["team_id"], "week": r["ff_week"]}
     return out
 
 
-def _assert_not_rented(conn, season_id, conf_id, position, asset_ref, team_id, ff_week, permanent):
+def _assert_not_rented(conn, season_id, conf_id, position, asset_ref, team_id, ff_week, permanent,
+                       now=None):
     """A player (or unit) on an Open belongs to the team renting him for that
     week, in that conference — nobody else may Open him that week, or trade for
     him while the rental is still to come (commissioner, 2026-10-18). Before
@@ -165,10 +178,14 @@ def _assert_not_rented(conn, season_id, conf_id, position, asset_ref, team_id, f
     left to stand.)
 
     permanent: a TRADE, which keeps him for every week from ff_week on, so any
-    rental in ff_week or later blocks it. An OPEN only clashes with a rental for
-    the same week. The other conference is a separate pool and is never
-    affected. Trading for a player you are renting yourself is fine; Opening
-    him a second time is not."""
+    rental in ff_week or later blocks it — but only until his game in that
+    rental week KICKS OFF (Scott, 2026-10-18). After kickoff the new owner
+    couldn't start him that week anyway, so there's no clash; before it (a
+    Monday-night player traded for on Monday afternoon) both teams could start
+    him. Same as Opens on a Monday for the next week, which never waited for
+    Tuesday. An OPEN only clashes with a rental for the same week. The other
+    conference is a separate pool and is never affected. Trading for a player
+    you are renting yourself is fine; Opening him a second time is not."""
     kind = _kind_for(position)
     week_test = "tr.ff_week>=?" if permanent else "tr.ff_week=?"
     for r in conn.execute(
@@ -181,13 +198,21 @@ def _assert_not_rented(conn, season_id, conf_id, position, asset_ref, team_id, f
             if permanent:
                 continue                     # making your own rental permanent
             raise RuleError(f"You already have {who} on an Open for Week {r['ff_week']}")
+        if permanent:
+            if _rental_kicked_off(conn, season_id, r["ff_week"], position, asset_ref, now):
+                continue                     # his rental week's game has begun: no clash left
+            kickoff = _kickoff_of(conn, season_id, r["ff_week"], kind, asset_ref)
+            he, his = ("he", "his") if kind == "PLAYER" else ("it", "its")
+            when = f" ({_ct_when(kickoff)})" if kickoff else ""
+            raise RuleError(f"{r['tname']} has {who} on an Open for Week {r['ff_week']} — {he} can be "
+                            f"traded for once {his} Week {r['ff_week']} game kicks off{when}")
         free = "he's" if kind == "PLAYER" else "it's"
         raise RuleError(f"{r['tname']} has {who} on an Open for Week {r['ff_week']} — "
                         f"{free} available again from Week {r['ff_week'] + 1}")
 
 
 def _assert_available(conn, season_id, conf_id, position, asset_ref, team_id=None,
-                      ff_week=None, permanent=True):
+                      ff_week=None, permanent=True, now=None):
     """He's free in this conference — checked again here, against the database,
     because the list a manager is looking at is a photograph of when his screen
     loaded. Two guys can pick the same player on a Sunday morning; the second
@@ -200,7 +225,8 @@ def _assert_available(conn, season_id, conf_id, position, asset_ref, team_id=Non
         refs = {u["abbr"] for u in available_units(conn, season_id, conf_id, position)}
     if asset_ref in refs:
         if ff_week is not None:
-            _assert_not_rented(conn, season_id, conf_id, position, asset_ref, team_id, ff_week, permanent)
+            _assert_not_rented(conn, season_id, conf_id, position, asset_ref, team_id, ff_week,
+                               permanent, now)
         return
     kind = _kind_for(position)
     who = _asset_label(conn, season_id, kind, asset_ref, position)
@@ -528,7 +554,7 @@ def do_trade(conn, season_id, team_id, position, out_ref, in_ref, ff_week,
                             f"he can't come back until {_ct_when(back)}")
         conf = _team_conf(conn, team_id)
         _assert_available(conn, season_id, conf, position, in_ref, team_id,
-                          ff_week=ff_week, permanent=True)
+                          ff_week=ff_week, permanent=True, now=now)
 
         conn.execute("UPDATE roster_entries SET released_ff_week=? WHERE id=?",
                      (ff_week, out["id"]))

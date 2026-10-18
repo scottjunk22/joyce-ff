@@ -1024,3 +1024,25 @@ def test_a_reversed_open_frees_him_and_an_open_for_another_week_doesnt_clash(lg)
     repo.do_open(conn, sid, rival, "R", f"keep{rival}", "fa_r", 6)     # the week after: no clash
     repo.reverse_transaction(conn, tx)
     repo.do_open(conn, sid, rival, "R", f"bye{rival}", "fa_r", 5)      # freed
+
+
+
+def test_a_rented_player_can_be_traded_for_once_his_game_that_week_kicks_off(lg):
+    """Scott, 2026-10-18: Opens for next week are allowed on Monday, so trades
+    shouldn't wait for Tuesday either. The only clash a trade can cause is a
+    rival starting him in a game the renter is starting him in — gone once that
+    game has kicked off, because the new owner can't start him after kickoff."""
+    conn, sid, otb = lg
+    rival = _rival(conn, sid, otb)
+    _kickoff(conn, sid, 5, "T8", TO_COME)                              # fa_r plays later in week 5
+    repo.do_open(conn, sid, otb, "R", "w1", "fa_r", 5)
+    conf = conn.execute("SELECT conference_id c FROM teams WHERE id=?", (rival,)).fetchone()["c"]
+    assert "fa_r" in repo.rented_in_conference(conn, sid, conf, "R", 5, exclude_team=rival)
+    with pytest.raises(repo.RuleError, match="he can be traded for once his Week 5 game kicks off"):
+        repo.do_trade(conn, sid, rival, "R", f"keep{rival}", "fa_r", 5)
+    conn.execute("UPDATE nfl_week_games SET kickoff=? WHERE game_id='G5_T8'", (PLAYED,))
+    conn.commit()                                                      # ...and now it has
+    assert "fa_r" not in repo.rented_in_conference(conn, sid, conf, "R", 5, exclude_team=rival)
+    with pytest.raises(repo.RuleError, match="on an Open for Week 5"):
+        repo.do_open(conn, sid, rival, "R", f"bye{rival}", "fa_r", 5)   # still his for an Open that week
+    repo.do_trade(conn, sid, rival, "R", f"keep{rival}", "fa_r", 5)    # but a trade goes through

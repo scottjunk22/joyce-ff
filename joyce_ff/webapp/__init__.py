@@ -929,9 +929,10 @@ def create_app(db_path: str | None = None) -> Flask:
         # A player this team traded away in the last 48 hours can't come back to
         # it by Trade yet — marked so the list can grey him out with the time.
         waiting = repo.recently_traded_away(conn, s["id"], team_id)
-        # On an Open by another team in this conference, this week or later:
-        # the list greys him out with who has him and for which week. A Trade
-        # can't take him; an Open can't for that same week (2026-10-18).
+        # On an Open by another team in this conference, this week or later,
+        # and his game in that week not yet kicked off: the list greys him out
+        # with who has him and for which week. A Trade can't take him; an Open
+        # can't for that same week (2026-10-18).
         rented = repo.rented_in_conference(conn, s["id"], conf["conference_id"], pos,
                                            progress.lineup_week(conn, s["id"]), exclude_team=team_id)
         for x in data:

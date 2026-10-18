@@ -467,13 +467,19 @@ what the Phase-1 reconciliation is designed to arbitrate.
   defense. Dad: LET BOTH STAND, rule from now on. repo._assert_not_rented
   (via _assert_available with ff_week): another team in the conference may NOT
   Open him for the same week, and may NOT TRADE for him while any rental of him
-  in the trade's week or later is still on record; he's free again the week
-  after. The other conference is untouched (separate pools). The renting team
+  in the trade's week or later is still on record AND HIS GAME IN THAT RENTAL
+  WEEK HASN'T KICKED OFF (Scott, same day: Opens for next week already open on
+  Monday, so trades shouldn't wait for Tuesday; after kickoff the new owner
+  can't start him that week, so there's no clash — before it, a Monday-night
+  player traded for on Monday afternoon could start for both). No game on
+  record = still blocked. An Open for the same week stays refused even after
+  kickoff; he's free for Opens from the next week. The other conference is untouched (separate pools). The renting team
   may trade for him itself (making it permanent) but can't Open him twice in
   one week. A reversed Open frees him. Move screen: greyed "Opened by Swerski's ·
   Week 4" (txWhyNot; no "'s's"), the review-step claim-check passes mode/week
   and says the same as the confirm: "Swerski's has NE DEF/ST on an Open for
-  Week 4 — it's available again from Week 5". The rosters page's "Find a
+  Week 4 — it can be traded for once its Week 4 game kicks off (Sun at 12:00
+  PM)" (an Open for that week: "available again from Week 5"). Rosters page "Find a
   player" already showed "(Open, this week)".
 - 2026-09-15: LINEUP LABELS (commissioner). Most managers submit Sunday
   morning, so cards only say: "⚠ Thu player" (team hasn't submitted and has an
