@@ -51,6 +51,10 @@
  .lflag{cursor:pointer;text-decoration:underline dotted}
  .earlyban{margin:0 0 10px}.elink{color:inherit;font-weight:700;text-decoration:underline;cursor:pointer}
  .cnote{font-size:11px;color:var(--dim);padding:4px 10px}
+ .hstag{font-size:10px;color:var(--good);border:1px solid color-mix(in srgb,var(--good) 55%,var(--line));
+   border-radius:999px;padding:0 6px;margin-left:6px;white-space:nowrap;font-weight:700}
+ .xconf{font-size:10px;color:var(--dim);margin-left:5px;font-weight:600}
+ .meta .xover{color:var(--blue)}
  .adj{font-size:9px;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:0 4px;white-space:nowrap}
  .game .r .s{font-variant-numeric:tabular-nums;font-weight:700;min-width:26px;text-align:right}
  .game .meta{color:var(--dim);font-size:11px;margin-top:5px;border-top:1px solid var(--line);padding-top:5px;display:flex;justify-content:space-between}
@@ -478,7 +482,7 @@ function buildWeekPicker(){
    nothing is submitted. */
 function renderEarly(){ const el=$('early'); if(!el) return;
   const E=STATE.early_lineups||[];
-  el.innerHTML=E.map(e=>`<div class="lban warn earlyban">${TRI}<span><b>${e.game} · ${e.when}</b> — no lineup yet, with a player in this game: `
+  el.innerHTML=E.map(e=>`<div class="lban warn earlyban">${TRI}<span><b>${e.game} · ${e.when}</b> — no lineup submitted yet, with a player in this game: `
     +e.teams.map(t=>`<a class="elink" onclick="lineupModal(${t.id})">${t.name}</a>`).join(' · ')+`</span></div>`).join('');
   el.hidden=!E.length;
 }
@@ -503,9 +507,17 @@ function renderScores(){
       const title=L.title?` title="${String(L.title).replace(/"/g,'&quot;')}"`:'';
       return L.kind==='carried' ? `<span class="carried"${title}>${L.text}</span>`
         : `<span class="noflag lflag"${title} onclick="event.stopPropagation();lineupModal(${t.id})">${TRI} ${L.text}</span>`; };
-    const row=(t,win)=>`<div class="r ${win?'win':''}"><span class="nm">${t.name}${crown(t.id)}</span>${flag(t)||tp(t)}${t.adjusted?'<span class="adj" title="commissioner-adjusted">adj</span>':''}<span class="s">${f(t.points)}</span></div>`;
+    /* The week's high score in each conference, Weeks 5-15, once the week is
+       final: "Blue high · $10", or the split when it's a tie (2026-10-22). */
+    const money=c=>`$${(c/100).toFixed(c%100?2:0)}`;
+    const high=t=>t.high?`<span class="hstag">${t.high.conf==='BLUE'?'Blue':'Red'} high · ${money(t.high.cents)}${t.high.tie?' tie':''}</span>`:'';
+    /* The crossover (Weeks 5-15): the Blue team on its conference bye plays the
+       Red one. Each name says which conference he's from. */
+    const xc=t=>g.crossover?`<span class="xconf">${(TEAMS[t.id]||{}).conf==='RED'?'Red':'Blue'}</span>`:'';
+    const row=(t,win)=>`<div class="r ${win?'win':''}"><span class="nm">${t.name}${xc(t)}${crown(t.id)}${high(t)}</span>${flag(t)||tp(t)}${t.adjusted?'<span class="adj" title="commissioner-adjusted">adj</span>':''}<span class="s">${f(t.points)}</span></div>`;
+    const label=done?'Final':g.crossover?'<span class="xover">crossover</span>':g.kind.toLowerCase();
     return `<div class="game" onclick="boxScore(${g.home.id},${g.away.id},${done?1:0})">${row(g.home,hw)}${row(g.away,aw)}
-      <div class="meta"><span class="${done?'final':''}">${done?'Final':g.kind.toLowerCase()} · Week ${VIEW}</span><span class="boxlink">box score ›</span></div>${tb?`<div class="tbnote">${tb.text}</div>`:''}</div>`;
+      <div class="meta"><span class="${done?'final':''}">${label} · Week ${VIEW}</span><span class="boxlink">box score ›</span></div>${tb?`<div class="tbnote">${tb.text}</div>`:''}</div>`;
   }).join('') || '<span class="sub">No games this week.</span>';
 }
 function renderByes(){
@@ -665,7 +677,8 @@ async function roster(id){ const d=await (await fetch(`/api/team/${id}/detail?we
     +`<div class="frow"><span>Entry fee</span><span>${b(f.entry_fee_cents)}</span></div>`
     +d.history.map(h=>`<div class="frow"><span>W${h.week} ${txTag(h.type)}${txSwap(h)} ${moveWhen(h.at)}</span><span>${h.fee?b(h.fee):'<span class="sub">free</span>'}</span></div>`).join('')
     +(d.payments||[]).map(p=>`<div class="frow"><span>✓ payment${p.note?` <span class="sub">(${p.note})</span>`:''}</span><span class="paid">−${b(p.amount_cents)}</span></div>`).join('')
-    +(f.winnings_cents?`<div class="frow"><span>🏆 Week 15 winnings</span><span class="paid">−${b(f.winnings_cents)}</span></div>`:'')
+    +(f.pool_cents?`<div class="frow"><span>🏆 Week 15 winnings</span><span class="paid">−${b(f.pool_cents)}</span></div>`:'')
+    +(f.high_score_cents?`<div class="frow"><span>⭐ Weekly high score <span class="sub">· ${(f.high_scores||[]).map(h=>'Wk '+h.week+(h.tie?' (tie)':'')).join(', ')}</span></span><span class="paid">−${(c=>`$${(c/100).toFixed(c%100?2:0)}`)(f.high_score_cents)}</span></div>`:'')
     +`</div>`;
   openM(`<h3>${d.name} — Roster</h3><div style="margin-top:10px">${rows}</div>${openRows?`<div class="sub" style="margin-top:10px">Open this week (1-week rentals)</div>${openRows}`:''}${fees}${pinBox(id)}`);
 }
@@ -780,6 +793,8 @@ async function lineupModal(id, wk){
       +` Submit before then to choose whether ${one?'he starts':'they start'}; otherwise last week's lineup is used for ${one?'him':'them'}.`;};
   const banner = wk < LW
     ? `<div class="lban ok">${CHK}<span>Week ${wk}: ${d.carried_from?'last week&#39;s lineup was used (none was submitted)':started.size?'the lineup that was started':'no lineup was set'} — view only.</span></div>`
+    : d.carried_from && early.length
+    ? `<div class="lban warn">${TRI}<span>Last week's lineup is in place for Week ${wk}. ${earlyText()}</span></div>`
     : d.carried_from && LN.sunday_morning
     ? `<div class="lban warn">${TRI}<span>No lineup submitted for Week ${wk} — last week's lineup is in place. Players lock at their kickoff. Submit below to change the rest.</span></div>`
     : d.carried_from
@@ -1330,7 +1345,16 @@ async function loadMoney(){
     || '<div class="sub">No payments recorded yet.</div>';
   const total=(j.payments||[]).length
     ? `<div class="frow paytot"><span>Total collected</span><span class="paid">${d(j.collected_cents)}</span></div>` : '';
-  $('moneyBox').innerHTML=tiles+cfold('paylog',`Payments received \u00b7 ${(j.payments||[]).length}`,rows+total);
+  const m2=c=>`$${(c/100).toFixed(c%100?2:0)}`;
+  const hcell=x=>x&&x.winners.length?`${x.winners.map(w=>w.name).join(', ')} <span class="sub">${(+x.points).toFixed(0)} · ${m2(x.winners[0].cents)}${x.winners.length>1?' each':''}</span>`:'<span class="sub">—</span>';
+  const hs=(j.high_scores||[]);
+  const highBody=hs.length
+    ? hs.map(h=>`<div class="frow"><span><b>Wk ${h.week}</b></span><span style="text-align:right">Blue: ${hcell(h.BLUE)}<br>Red: ${hcell(h.RED)}</span></div>`).join('')
+      +`<div class="sub" style="margin:10px 0 4px;font-weight:700">Season totals</div>`
+      +(j.high_totals||[]).map(t=>`<div class="frow"><span>${t.team}</span><span class="paid">${m2(t.cents)}</span></div>`).join('')
+    : '<div class="sub">Weeks 5–15, $10 to each conference\u2019s top score. Nothing yet — a week shows here once it\u2019s final.</div>';
+  $('moneyBox').innerHTML=tiles+cfold('paylog',`Payments received \u00b7 ${(j.payments||[]).length}`,rows+total)
+    +cfold('highs',`Weekly high scores \u00b7 ${hs.length} week${hs.length===1?'':'s'}`,highBody);
 }
 /* Removing a payment puts that money back on the team's balance, so the
    confirmation says whose and how much before anything happens. */

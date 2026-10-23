@@ -326,10 +326,28 @@ def counts_visible(conn, season_id: int, ff_week: int, now: _dt.datetime | None 
     return (now or _dt.datetime.now(ET)) >= _dt.datetime.combine(sunday, _dt.time(12), CT)
 
 
+def _early_cutoff(sunday) -> _dt.datetime:
+    """A game is EARLY when it kicks off before noon Central on the week's
+    Sunday: Thursday, a Friday or Saturday game, and the international games
+    that start Sunday morning (commissioner, 2026-10-22 — PIT vs NO in Paris
+    at 8:30 AM). Their players lock before most managers set their lineups."""
+    return _dt.datetime.combine(sunday, _dt.time(12), CT)
+
+
+def _submitted(conn, season_id: int, ff_week: int) -> set[int]:
+    """Teams whose manager has submitted this week. A lineup copied from last
+    week doesn't count: the copy is made at the week's first kickoff, so by a
+    Sunday-morning game every team has one, and the alert would never show."""
+    return {r["team_id"] for r in conn.execute(
+        "SELECT DISTINCT team_id FROM weekly_lineups WHERE season_id=? AND ff_week=? "
+        "AND carried_from IS NULL", (season_id, ff_week))}
+
+
 def early_lineup_alerts(conn, season_id: int, ff_week: int,
                         now: _dt.datetime | None = None) -> list[dict]:
-    """The Thursday banner: for each game before Sunday that hasn't kicked off,
-    the teams with no lineup yet and an RB/receiver in that game.
+    """The early-game banner: for each game before Sunday noon Central that
+    hasn't kicked off, the teams that haven't submitted a lineup and have an
+    RB/receiver in that game.
     [{"game": "SF @ LAR", "when": "Thu 7:15 PM", "teams": [{"id", "name"}]}]"""
     from . import display
 
@@ -341,12 +359,10 @@ def early_lineup_alerts(conn, season_id: int, ff_week: int,
                    for g in conn.execute("SELECT home_team, away_team, kickoff FROM nfl_week_games "
                                          "WHERE season_id=? AND ff_week=? AND kickoff IS NOT NULL",
                                          (season_id, ff_week)))
-    games = [g for g in games if g[0].astimezone(CT).date() < sunday and now < g[0]]
+    games = [g for g in games if g[0] < _early_cutoff(sunday) and now < g[0]]
     if not games:
         return []
-    set_lineup = {r["team_id"] for r in conn.execute(
-        "SELECT DISTINCT team_id FROM weekly_lineups WHERE season_id=? AND ff_week=?",
-        (season_id, ff_week))}
+    set_lineup = _submitted(conn, season_id, ff_week)
     names = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM teams WHERE season_id=?",
                                                       (season_id,))}
     players = [(r["team_id"], r["nfl_team_abbr"]) for r in conn.execute(
@@ -371,8 +387,8 @@ def _ct_label(ko: _dt.datetime) -> str:
 
 def early_players(conn, season_id: int, ff_week: int,
                   now: _dt.datetime | None = None) -> dict[int, list]:
-    """{team_id: [(kickoff, name)]} — rostered RBs/receivers whose game is before
-    the week's Sunday and hasn't kicked off."""
+    """{team_id: [(kickoff, name)]} — rostered RBs/receivers whose game is early
+    (before Sunday noon Central, _early_cutoff) and hasn't kicked off."""
     now = now or _dt.datetime.now(ET)
     sunday = _week_sunday(conn, season_id, ff_week)
     if sunday is None:
@@ -390,7 +406,7 @@ def early_players(conn, season_id: int, ff_week: int,
             "WHERE re.season_id=? AND re.asset_kind='PLAYER' AND re.released_ff_week IS NULL",
             (season_id,)):
         ko = games.get(r["nfl_team_abbr"])
-        if ko and ko.astimezone(CT).date() < sunday and now < ko:
+        if ko and ko < _early_cutoff(sunday) and now < ko:
             early.setdefault(r["team_id"], []).append((ko, r["name"]))
     return {t: sorted(v) for t, v in early.items()}
 
@@ -440,18 +456,24 @@ def lineup_flags(conn, season_id: int, ff_week: int,
     for tid in [r["id"] for r in conn.execute("SELECT id FROM teams WHERE season_id=?", (season_id,))]:
         if tid in lineup and not lineup[tid]:
             continue                                        # the manager submitted
+        if tid in early:
+            # Ahead of "last week's lineup": a copied lineup locks an early
+            # player at his kickoff just the same (an 8:30 AM international
+            # game is half an hour after that label would appear).
+            players = early[tid]
+            first = players[0][0].astimezone(CT)
+            when = (f"{first.hour % 12 or 12}:{first.minute:02d} AM" if first.weekday() == 6
+                    else first.strftime("%a"))
+            out[tid] = {"kind": "early", "text": f"{when} player{'s' if len(players) > 1 else ''}",
+                        "title": ", ".join(f"{name} ({_ct_label(ko)})" for ko, name in players)
+                                 + " — set the lineup before kickoff"}
+            continue
         if tid in lineup:
             if morning <= now < noon:
                 out[tid] = {"kind": "carried", "text": "last week's lineup",
                             "title": "No lineup submitted yet — last week's lineup is in place"}
             continue
-        if tid in early:
-            players = early[tid]
-            day = players[0][0].astimezone(CT).strftime("%a")
-            out[tid] = {"kind": "early", "text": f"{day} player{'s' if len(players) > 1 else ''}",
-                        "title": ", ".join(f"{name} ({_ct_label(ko)})" for ko, name in players)
-                                 + " — set the lineup before kickoff"}
-        elif morning <= now < noon:
+        if morning <= now < noon:
             out[tid] = {"kind": "none", "text": "no lineup", "title": "No lineup set"}
     return out
 

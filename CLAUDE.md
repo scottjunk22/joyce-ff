@@ -134,6 +134,36 @@ what the Phase-1 reconciliation is designed to arbitrate.
 - 2026-27 draft has not happened yet; both numbers are TBD for us.
 
 ## Decisions made
+- 2026-10-22: CONFERENCE WEEKS 5-15 (commissioner, from mockups).
+  (1) CROSSOVER: the rotation's conference "bye" isn't one — the Blue team on
+  bye (same Team # in both conferences) plays the Red one. Stored as an
+  INTERLEAGUE matchup (Blue home), so it counts in the overall W-L and NOT the
+  conference record, exactly like Weeks 1-4; tie rule as any game.
+  standings.generate_matchups builds it; schema._crossover_byes converts an
+  already-built season's BYE pairs on migrate — NEWEST season only, so an
+  archived season keeps the records it finished with. The scoreboard puts it
+  last and labels it "crossover", each name tagged Blue/Red. Week 5 was already
+  under way (TallBoys B#11 vs D&D R#11) when it shipped.
+  (2) WEEKLY HIGH SCORE: $10 to each conference's top score, Weeks 5-15 only
+  (no playoff weeks); a tie splits it in whole cents ($3.33 three ways); every
+  team counts for its OWN conference, crossover teams included. Only a
+  FINALIZED week pays, and it's derived from the scores each time, never
+  stored — a stat correction that changes the leader moves the $10 (Dad: yes).
+  It's a credit like the pool payout: _account winnings = pool + high scores,
+  so the account and the commissioner's "still owed" tile both net it (that
+  tile used to ignore winnings). Shown: a green "Blue high · $10" / "$5 tie"
+  tag on the card once the week is final, a "⭐ Weekly high score · Wk 5, Wk 8
+  (tie)" line in the team's account, and a "Weekly high scores" fold in the
+  commissioner's Money (each week + season totals). standings.weekly_high_scores.
+  (3) EARLY GAMES: anything kicking off before NOON CENTRAL on the week's
+  Sunday is early — Thursday, Friday/Saturday, and the 8:30 AM international
+  games (Paris Oct 25, Madrid Nov 8, Munich Nov 15). The Thursday rule applies
+  to all of them: banner line, card label ("8:30 AM player" for a Sunday one),
+  Set Lineup's amber note. "No lineup" now means NOT SUBMITTED BY THE MANAGER
+  (a copy from last week doesn't count): the copy is made at Thursday's
+  kickoff, so by Sunday morning every team has one and the old test would never
+  fire. The banner reads "no lineup submitted yet". No city in the line — the
+  site doesn't store where a game is played.
 - 2026-10-11: ANNOUNCEMENTS (Scott, for his dad). A section on the main page
   BETWEEN the scoreboard and the standings; the commissioner writes them in a
   FOLDED row at the top of the commissioner tab's folds (kept folded so the tab

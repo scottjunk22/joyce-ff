@@ -396,6 +396,35 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _crossover_byes(conn: sqlite3.Connection) -> None:
+    """Turn the newest season's conference-week byes into the crossover game
+    they really are (commissioner, 2026-10-22): each week the Blue team on bye
+    plays the Red team on bye. generate_matchups builds it that way now; this
+    fixes a season whose schedule was built before. Only the newest season — an
+    archived one keeps the records it finished with. Only a week with exactly
+    one Blue bye and one Red bye is touched, so running it again does nothing."""
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='matchups'").fetchone():
+        return
+    season = conn.execute("SELECT id FROM seasons ORDER BY year DESC, id DESC LIMIT 1").fetchone()
+    if not season:
+        return
+    sid = season[0]
+    weeks: dict[int, dict[str, list]] = {}
+    for r in conn.execute(
+            "SELECT m.id, m.ff_week, m.home_team_id, c.code FROM matchups m "
+            "JOIN teams t ON t.id=m.home_team_id JOIN conferences c ON c.id=t.conference_id "
+            "WHERE m.season_id=? AND m.kind='BYE'", (sid,)):
+        weeks.setdefault(r[1], {}).setdefault(r[3], []).append((r[0], r[2]))
+    for wk, by_conf in weeks.items():
+        blue, red = by_conf.get("BLUE", []), by_conf.get("RED", [])
+        if len(blue) != 1 or len(red) != 1:
+            continue
+        conn.execute("DELETE FROM matchups WHERE id IN (?,?)", (blue[0][0], red[0][0]))
+        conn.execute("INSERT INTO matchups(season_id,ff_week,kind,home_team_id,away_team_id) "
+                     "VALUES (?,?, 'INTERLEAGUE', ?, ?)", (sid, wk, blue[0][1], red[0][1]))
+    conn.commit()
+
+
 def migrate(conn: sqlite3.Connection) -> None:
     """Bring an already-created DB up to the current schema. Idempotent and
     safe to call on every startup (adds columns SQLite can't add via
@@ -433,6 +462,7 @@ CREATE INDEX IF NOT EXISTS ix_lineup_history ON lineup_history(season_id, team_i
                  "id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER NOT NULL UNIQUE, "
                  "label TEXT NOT NULL, team TEXT NOT NULL, runner_up TEXT, "
                  "manager TEXT, note TEXT)")
+    _crossover_byes(conn)
     tcols = {r["name"] for r in conn.execute("PRAGMA table_info(transactions)")}
     if tcols and "replaced_by" not in tcols:
         conn.execute("ALTER TABLE transactions ADD COLUMN replaced_by INTEGER")

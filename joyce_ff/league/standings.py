@@ -27,7 +27,13 @@ def _now() -> str:
 
 def generate_matchups(conn, season_id: int) -> int:
     """Build the season's matchups from the Team# rotation. Requires every team
-    to have team_number set. Regenerates (clears existing). Returns row count."""
+    to have team_number set. Regenerates (clears existing). Returns row count.
+
+    Weeks 5-15 leave one team per conference without a conference opponent —
+    the same Team # in both, the rotation's "bye". It isn't a bye: the Blue one
+    plays the Red one (commissioner, 2026-10-22). That game is an INTERLEAGUE
+    matchup like Weeks 1-4 — it counts in the overall W-L, not the conference
+    record — and the scoreboard calls it the "crossover"."""
     teams = conn.execute(
         "SELECT t.id, t.team_number, c.code conf FROM teams t "
         "JOIN conferences c ON c.id=t.conference_id WHERE t.season_id=?", (season_id,)).fetchall()
@@ -41,9 +47,15 @@ def generate_matchups(conn, season_id: int) -> int:
         for wk in range(1, rotation.NO_PLAY_WEEK):     # 1..15
             g = rotation.opponent(t["team_number"], t["conf"], wk)
             if g["kind"] == "bye":
-                conn.execute("INSERT INTO matchups(season_id,ff_week,kind,home_team_id) "
-                             "VALUES (?,?, 'BYE', ?)", (season_id, wk, t["id"]))
-                n += 1
+                other = by_key.get(("RED" if t["conf"] == "BLUE" else "BLUE", t["team_number"]))
+                if other is None:                      # no partner: a real bye
+                    conn.execute("INSERT INTO matchups(season_id,ff_week,kind,home_team_id) "
+                                 "VALUES (?,?, 'BYE', ?)", (season_id, wk, t["id"]))
+                    n += 1
+                elif t["conf"] == "BLUE":              # once per pair, Blue listed first
+                    conn.execute("INSERT INTO matchups(season_id,ff_week,kind,home_team_id,away_team_id) "
+                                 "VALUES (?,?, 'INTERLEAGUE', ?, ?)", (season_id, wk, t["id"], other))
+                    n += 1
                 continue
             opp_id = by_key[(g["opp_conf"], g["opp_team"])]
             if t["id"] < opp_id:                       # dedup unordered pair
@@ -241,6 +253,60 @@ def final_payout(conn, season_id: int, final_week: int = FINAL_WEEK) -> dict | N
             "others": [{"team_id": r["id"], "name": r["name"], "points": r["pts"],
                         "cents": SURVIVOR_PRIZE_CENTS}
                        for r in sorted(others, key=lambda r: (-r["pts"], r["name"]))]}
+
+
+HIGH_SCORE_WEEKS = rotation.CONFERENCE_WEEKS      # Weeks 5-15, no playoff weeks
+HIGH_SCORE_CENTS = 1000                           # $10 per conference per week
+
+
+def weekly_high_scores(conn, season_id: int) -> list[dict]:
+    """The week's top score in each conference, Weeks 5-15, $10 each — a tie
+    splits it (commissioner, 2026-10-22). Every team counts for its own
+    conference, the crossover teams included.
+
+    Only a FINISHED week pays (progress.is_finalized), and it is worked out from
+    the scores as they stand, never stored: a stat correction that changes the
+    leader moves the $10 with it, as the commissioner wants. A split that
+    doesn't come out even ($10 three ways) pays whole cents, $3.33 each.
+    [{"week", "BLUE": {"points", "winners": [{"team_id", "name", "cents"}]}, "RED": {...}}]"""
+    teams = {r["id"]: (r["name"], r["conf"]) for r in conn.execute(
+        "SELECT t.id, t.name, c.code conf FROM teams t JOIN conferences c ON c.id=t.conference_id "
+        "WHERE t.season_id=?", (season_id,))}
+    out = []
+    for wk in HIGH_SCORE_WEEKS:
+        if not progress.is_finalized(conn, season_id, wk):
+            continue
+        by_conf: dict[str, list] = {"BLUE": [], "RED": []}
+        for r in conn.execute("SELECT team_id, computed_points p FROM team_week_scores "
+                              "WHERE season_id=? AND ff_week=? AND computed_points IS NOT NULL",
+                              (season_id, wk)):
+            if r["team_id"] in teams:
+                name, conf = teams[r["team_id"]]
+                by_conf.setdefault(conf, []).append((r["p"], name, r["team_id"]))
+        row = {"week": wk}
+        for conf, scores in by_conf.items():
+            if not scores:
+                row[conf] = None
+                continue
+            top = max(p for p, _, _ in scores)
+            winners = sorted((name, tid) for p, name, tid in scores if p == top)
+            row[conf] = {"points": top, "winners": [
+                {"team_id": tid, "name": name, "cents": HIGH_SCORE_CENTS // len(winners)}
+                for name, tid in winners]}
+        out.append(row)
+    return out
+
+
+def team_high_scores(highs: list[dict], team_id: int) -> list[dict]:
+    """This team's weekly high scores: [{"week", "cents", "tie"}]."""
+    out = []
+    for h in highs:
+        for conf in ("BLUE", "RED"):
+            for w in (h.get(conf) or {}).get("winners", []):
+                if w["team_id"] == team_id:
+                    out.append({"week": h["week"], "cents": w["cents"],
+                                "tie": len(h[conf]["winners"]) > 1})
+    return out
 
 
 def team_winnings_cents(conn, season_id: int, team_id: int,

@@ -113,8 +113,54 @@ def test_the_banner_lists_teams_with_no_lineup_and_a_player_in_the_game(week2):
 def test_the_banner_is_gone_once_the_game_kicks_off_or_the_team_submits(week2):
     c, sid, _, copy_lineups = week2
     assert progress.early_lineup_alerts(c, sid, 2, at(17, 19, 16)) == []
-    copy_lineups()
+    copy_lineups()                     # a copied lineup is not a submitted one (2026-10-22)
+    assert [a["game"] for a in progress.early_lineup_alerts(c, sid, 2, at(16, 12, 0))] == ["SF @ LAR"]
+    c.execute("UPDATE weekly_lineups SET carried_from=NULL WHERE team_id=(SELECT id FROM teams "
+              "WHERE name='Thursday')")  # ...he submits
+    c.commit()
     assert progress.early_lineup_alerts(c, sid, 2, at(16, 12, 0)) == []
+
+
+# --- early Sunday games: the international ones, 8:30 AM Central (2026-10-22) ----
+
+def _add_paris_game(c, sid):
+    """PIT vs NO in Paris, Sunday 8:30 AM Central, and a Pittsburgh receiver on the
+    team that sets its lineup on Sunday mornings."""
+    progress.store_week_games(c, sid, 2, [("G1", "LA", "SF", at(17, 19, 15), False),
+                                          ("G2", "KC", "BUF", at(20, 12, 0), False),
+                                          ("G3", "NO", "PIT", at(20, 8, 30), False)])
+    c.execute("INSERT INTO nfl_players(season_id,gsis_id,name,position,nfl_team_abbr) "
+              "VALUES (?,'p_pickens','George Pickens','WR','PIT')", (sid,))
+    c.execute("INSERT INTO roster_entries(season_id,team_id,asset_kind,asset_ref,roster_slot,"
+              "acquired_ff_week,acquired_via,created_at) SELECT ?, id, 'PLAYER','p_pickens','R',1,'DRAFT','t' "
+              "FROM teams WHERE name='Sunday'", (sid,))
+    c.commit()
+
+
+def test_an_early_sunday_game_is_flagged_like_a_thursday_one(week2):
+    """By Sunday morning every team has a lineup — last week's, copied at
+    Thursday's kickoff — so "no lineup yet" has to mean not SUBMITTED, or the
+    banner would never show for an 8:30 AM game."""
+    c, sid, flags, copy_lineups = week2
+    _add_paris_game(c, sid)
+    copy_lineups()                                                 # Thursday night's copy
+    alerts = progress.early_lineup_alerts(c, sid, 2, at(19, 12, 0))    # Saturday noon
+    assert [(a["game"], a["when"], [t["name"] for t in a["teams"]]) for a in alerts] ==         [("PIT @ NO", "Sun 8:30 AM", ["Sunday"])]
+    assert flags(at(19, 12, 0))["Sunday"] == ("early", "8:30 AM player")
+    assert flags(at(20, 8, 0))["Sunday"] == ("early", "8:30 AM player")   # ahead of "last week's lineup"
+    notice = progress.lineup_notice(c, sid, 2, c.execute("SELECT id FROM teams WHERE name='Sunday'")
+                                    .fetchone()["id"], at(19, 12, 0))
+    assert notice["early"] == [{"name": "George Pickens", "when": "Sun 8:30 AM"}]
+    # at kickoff it's gone, and the card goes back to the usual Sunday-morning label
+    assert progress.early_lineup_alerts(c, sid, 2, at(20, 8, 30)) == []
+    assert flags(at(20, 9, 0))["Sunday"] == ("carried", "last week's lineup")
+
+
+def test_a_noon_game_is_not_early(week2):
+    c, sid, flags, _ = week2
+    _add_paris_game(c, sid)
+    alerts = progress.early_lineup_alerts(c, sid, 2, at(19, 12, 0))
+    assert "BUF @ KC" not in [a["game"] for a in alerts]
 
 
 def test_set_lineup_names_this_teams_early_players_only_before_kickoff(week2):

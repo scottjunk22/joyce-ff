@@ -569,10 +569,17 @@ def create_app(db_path: str | None = None) -> Flask:
                             (tx_id,)).fetchone()["fee_cents"]
         return {"fee_cents": fee, "free_left": repo.fee_balance_cents(db(), team_id)["free_left"]}
 
-    def _account(conn, sid, team_id):
-        """A team's money: fees owed/paid plus elimination-pool winnings, netted."""
+    def _account(conn, sid, team_id, highs=None):
+        """A team's money: fees owed/paid, less what it has won — the elimination
+        pool's Week-15 payout and the weekly high scores ($10 a conference,
+        Weeks 5-15, commissioner 2026-10-22) — netted. `highs` is
+        st.weekly_high_scores, passed in when many accounts are built at once."""
         a = repo.fee_balance_cents(conn, team_id)
-        a["winnings_cents"] = st.team_winnings_cents(conn, sid, team_id)
+        highs = st.weekly_high_scores(conn, sid) if highs is None else highs
+        a["pool_cents"] = st.team_winnings_cents(conn, sid, team_id)
+        a["high_scores"] = st.team_high_scores(highs, team_id)
+        a["high_score_cents"] = sum(h["cents"] for h in a["high_scores"])
+        a["winnings_cents"] = a["pool_cents"] + a["high_score_cents"]
         a["net_cents"] = a["balance_cents"] - a["winnings_cents"]
         return a
 
@@ -656,17 +663,34 @@ def create_app(db_path: str | None = None) -> Flask:
                     "carried_from": cf, "carry_note": cn,
                     "lineup_flag": lineup_flags.get(tid),
                     "adjusted": tid in adjusted}
+        # The week's high score in each conference, once the week is final:
+        # {team_id: {"conf", "cents", "tie"}} for the card's tag (2026-10-22).
+        highs = st.weekly_high_scores(conn, sid)
+        high_tag = {}
+        for h in highs:
+            if h["week"] == wk:
+                for conf in ("BLUE", "RED"):
+                    ws = (h.get(conf) or {}).get("winners", [])
+                    for w_ in ws:
+                        high_tag[w_["team_id"]] = {"conf": conf, "cents": w_["cents"], "tie": len(ws) > 1}
         board = []
+        # In Weeks 5-15 an INTERLEAGUE game is the crossover — the two conference
+        # byes playing each other — and goes last, after the conference games.
+        crossover_weeks = st.HIGH_SCORE_WEEKS
         for m in conn.execute(
             "SELECT m.kind, m.home_team_id h, m.away_team_id a, th.name hn, ta.name an "
             "FROM matchups m JOIN teams th ON th.id=m.home_team_id "
-            "JOIN teams ta ON ta.id=m.away_team_id WHERE m.season_id=? AND m.ff_week=?", (sid, wk)):
+            "JOIN teams ta ON ta.id=m.away_team_id WHERE m.season_id=? AND m.ff_week=? "
+            "ORDER BY (m.kind='INTERLEAGUE' AND m.ff_week BETWEEN ? AND ?), m.id",
+                (sid, wk, crossover_weeks.start, crossover_weeks.stop - 1)):
             home, away = side(m["h"], m["hn"]), side(m["a"], m["an"])
+            home["high"], away["high"] = high_tag.get(m["h"]), high_tag.get(m["a"])
             tb = None
             if home["done"] and away["done"] and home["points"] is not None \
                     and home["points"] == away["points"]:
                 tb = tiebreak.decide(conn, sid, wk, m["h"], m["a"])
-            board.append({"kind": m["kind"], "home": home, "away": away, "tiebreak": tb})
+            board.append({"kind": m["kind"], "home": home, "away": away, "tiebreak": tb,
+                          "crossover": m["kind"] == "INTERLEAGUE" and wk in crossover_weeks})
 
         # Tied games only the commissioner can settle, across the season.
         live_wks = progress.live_weeks(conn, sid)
@@ -709,7 +733,7 @@ def create_app(db_path: str | None = None) -> Flask:
                 "at": r["at"],
                 **_tx_parts(conn, sid, r["pos"], r["ok"], r["oref"], r["ik"], r["iref"])})
 
-        fees = {t["team_id"]: _account(conn, sid, t["team_id"])
+        fees = {t["team_id"]: _account(conn, sid, t["team_id"], highs)
                 for conf in ("BLUE", "RED") for t in stand[conf]}
         pool = {"alive": [], "eliminated": []}
         for r in conn.execute("SELECT name, eliminated_ff_week e FROM teams WHERE season_id=? ORDER BY e, name", (sid,)):
@@ -1224,9 +1248,12 @@ def create_app(db_path: str | None = None) -> Flask:
             return err
         conn, sid = db(), s["id"]
         owed, settled, teams = [], 0, 0
+        highs = st.weekly_high_scores(conn, sid)
         for t in conn.execute("SELECT id, name FROM teams WHERE season_id=? ORDER BY name", (sid,)):
             teams += 1
-            bal = repo.fee_balance_cents(conn, t["id"])["balance_cents"]
+            # What he actually owes: fees less payments less what he's won
+            # (weekly high scores go against it — commissioner, 2026-10-22).
+            bal = _account(conn, sid, t["id"], highs)["net_cents"]
             if bal > 0:
                 owed.append({"team": t["name"], "cents": bal})
             else:
@@ -1241,7 +1268,14 @@ def create_app(db_path: str | None = None) -> Flask:
                     "SELECT p.id, t.name team, p.amount_cents, p.note, p.applied_at "
                     "FROM payments p JOIN teams t ON t.id=p.team_id WHERE p.season_id=? "
                     "ORDER BY p.id DESC", (sid,))]
+        totals: dict[str, int] = {}
+        for h in highs:
+            for conf in ("BLUE", "RED"):
+                for w_ in (h.get(conf) or {}).get("winners", []):
+                    totals[w_["name"]] = totals.get(w_["name"], 0) + w_["cents"]
+        high_totals = [{"team": k, "cents": v} for k, v in sorted(totals.items(), key=lambda kv: (-kv[1], kv[0]))]
         return jsonify(ok=True, collected_cents=collected, owed=owed,
+                       high_scores=highs, high_totals=high_totals,
                        owed_cents=sum(o["cents"] for o in owed),
                        settled=settled, teams=teams, payments=pays)
 

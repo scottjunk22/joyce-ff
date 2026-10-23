@@ -476,3 +476,32 @@ def test_the_trade_list_greys_out_a_player_on_another_teams_open(client):
     assert other_week["available"] is True
     mine = client.get(f"/api/team/{client.otb}/available?position=RB").get_json()["available"]
     assert all(a["rented"] is None for a in mine)              # his own rental isn't "someone else's"
+
+
+
+def test_a_weekly_high_score_shows_on_the_card_and_goes_against_the_account(client):
+    """Week 5 on: the conference's top score gets a tag on the scoreboard and
+    $10 off what the team owes; the commissioner's Money lists it (2026-10-22)."""
+    from joyce_ff.league import progress
+    conn = schema.connect(client.dbpath)
+    sid = conn.execute("SELECT id FROM seasons ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    conf = conn.execute("SELECT conference_id c FROM teams WHERE id=?", (client.otb,)).fetchone()["c"]
+    rival = conn.execute("SELECT id FROM teams WHERE season_id=? AND conference_id=? AND id<>? LIMIT 1",
+                         (sid, conf, client.otb)).fetchone()["id"]
+    conn.execute("DELETE FROM matchups WHERE season_id=? AND ff_week=5", (sid,))
+    conn.execute("INSERT INTO matchups(season_id,ff_week,kind,home_team_id,away_team_id) "
+                 "VALUES (?,5,'CONFERENCE',?,?)", (sid, client.otb, rival))
+    for tid, p in ((client.otb, 40), (rival, 12)):
+        conn.execute("INSERT INTO team_week_scores(season_id,team_id,ff_week,computed_points) VALUES (?,?,5,?)",
+                     (sid, tid, p))
+    progress.mark_finalized(conn, sid, 5)
+    conn.commit()
+    conn.close()
+    d = client.get("/api/state?week=5").get_json()
+    (g,) = [g for g in d["scoreboard"] if client.otb in (g["home"]["id"], g["away"]["id"])]
+    mine = g["home"] if g["home"]["id"] == client.otb else g["away"]
+    assert mine["high"]["cents"] == 1000 and mine["high"]["tie"] is False and g["crossover"] is False
+    acct = d["fees"][str(client.otb)]
+    assert (acct["high_score_cents"], acct["net_cents"]) == (1000, acct["balance_cents"] - 1000)
+    money = client.post("/api/admin/money", json={"passcode": "commish"}).get_json()
+    assert money["high_totals"][0] == {"team": "OT Blitz", "cents": 1000}

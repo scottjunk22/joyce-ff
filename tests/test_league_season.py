@@ -58,8 +58,9 @@ def test_generate_matchups_counts(db):
                          (sid,)).fetchone()["c"]
     byes = conn.execute("SELECT COUNT(*) c FROM matchups WHERE season_id=? AND kind='BYE'",
                         (sid,)).fetchone()["c"]
-    # interleague 11/wk x4 = 44; conference 5/wk x2conf x11wk = 110; byes 2/wk x11 = 22
-    assert games == 154 and byes == 22 and n == 176
+    # interleague 11/wk x4 = 44; conference 5/wk x2conf x11wk = 110; and in Weeks 5-15
+    # the two conference byes play each other — the crossover, 1/wk x11 = 11, no byes
+    assert games == 165 and byes == 0 and n == 165
 
 
 def test_generate_matchups_requires_team_numbers(db):
