@@ -832,7 +832,11 @@ function renderLineup(){ const ord={'C':0,'K':1,'DEF/ST':2,'QB':3,'RB':4,'R':5},
   const cnt={}; LU.items.forEach(i=>cnt[i.slot]=(cnt[i.slot]||0)+1);
   // A unit toggles only when an Open gives it a choice — or, for a QB or K on
   // bye with no Open, so it can be benched for an extra RB or receiver.
-  const clickable=i=> !unit(i.slot) || cnt[i.slot]>1 || (['QB','K'].includes(i.slot)&&(LU.flex||{})[i.slot]);
+  // ...or when nobody in that slot is starting: with one unit to choose from the
+  // chip used to be dead, so a slot holding a unit that isn't on the roster
+  // couldn't be put right (Mooners, 2026-10-31).
+  const slotEmpty=s=>!LU.items.some(x=>x.slot===s&&LU.sel.has(LUKEY(x.slot,x.ref)));
+  const clickable=i=> !unit(i.slot) || cnt[i.slot]>1 || slotEmpty(i.slot) || (['QB','K'].includes(i.slot)&&(LU.flex||{})[i.slot]);
   $('luRows').innerHTML=items.map(i=>{const key=LUKEY(i.slot,i.ref), on=LU.sel.has(key), n=LU.items.indexOf(i);
     // Blocked: don't offer a button he can't use — say which week he's for.
     if(i.blocked) return `<div class="srow off"><span class="slot">${i.slot}</span><span class="nm">${i.name}${luGame(i)}</span><span class="st off" onclick="luWhy(${n})">${LU.lastWeek?"CAN'T START":'NEXT WEEK'}</span></div>`;

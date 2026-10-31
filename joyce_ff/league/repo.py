@@ -891,7 +891,8 @@ def reverse_transaction(conn, tx_id) -> None:
                             (*key, tx["position"], tx["out_asset_ref"])).fetchone()
         if back:   # he's already starting there, so the rental's row just goes
             conn.execute("DELETE FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=? "
-                         "AND asset_ref=? AND is_rental=1", (*key, tx["in_asset_ref"]))
+                         "AND roster_slot=? AND asset_ref=? AND is_rental=1",
+                         (*key, tx["position"], tx["in_asset_ref"]))
         else:
             conn.execute("UPDATE weekly_lineups SET asset_ref=?, asset_kind=?, unit_type=?, is_rental=0 "
                          "WHERE season_id=? AND team_id=? AND ff_week=? AND roster_slot=? "
@@ -1111,11 +1112,13 @@ def set_lineup(conn, season_id, team_id, ff_week, starters: list[dict],
             raise RuleError(f"{ref} isn't on your roster or an active Open for week {ff_week}")
 
     if locked_refs:
-        current = {r["asset_ref"] for r in conn.execute(
-            "SELECT asset_ref FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=?",
-            (season_id, team_id, ff_week))}
-        new = {s["asset_ref"] for s in starters}
-        if (current ^ new) & set(locked_refs):     # a locked asset changed status
+        # By slot too: a team can start BUF's coach and BUF's defense, and
+        # benching a locked one mustn't pass because the other is still there.
+        current = {(r["roster_slot"], r["asset_ref"]) for r in conn.execute(
+            "SELECT roster_slot, asset_ref FROM weekly_lineups WHERE season_id=? AND team_id=? "
+            "AND ff_week=?", (season_id, team_id, ff_week))}
+        new = {(s["roster_slot"], s["asset_ref"]) for s in starters}
+        if {ref for _, ref in current ^ new} & set(locked_refs):   # a locked asset changed status
             raise RuleError("those players' games have already started — you can't change them now")
 
     conn.execute("DELETE FROM weekly_lineups WHERE season_id=? AND team_id=? AND ff_week=?",

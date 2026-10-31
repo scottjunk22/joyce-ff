@@ -1103,3 +1103,58 @@ def test_a_database_from_before_gets_the_replaced_by_column(tmp_path):
     c.commit()
     schema.migrate(c)
     assert "replaced_by" in {r["name"] for r in c.execute("PRAGMA table_info(transactions)")}
+
+
+
+# --- one NFL club, two different slots (Mooners, 2026-10-31) ----------------------
+
+def _two_slots_rented_from_one_club(lg):
+    """Week 6: BAL's kicker and PIT's defense are on bye; OT Blitz rents T3's
+    kicker for one and T3's defense for the other."""
+    conn, sid, otb = lg
+    conn.execute("UPDATE nfl_teams SET bye_ff_week=6 WHERE abbr IN ('BAL','PIT')")
+    conn.commit()
+    _set(conn, sid, otb, 6, ["r1", "r2"], ["w1", "w2", "w3"])
+    k = repo.do_open(conn, sid, otb, "K", "BAL", "T3", 6)
+    d = repo.do_open(conn, sid, otb, "DEF/ST", "PIT", "T3", 6)
+    return conn, sid, otb, k, d
+
+
+def test_the_copy_sends_each_rental_back_to_the_unit_it_covered(lg):
+    """Mooners rented DEN's defense for JAX's and DEN's coach for BUF's. The
+    copy looked rentals up by club alone, so the next week's DEF/ST slot held
+    BUF: never theirs, and JAX's chip couldn't be pressed to put it right."""
+    conn, sid, otb, _, _ = _two_slots_rented_from_one_club(lg)
+    carry.carry_team(conn, sid, otb, 7)
+    rows = {(r["roster_slot"], r["asset_ref"], r["is_rental"], r["carry_note"]) for r in _got(conn, sid, otb, 7)[2]
+            if r["roster_slot"] in ("K", "DEF/ST")}
+    assert rows == {("K", "BAL", 0, None), ("DEF/ST", "PIT", 0, None)}
+
+
+def test_reversing_one_rental_leaves_the_other_slots_rental_alone(lg):
+    conn, sid, otb, k, _ = _two_slots_rented_from_one_club(lg)
+    # the manager went back to his bye kicker, so T3 only starts at DEF/ST
+    conn.execute("UPDATE weekly_lineups SET asset_ref='BAL', is_rental=0 WHERE team_id=? AND ff_week=6 "
+                 "AND roster_slot='K'", (otb,))
+    conn.commit()
+    repo.reverse_transaction(conn, k)
+    assert ("DEF/ST", "T3") in {(r["roster_slot"], r["asset_ref"]) for r in _got(conn, sid, otb, 6)[2]}
+
+
+def test_a_locked_unit_cant_be_benched_because_its_club_starts_elsewhere(lg):
+    conn, sid, otb = lg
+    conn.execute("INSERT INTO roster_entries(season_id,team_id,asset_kind,asset_ref,unit_type,roster_slot,"
+                 "acquired_ff_week,acquired_via,created_at) VALUES (?,?,'TEAM_UNIT','T3','DEF/ST','DEF/ST',1,'DRAFT','t')",
+                 (sid, otb))
+    conn.commit()
+    _set(conn, sid, otb, 4, ["r1", "r2"], ["w1", "w2", "w3"])          # KC coach, PIT defense
+    units = lambda d: [{"roster_slot": s, "asset_ref": r} for s, r in
+                       (("C", "KC"), ("K", "KC"), ("DEF/ST", d), ("QB", "CIN"))]
+    rest = [{"roster_slot": "RB", "asset_ref": r} for r in ("r1", "r2")] + \
+           [{"roster_slot": "R", "asset_ref": r} for r in ("w1", "w2", "w3")]
+    conn.execute("UPDATE weekly_lineups SET asset_ref='KC' WHERE team_id=? AND ff_week=4 AND roster_slot='DEF/ST'",
+                 (otb,))
+    conn.execute("UPDATE weekly_lineups SET asset_ref='KC' WHERE team_id=? AND ff_week=4 AND roster_slot='K'", (otb,))
+    conn.commit()                                                       # KC at C, K and DEF/ST, all locked
+    with pytest.raises(repo.RuleError, match="games have already started"):
+        repo.set_lineup(conn, sid, otb, 4, units("T3") + rest, locked_refs={"KC"})

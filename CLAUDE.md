@@ -472,6 +472,14 @@ what the Phase-1 reconciliation is designed to arbitrate.
   saved lineup correctly; only resubmitting was broken. repo._open_rentals is
   now a set of (position, ref). A team code is not an id — one club is four
   different units — so never key units by ref alone.
+  2026-10-31: THE SAME MISTAKE, IN THE COPY. Mooners rented DEN's defense for
+  JAX's and DEN's coach for BUF's in Week 5. carry._traced looked rentals up by
+  club alone, so the Week 6 copy put BUF in the DEF/ST slot, a unit they never
+  owned, and Set Lineup showed JAX on the bench with a dead chip (one unit in a
+  slot wasn't tappable). Fixed by (position, ref); a unit's chip now also works
+  when nobody in its slot is starting. Same audit: reverse_transaction's delete
+  and set_lineup's locked-asset check now go by slot too. Mooners' Week 6 row
+  was fixed by resubmitting, not rewritten.
   2026-10-11: ONE PRESS, ONE MOVE. Juggernuts' manager Opened Khalil Shakir for
   Jalen Coker TWELVE times in 11 seconds (12:30 PM, site slow at kickoff): the
   Confirm button stayed live while the first request was on its way, and

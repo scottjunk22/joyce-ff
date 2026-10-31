@@ -127,13 +127,18 @@ class _Team:
 def _traced(team: _Team, week: int, notes: list[str]) -> list[dict]:
     """That week's lineup, each starter traced to who fills his spot now:
     a rental back to the player he covered, a traded player to his replacement."""
-    opened = {o["in_ref"]: o["out_ref"] for o in _opens(team.conn, team.sid, team.tid, week)}
+    # By position AND ref: one club can be rented in two slots covering two
+    # different bye units. Mooners rented DEN's defense for JAX's and DEN's coach
+    # for BUF's; keyed by DEN alone, the copy put BUF in the DEF/ST slot, a unit
+    # they had never owned (2026-10-31).
+    opened = {(o["position"], o["in_ref"]): o["out_ref"]
+              for o in _opens(team.conn, team.sid, team.tid, week)}
     trades = _trades_since(team.conn, team.sid, team.tid, week)
     out = []
     for r in _lineup(team.conn, team.sid, team.tid, week):
         slot, ref = r["roster_slot"], r["asset_ref"]
         if r["is_rental"]:
-            ref = opened.get(ref)
+            ref = opened.get((slot, ref))
         if ref is not None:
             seen = set()
             while (slot, ref) not in team.owned and (slot, ref) in trades and ref not in seen:
